@@ -16,6 +16,13 @@ The full Phase-1 codebase is implemented and committed. **It runs today on a lap
 | Web server live boot | ✅ `/`, `/api/voices`, `/api/tts` (valid RIFF WAV) all 200 |
 | **Real Gemini call** (LiteLLM, your key) | ✅ model `gemini/gemini-2.5-flash-lite`, replied correctly |
 
+## Browser-tested (2026-06-27, real Chrome via DevTools)
+
+- ✅ All pages render, static assets (`app.js`, `style.css`) load, **no console errors** (only a harmless `/favicon.ico` 404).
+- ✅ **/tts**: clicking Speak synthesizes → playable WAV blob (`readyState=4`, 1.05s); `/api/tts` returns valid RIFF WAV.
+- ✅ **Full pipeline via `/ws/pipeline`** (driven with synthetic PCM): transcript (stub) → **real streamed Gemini reply** → 225 audio frames back → timing panel (`t_llm_ttft≈3.9s` real Gemini). Zero errors.
+- ❌ **NOT verified: live microphone capture** (`getUserMedia`/AudioWorklet/downsampling) — the automated Chrome has no mic and hangs on the permission prompt. Needs a human to open the page in a real browser, grant mic permission, and click Talk/Record. (The server-side WS path it feeds is verified.)
+
 ## Architecture as built
 
 Four components behind `Protocol` interfaces (`src/stewardai/interfaces.py`), selected by env via `factory.py`. Every component has a **stub** (no heavy deps) and a **real** backend. `DEVICE=cpu|cuda` is the only compute switch; no MLX/Apple code.
