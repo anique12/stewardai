@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>StewardAI — Voice Core Test Pages</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>StewardAI — Voice Core</h1>
+      <div class="sub">
+        Browser test pages for the cascaded voice agent (STT &rarr; LLM &rarr; TTS).
+        Audio: PCM s16le, 16&nbsp;kHz, mono. Running with the configured backends.
+      </div>
+    </header>
+    <main>
+      <div class="card">
+        <h2>Test pages</h2>
+        <div class="links">
+          <a href="/tts">
+            <div class="title">TTS &nbsp;&mdash;&nbsp; text to speech</div>
+            <div class="desc">
+              Type text, pick a voice, synthesize a WAV and play it back.
+            </div>
+          </a>
+          <a href="/stt">
+            <div class="title">STT &nbsp;&mdash;&nbsp; speech to text</div>
+            <div class="desc">
+              Record from your mic; the endpointer cuts utterances and the
+              transcript appears live.
+            </div>
+          </a>
+          <a href="/pipeline">
+            <div class="title">Pipeline &nbsp;&mdash;&nbsp; full voice loop</div>
+            <div class="desc">
+              Talk &rarr; transcript &rarr; streamed LLM reply &rarr; streamed
+              audio back, with a per-stage timing panel.
+            </div>
+          </a>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

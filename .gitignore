@@ -34,6 +34,10 @@ logs/
 tmp/
 scratch/
 
+# Generated eval artifacts
+evals/report.json
+evals/datasets/refs.json
+
 # IDE / OS
 .idea/
 .vscode/

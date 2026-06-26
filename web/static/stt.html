@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>StewardAI — STT</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>STT &mdash; speech to text</h1>
+      <div class="sub">
+        Mic &rarr; 16&nbsp;kHz PCM frames over websocket &rarr; silence endpointer &rarr; transcript.
+      </div>
+      <nav>
+        <a href="/">Home</a>
+        <a href="/tts">TTS</a>
+        <a href="/stt">STT</a>
+        <a href="/pipeline">Pipeline</a>
+      </nav>
+    </header>
+    <main>
+      <div class="card">
+        <h2>Record</h2>
+        <div class="row">
+          <button id="rec">Record</button>
+        </div>
+        <div class="status" id="status">
+          <span class="dot"></span>Idle
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Transcript</h2>
+        <div class="transcript" id="transcript"></div>
+      </div>
+
+      <div class="card">
+        <h2>Log</h2>
+        <div class="log" id="log"></div>
+      </div>
+    </main>
+
+    <script type="module">
+      import { $, wsURL, startMic, setStatus, logLine } from "/static/app.js";
+
+      const recBtn = $("#rec");
+      const status = $("#status");
+      const transcriptEl = $("#transcript");
+      const logEl = $("#log");
+
+      let mic = null;
+      let ws = null;
+      let recording = false;
+
+      async function start() {
+        ws = new WebSocket(wsURL("/ws/stt"));
+        ws.binaryType = "arraybuffer";
+        ws.onopen = async () => {
+          logLine(logEl, "ws open; starting mic");
+          mic = await startMic((buf) => {
+            if (ws && ws.readyState === WebSocket.OPEN) ws.send(buf);
+          });
+          logLine(
+            logEl,
+            `mic @ ${mic.sampleRate} Hz (${mic.usingWorklet ? "AudioWorklet" : "ScriptProcessor"})`
+          );
+          setStatus(status, "Listening...", true);
+        };
+        ws.onmessage = (e) => {
+          const msg = JSON.parse(e.data);
+          if (msg.type === "transcript") {
+            transcriptEl.textContent +=
+              (transcriptEl.textContent ? "\n" : "") + msg.text;
+            logLine(logEl, `transcript (stt ${msg.t_stt_ms} ms): ${msg.text}`);
+          }
+        };
+        ws.onclose = () => logLine(logEl, "ws closed");
+        ws.onerror = () => logLine(logEl, "ws error");
+      }
+
+      async function stop() {
+        if (mic) await mic.stop();
+        mic = null;
+        if (ws) ws.close();
+        ws = null;
+      }
+
+      recBtn.addEventListener("click", async () => {
+        recording = !recording;
+        recBtn.classList.toggle("recording", recording);
+        recBtn.textContent = recording ? "Stop" : "Record";
+        if (recording) {
+          transcriptEl.textContent = "";
+          await start();
+        } else {
+          await stop();
+          setStatus(status, "Idle");
+        }
+      });
+    </script>
+  </body>
+</html>

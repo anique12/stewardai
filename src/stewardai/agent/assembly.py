@@ -1,0 +1,208 @@
+"""LiveKit ``AgentSession`` assembly — roomless.
+
+Wires StewardAI's STT/LLM/TTS backends (via ``agent/nodes.py``) plus a Silero
+VAD plugin and the LiveKit turn-detector (v1-mini, audio) into an
+``AgentSession`` that runs WITHOUT a LiveKit room: audio comes in through our
+``PushAudioInput`` (fed by the Vexa ``SocketAudioBridge``) and goes out through
+our ``QueueAudioOutput`` (drained into the meeting by the bridge's player).
+
+livekit is NOT a base dependency — it lives in the ``[cpu]`` / ``[cuda]`` extra.
+So this module imports cleanly without livekit; every livekit import is LAZY
+inside the build/run functions and will raise ``ImportError`` only when called
+without the extra installed.
+
+--- livekit-agents v1.x APIs adapted to (assumptions; verify on the box) ---
+
+  * ``AgentSession(vad=, stt=, llm=, tts=, turn_detection=)`` — v1.x voice
+    pipeline session. We pass our custom node instances directly.
+  * ``Agent(instructions=...)`` — the persona/handler passed to ``session.start``.
+  * Roomless start: ``await session.start(agent=agent)`` with NO ``room`` kwarg.
+    (In v1.x ``room`` is optional; omitting it leaves I/O bound to
+    ``session.input`` / ``session.output``, which we set explicitly.)
+  * ``session.input.audio = <io.AudioInput>`` and
+    ``session.output.audio = <io.AudioOutput>``.
+  * VAD: ``livekit.plugins.silero.VAD.load()``.
+  * Turn detector (audio, v1-mini "multilingual"):
+    ``livekit.plugins.turn_detector.multilingual.MultilingualModel()``.
+    NOTE: the import path/class for the turn detector has moved across 1.x
+    (``turn_detector.EOUModel`` -> ``turn_detector.multilingual.MultilingualModel``
+    / ``turn_detector.english.EnglishModel``). We try the multilingual class and
+    fall back to the legacy ``EOUModel`` symbol; if neither exists we proceed
+    WITHOUT a turn detector (VAD-only) and log a warning rather than crash.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+
+from stewardai.common.logging import get_logger
+from stewardai.config import Settings, get_settings
+from stewardai.factory import make_llm, make_stt, make_tts
+
+_log = get_logger("agent.assembly")
+
+_DEFAULT_INSTRUCTIONS = (
+    "You are StewardAI, a concise, helpful voice assistant attending a live "
+    "meeting on the user's behalf. Keep replies short and conversational."
+)
+
+
+def _load_vad():
+    """Load the Silero VAD plugin (lazy; needs the livekit extra)."""
+    from livekit.plugins import silero  # type: ignore
+
+    return silero.VAD.load()
+
+
+def _load_turn_detector():
+    """Load the audio turn-detector (v1-mini). Returns ``None`` if unavailable.
+
+    Tries the current multilingual audio model, then the legacy ``EOUModel``
+    symbol. Any import/attribute failure logs a warning and returns ``None`` so
+    the session still runs VAD-only.
+    """
+    try:
+        from livekit.plugins import turn_detector  # type: ignore
+    except Exception as exc:  # noqa: BLE001 - plugin absent
+        _log.warning("turn_detector_unavailable", error=str(exc))
+        return None
+
+    # Current API: submodule classes (audio v1-mini, multilingual).
+    try:
+        from livekit.plugins.turn_detector.multilingual import (  # type: ignore
+            MultilingualModel,
+        )
+
+        return MultilingualModel()
+    except Exception:  # noqa: BLE001 - fall through to legacy symbols
+        pass
+
+    # Legacy API surfaces: a top-level EOUModel / TurnDetector.
+    for attr in ("EOUModel", "TurnDetector"):
+        cls = getattr(turn_detector, attr, None)
+        if cls is not None:
+            try:
+                return cls()
+            except Exception as exc:  # noqa: BLE001
+                _log.warning("turn_detector_ctor_failed", attr=attr, error=str(exc))
+    _log.warning("turn_detector_no_known_class")
+    return None
+
+
+def build_session(settings: Settings | None = None):
+    """Construct a roomless ``AgentSession`` wired with our nodes + VAD + turn det.
+
+    Returns the ``AgentSession``. I/O is NOT attached here (no room, no
+    input/output) — callers (``run_agent`` or tests) bind ``session.input.audio``
+    / ``session.output.audio`` and call ``session.start``.
+
+    Raises ``ImportError`` (lazily) if the livekit extra is not installed.
+    """
+    s = settings or get_settings()
+
+    from livekit.agents import AgentSession  # type: ignore
+
+    from stewardai.agent.nodes import build_llm_node, build_stt_node, build_tts_node
+
+    stt = build_stt_node(make_stt(s))
+    llm = build_llm_node(make_llm(s))
+    tts = build_tts_node(make_tts(s), voice=s.tts_default_voice)
+    vad = _load_vad()
+    turn_detection = _load_turn_detector()
+
+    kwargs: dict = {"vad": vad, "stt": stt, "llm": llm, "tts": tts}
+    if turn_detection is not None:
+        kwargs["turn_detection"] = turn_detection
+
+    session = AgentSession(**kwargs)
+    _log.info(
+        "session_built",
+        stt=make_stt_name(stt),
+        llm=make_llm_name(llm),
+        tts=make_tts_name(tts),
+        turn_detector=turn_detection is not None,
+    )
+    return session
+
+
+def make_stt_name(node) -> str:  # noqa: ANN001
+    return getattr(getattr(node, "_inner", None), "name", "unknown")
+
+
+def make_llm_name(node) -> str:  # noqa: ANN001
+    return getattr(getattr(node, "_inner", None), "name", "unknown")
+
+
+def make_tts_name(node) -> str:  # noqa: ANN001
+    return getattr(getattr(node, "_inner", None), "name", "unknown")
+
+
+def build_agent(settings: Settings | None = None):
+    """Build the ``Agent`` persona handed to ``session.start`` (lazy livekit)."""
+    from livekit.agents import Agent  # type: ignore
+
+    return Agent(instructions=_DEFAULT_INSTRUCTIONS)
+
+
+async def run_agent(settings: Settings | None = None) -> None:
+    """Run the roomless voice agent, fed by the Vexa ``SocketAudioBridge``.
+
+    Builds the bridge + session, binds the bridge's ``PushAudioInput`` as the
+    session audio input and a ``QueueAudioOutput`` as the session audio output,
+    starts the bridge's socket pump and the session with no room, then plays the
+    captured agent audio back into the meeting until cancelled.
+
+    Raises ``ImportError`` (lazily) if the livekit extra is not installed.
+    """
+    s = settings or get_settings()
+
+    from stewardai.bridge.audio_input import SocketAudioBridge
+    from stewardai.bridge.audio_output import QueueAudioOutput
+
+    bridge = SocketAudioBridge(s)
+    session = build_session(s)
+    agent = build_agent(s)
+
+    output = QueueAudioOutput(label="vexa")
+
+    # Bind roomless I/O: inbound meeting audio in, agent audio out.
+    session.input.audio = bridge.audio_input
+    session.output.audio = output
+
+    # Drain the agent's captured audio frames back into the meeting.
+    play_task = asyncio.create_task(bridge.play(_iter_output(output)))
+
+    _log.info("agent_starting", transport=s.bridge_transport)
+    await bridge.start_pump()
+    # Roomless start: no `room=` argument.
+    await session.start(agent=agent)
+    _log.info("agent_started")
+
+    try:
+        # Run until cancelled (the session keeps processing pushed audio).
+        await asyncio.Event().wait()
+    except asyncio.CancelledError:
+        _log.info("agent_cancelled")
+        raise
+    finally:
+        play_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await play_task
+        with contextlib.suppress(Exception):
+            await session.aclose()
+        await bridge.aclose()
+        _log.info("agent_stopped")
+
+
+async def _iter_output(output):  # noqa: ANN001
+    """Adapt QueueAudioOutput to the AsyncIterator[AudioFrame] the player wants."""
+    async for frame in output:
+        yield frame
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(run_agent())
+    except KeyboardInterrupt:
+        pass

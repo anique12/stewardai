@@ -1,0 +1,46 @@
+# StewardAI services. Vexa runs as its own compose stack — connect to it via the
+# bridge socket (see vexa-patch/README.md). Co-locate the agent on the same host
+# as the Vexa bot so the bridge stays local (Unix socket / TCP localhost).
+#
+#   Web test pages (any host, no GPU):   docker compose --profile web up web
+#   Agent on CPU box:                    docker compose --profile cpu up agent-cpu
+#   Agent on GPU box:                    docker compose --profile gpu up agent-gpu
+services:
+  web:
+    build:
+      context: .
+      args:
+        EXTRA: ""          # stubs + real LLM + web; no heavy ML
+    command: python -m uvicorn web.app:app --host 0.0.0.0 --port 8080
+    ports: ["8080:8080"]
+    env_file: [.env]
+    profiles: ["web"]
+
+  agent-cpu:
+    build:
+      context: .
+      args:
+        EXTRA: "cpu"
+    command: python -m stewardai.agent.assembly
+    env_file: [.env]
+    environment:
+      - DEVICE=cpu
+    profiles: ["cpu"]
+
+  agent-gpu:
+    build:
+      context: .
+      args:
+        EXTRA: "cuda"
+    command: python -m stewardai.agent.assembly
+    env_file: [.env]
+    environment:
+      - DEVICE=cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    profiles: ["gpu"]

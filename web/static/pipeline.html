@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>StewardAI — Pipeline</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Pipeline &mdash; full voice loop</h1>
+      <div class="sub">
+        Mic &rarr; STT &rarr; streamed LLM reply &rarr; streamed TTS audio, with per-stage timing.
+      </div>
+      <nav>
+        <a href="/">Home</a>
+        <a href="/tts">TTS</a>
+        <a href="/stt">STT</a>
+        <a href="/pipeline">Pipeline</a>
+      </nav>
+    </header>
+    <main>
+      <div class="card">
+        <h2>Talk</h2>
+        <div class="row">
+          <button id="talk">Talk</button>
+        </div>
+        <div class="status" id="status">
+          <span class="dot"></span>Idle
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>You said</h2>
+        <div class="transcript" id="transcript"></div>
+      </div>
+
+      <div class="card">
+        <h2>Assistant</h2>
+        <div class="response" id="response"></div>
+      </div>
+
+      <div class="card">
+        <h2>Timing (last turn)</h2>
+        <div class="timing" id="timing"></div>
+      </div>
+
+      <div class="card">
+        <h2>Log</h2>
+        <div class="log" id="log"></div>
+      </div>
+    </main>
+
+    <script type="module">
+      import {
+        $,
+        wsURL,
+        startMic,
+        PCMPlayer,
+        setStatus,
+        renderTiming,
+        logLine,
+      } from "/static/app.js";
+
+      const talkBtn = $("#talk");
+      const status = $("#status");
+      const transcriptEl = $("#transcript");
+      const responseEl = $("#response");
+      const timingEl = $("#timing");
+      const logEl = $("#log");
+
+      let mic = null;
+      let ws = null;
+      let player = null;
+      let talking = false;
+
+      async function start() {
+        player = new PCMPlayer(16000);
+        await player.resume();
+        ws = new WebSocket(wsURL("/ws/pipeline"));
+        ws.binaryType = "arraybuffer";
+        ws.onopen = async () => {
+          logLine(logEl, "ws open; starting mic");
+          mic = await startMic((buf) => {
+            if (ws && ws.readyState === WebSocket.OPEN) ws.send(buf);
+          });
+          logLine(
+            logEl,
+            `mic @ ${mic.sampleRate} Hz (${mic.usingWorklet ? "AudioWorklet" : "ScriptProcessor"})`
+          );
+          setStatus(status, "Listening...", true);
+        };
+        ws.onmessage = (e) => {
+          if (typeof e.data !== "string") {
+            // binary: TTS audio frame
+            player.push(e.data);
+            return;
+          }
+          const msg = JSON.parse(e.data);
+          if (msg.type === "transcript") {
+            transcriptEl.textContent = msg.text;
+            responseEl.textContent = "";
+            logLine(logEl, "transcript: " + msg.text);
+          } else if (msg.type === "token") {
+            responseEl.textContent += msg.text;
+          } else if (msg.type === "timing") {
+            renderTiming(timingEl, msg);
+            logLine(
+              logEl,
+              `turn done — total ${msg.t_total} ms (stt ${msg.t_stt}, ttft ${msg.t_llm_ttft}, ttfa ${msg.t_tts_ttfa})`
+            );
+          }
+        };
+        ws.onclose = () => logLine(logEl, "ws closed");
+        ws.onerror = () => logLine(logEl, "ws error");
+      }
+
+      async function stop() {
+        if (mic) await mic.stop();
+        mic = null;
+        if (ws) ws.close();
+        ws = null;
+        if (player) player.close();
+        player = null;
+      }
+
+      talkBtn.addEventListener("click", async () => {
+        talking = !talking;
+        talkBtn.classList.toggle("recording", talking);
+        talkBtn.textContent = talking ? "Stop" : "Talk";
+        if (talking) {
+          transcriptEl.textContent = "";
+          responseEl.textContent = "";
+          timingEl.innerHTML = "";
+          await start();
+        } else {
+          await stop();
+          setStatus(status, "Idle");
+        }
+      });
+    </script>
+  </body>
+</html>

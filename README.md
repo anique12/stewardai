@@ -30,3 +30,18 @@ StewardAI is a **separate product/repo** from the existing `standin` project. Th
 - **Phase 1** — real-time voice meeting core *(current build scope)*
 - **Phase 2** — post-meeting actions: calendar/scheduling, email, reminders (LLM tool-calling)
 - **Phase 3** — proactive assistant, multi-channel
+
+## Quickstart
+
+```bash
+scripts/setup.sh            # base venv: stubs + real Gemini LLM + web + evals (no GPU)
+cp .env.example .env        # add GEMINI_API_KEY
+scripts/run-web.sh          # http://localhost:8080  — STT / TTS / full pipeline test pages
+.venv/bin/python -m pytest -m "not heavy" -q
+.venv/bin/python -m evals.run
+```
+
+Enable real backends on a Linux box (`scripts/setup.sh cpu` or `cuda`), then set
+`STT_BACKEND=parakeet_nemo`, `TTS_BACKEND=kokoro`, and `DEVICE=cpu|cuda`.
+
+See **[STATUS.md](STATUS.md)** for the current build state and next steps.

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>StewardAI — TTS</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>TTS &mdash; text to speech</h1>
+      <div class="sub">POST text + voice &rarr; assembled 16&nbsp;kHz WAV &rarr; playback.</div>
+      <nav>
+        <a href="/">Home</a>
+        <a href="/tts">TTS</a>
+        <a href="/stt">STT</a>
+        <a href="/pipeline">Pipeline</a>
+      </nav>
+    </header>
+    <main>
+      <div class="card">
+        <h2>Synthesize</h2>
+        <div class="row">
+          <textarea id="text" placeholder="Type something to speak...">Hello, this is the StewardAI text to speech test page.</textarea>
+        </div>
+        <div class="row">
+          <label for="voice">Voice</label>
+          <select id="voice"></select>
+          <button id="speak">Speak</button>
+        </div>
+        <div class="status" id="status"></div>
+        <div class="row">
+          <audio id="player" controls style="width: 100%"></audio>
+        </div>
+      </div>
+    </main>
+
+    <script type="module">
+      import { $, setStatus } from "/static/app.js";
+
+      const voiceSel = $("#voice");
+      const status = $("#status");
+      const player = $("#player");
+
+      async function loadVoices() {
+        try {
+          const res = await fetch("/api/voices");
+          const data = await res.json();
+          voiceSel.innerHTML = data.voices
+            .map((v) => `<option value="${v}">${v}</option>`)
+            .join("");
+        } catch (err) {
+          setStatus(status, "Failed to load voices: " + err.message);
+        }
+      }
+
+      async function speak() {
+        const text = $("#text").value.trim();
+        if (!text) return;
+        setStatus(status, "Synthesizing...");
+        try {
+          const res = await fetch("/api/tts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text, voice: voiceSel.value }),
+          });
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          const blob = await res.blob();
+          player.src = URL.createObjectURL(blob);
+          await player.play();
+          setStatus(status, `Done — ${(blob.size / 1024).toFixed(1)} KB WAV`);
+        } catch (err) {
+          setStatus(status, "Error: " + err.message);
+        }
+      }
+
+      $("#speak").addEventListener("click", speak);
+      loadVoices();
+    </script>
+  </body>
+</html>
