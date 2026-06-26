@@ -1,0 +1,40 @@
+# Secrets / config
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Models / weights (large; pull at build time)
+models/
+weights/
+*.nemo
+*.onnx
+*.safetensors
+*.pt
+*.bin
+
+# Node (Vexa patch / web assets if any)
+node_modules/
+dist/
+
+# Logs / runtime / audio artifacts
+logs/
+*.log
+*.wav
+*.webm
+tmp/
+scratch/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
