@@ -604,6 +604,8 @@ FastAPI + vanilla JS. Routes: `GET /` `/stt` `/tts` `/pipeline`; `GET /api/voice
 
 **Endpointing — do this exactly (avoids "words during silence"):** use **Silero VAD** for speech detection (it's already in the orchestrator image), NOT a raw RMS energy gate — an energy threshold treats ambient mic noise as speech, and the ASR then **hallucinates words on noise/silence**. Then: require ≥250 ms of detected speech before accepting an utterance, and **trim trailing silence** — send only the speech span (+ ~60 ms tail pad) to STT, because Parakeet (like most ASR) emits phantom words when fed trailing silence. A tuned energy endpointer (threshold ≥0.02, trailing-silence trimmed) is acceptable only as a no-dependency fallback for the standalone pages.
 
+**Voice replies — keep them short (TTS time dominates):** always pass a brevity **system prompt** (e.g. "Reply in ONE short conversational sentence, ≤20 words, plain spoken text — no lists/markdown"). A verbose LLM reply makes TTS synthesis the latency bottleneck (a paragraph took ~18 s on CPU; one sentence is a few seconds). For longer replies, **pipeline LLM→TTS per sentence** — synthesize each sentence as it streams from the LLM so time-to-first-audio tracks the first sentence, not the whole reply. (The agent persona in §7f already instructs brevity; the web pipeline must too.)
+
 ### 7j. Evals (`services/evals` or a CLI)
 - STT: WER via `jiwer.wer(ref, hyp)` over a labeled clip set + per-clip latency. **Use real labeled audio** (or `say`-generated clips with known text); document that synthetic audio is a wiring check only.
 - TTS: time-to-first-audio + RTF.
