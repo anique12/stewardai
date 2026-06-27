@@ -33,7 +33,10 @@ class WhisperSTT:
     def __init__(self, settings: Settings | None = None) -> None:
         self._s = settings or get_settings()
         device = self._s.device  # "cpu" | "cuda"
-        compute_type = self._s.whisper_compute_type or (
+        # Be defensive: a stray inline comment or whitespace from .env shouldn't
+        # become the compute type. Blank/comment -> derive from device.
+        ct = (self._s.whisper_compute_type or "").strip()
+        compute_type = ct if ct and not ct.startswith("#") else (
             "float16" if device == "cuda" else "int8"
         )
         self._lang = self._s.whisper_language or "en"
