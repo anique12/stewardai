@@ -19,7 +19,7 @@ Use the **Ubuntu 24.04** CUDA image — it ships **Python 3.12** (our code needs
 the `-2204-` images are Python 3.10, too old). Driver is baked in (no install metadata).
 ```bash
 gcloud compute instances create stewardai-gpu \
-  --zone=us-central1-a \
+  --zone=us-central1-c \
   --machine-type=g2-standard-8 \
   --accelerator=type=nvidia-l4,count=1 \
   --maintenance-policy=TERMINATE \
@@ -34,22 +34,20 @@ gcloud compute instances create stewardai-gpu \
   `gcloud compute images list --project deeplearning-platform-release --format="value(family)" | grep -i cu1`
   and pick the newest `common-cuXXX-ubuntu-2404-...`.
 
-## 2. Ship the code (no git remote — tar + scp)
-On your **Mac**:
-```bash
-cd ~/projects
-tar --exclude='stewardai/.venv' --exclude='stewardai/.git' --exclude='stewardai/.env' \
-    --exclude='stewardai/**/__pycache__' -czf /tmp/stewardai.tgz stewardai
-gcloud compute scp /tmp/stewardai.tgz stewardai-gpu:~ --zone=us-central1-a
-gcloud compute ssh stewardai-gpu --zone=us-central1-a --command="tar -xzf ~/stewardai.tgz"
-```
+## 2. Code is on GitHub
+Repo: `github.com/aniquedev/stewardai` (private). Iterate later with `git push`
+(Mac) → `git pull` (VM). The VM needs read auth for a private repo: a fine-grained
+PAT (Contents: read, this repo only) in the clone URL, or make it public:
+`gh repo edit aniquedev/stewardai --visibility public --accept-visibility-change-consequences`.
 
-## 3. Install (on the VM)
+## 3. SSH in + clone + install  (zone = us-central1-c)
+From Cloud Shell:
 ```bash
-gcloud compute ssh stewardai-gpu --zone=us-central1-a
-# now on the VM:
-cd ~/stewardai
-bash scripts/setup_gpu.sh      # venv + CUDA torch + .[cuda]; ~a few minutes
+gcloud compute ssh stewardai-gpu --zone=us-central1-c
+# on the VM:
+git clone https://github_pat_TOKEN@github.com/aniquedev/stewardai.git   # or public URL
+cd stewardai
+bash scripts/setup_gpu.sh      # system deps + venv + CUDA torch + .[cuda]; a few min
 ```
 
 ## 4. Configure `.env` (on the VM)
@@ -76,7 +74,7 @@ warms both — give it a few minutes. Watch for `warmup_done` in the logs.
 ## 6. Test from your laptop (SSH tunnel — don't open 8080 to the internet)
 In a second terminal on your **Mac**:
 ```bash
-gcloud compute ssh stewardai-gpu --zone=us-central1-a -- -N -L 8080:localhost:8080
+gcloud compute ssh stewardai-gpu --zone=us-central1-c -- -N -L 8080:localhost:8080
 ```
 Then open **http://localhost:8080/pipeline**, click Talk. Watch the **Latency**
 panel — the EOU/STT numbers should now be a fraction of the CPU values. If turns
@@ -84,7 +82,7 @@ feel laggy or too eager, tune `TURN_MIN_DELAY` in `.env` and restart `run_gpu.sh
 
 ## 7. STOP the VM when done (it costs money running)
 ```bash
-gcloud compute instances stop stewardai-gpu --zone=us-central1-a
+gcloud compute instances stop stewardai-gpu --zone=us-central1-c
 ```
 Stopped = ~$4/mo (disk only). Spot on-demand ≈ $0.28/hr while running.
 
