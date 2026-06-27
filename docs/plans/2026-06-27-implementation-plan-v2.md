@@ -101,9 +101,9 @@ LLM is always in-process (it's a network API, no local model). VAD + Turn Detect
    import os
    os.environ["HF_HUB_DISABLE_XET"] = "1"     # avoids the xet transfer stalling
    from huggingface_hub import snapshot_download
-   snapshot_download("nvidia/parakeet-tdt-0.6b-v3")   # resumable + idempotent
+   snapshot_download("nvidia/parakeet-tdt-0.6b-v3", allow_patterns=["*.nemo"])  # resumable + idempotent
    ```
-   Mount the host HF cache (or a named volume) into the `stt`/`tts` images so the model is fetched once and reused (no re-download per build/run).
+   **Fetch only the file the loader uses.** Parakeet's repo ships BOTH a `.nemo` and a `model.safetensors` (~2.3 GB each); NeMo loads the `.nemo`, so `allow_patterns=["*.nemo"]` halves the download. Mount the host HF cache (or a named volume) into the `stt`/`tts` images so the model is fetched once and reused (no re-download per build/run).
 
 5. **Share test helpers via pytest fixtures; never `import tests.*`** (a cross-test import breaks if any installed dependency ships a top-level `tests` package). Put helpers in `conftest.py` as fixtures, request them by name:
    ```python
@@ -391,8 +391,11 @@ async def transcribe(req: Request):
 import os
 os.environ["HF_HUB_DISABLE_XET"] = "1"
 from huggingface_hub import snapshot_download
-path = snapshot_download("nvidia/parakeet-tdt-0.6b-v3")
-print("Parakeet model at:", path)
+# This repo ships BOTH parakeet-tdt-0.6b-v3.nemo AND model.safetensors (~2.3 GB each).
+# NeMo's ASRModel.from_pretrained loads the .nemo, so fetch ONLY that — halves the
+# download and skips the redundant safetensors. (Confirmed on the v1 spike.)
+path = snapshot_download("nvidia/parakeet-tdt-0.6b-v3", allow_patterns=["*.nemo"])
+print("Parakeet .nemo at:", path)
 ```
 
 ### 7c. STT service client (`orchestrator/backends/stt_client.py`) — implements `STTBackend`
