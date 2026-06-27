@@ -15,6 +15,7 @@ import asyncio
 import shutil
 import subprocess
 import tempfile
+import time
 from collections.abc import AsyncIterator
 
 from stewardai.common.audio import SAMPLE_RATE, AudioFrame
@@ -119,32 +120,79 @@ def _make_queue_audio_output():
             # the agent and calls clear_buffer(). Consumers (e.g. the web layer)
             # set this to tell their client to stop playing buffered audio.
             self.on_clear = None
+            # Per-segment playout tracking so LiveKit's wait_for_playout() reflects
+            # REAL playback time. Without this the framework thinks the turn finished
+            # instantly -> the agent isn't "speaking" -> barge-in has nothing to
+            # interrupt (the bug: new turn fires but old audio keeps playing).
+            self._seg_started_at: float | None = None
+            self._seg_seconds: float = 0.0
+            self._playout_tasks: set[asyncio.Task] = set()
 
         async def capture_frame(self, frame) -> None:  # noqa: ANN001 - rtc/AudioFrame or ours
-            # We are the terminal sink: buffer the frame rather than chaining.
+            if has_livekit:
+                # base bookkeeping: counts a new playback segment on the first frame
+                await super().capture_frame(frame)
             pcm = getattr(frame, "data", None)
             if pcm is not None:
                 # livekit rtc.AudioFrame: .data is a memoryview / array of int16.
                 pcm_bytes = bytes(pcm)
-                sample_rate = getattr(frame, "sample_rate", SAMPLE_RATE)
-                await self._queue.put(AudioFrame(pcm=pcm_bytes, sample_rate=sample_rate))
+                sample_rate = getattr(frame, "sample_rate", SAMPLE_RATE) or SAMPLE_RATE
             elif isinstance(frame, AudioFrame):
-                await self._queue.put(frame)
+                pcm_bytes = frame.pcm
+                sample_rate = frame.sample_rate or SAMPLE_RATE
+            else:
+                return
+            # accumulate this segment's real-time duration (s16le -> samples / rate)
+            if self._seg_started_at is None:
+                self._seg_started_at = time.monotonic()
+                self._seg_seconds = 0.0
+            self._seg_seconds += (len(pcm_bytes) / 2) / sample_rate
+            await self._queue.put(AudioFrame(pcm=pcm_bytes, sample_rate=sample_rate))
 
-        def flush(self) -> None:  # livekit AudioOutput hook; segment boundary, no-op
-            return None
+        def flush(self) -> None:  # livekit AudioOutput hook; marks a segment boundary
+            if has_livekit:
+                super().flush()
+            if self._seg_started_at is None:
+                return
+            started_at, seconds = self._seg_started_at, self._seg_seconds
+            self._seg_started_at = None
+            self._seg_seconds = 0.0
+            if has_livekit:
+                # report playback_finished once the audio has actually played out
+                task = asyncio.create_task(self._report_playout(started_at, seconds))
+                self._playout_tasks.add(task)
+                task.add_done_callback(self._playout_tasks.discard)
+
+        async def _report_playout(self, started_at: float, seconds: float) -> None:
+            remaining = seconds - (time.monotonic() - started_at)
+            if remaining > 0:
+                await asyncio.sleep(remaining)
+            self.on_playback_finished(playback_position=seconds, interrupted=False)
 
         def clear_buffer(self) -> None:  # livekit AudioOutput hook; barge-in stop
-            # Drop any agent audio buffered but not yet drained, then notify.
+            # Drop buffered-but-unsent audio.
             while True:
                 try:
                     self._queue.get_nowait()
                 except asyncio.QueueEmpty:
                     break
+            # Cancel pending playout timers and report every still-pending segment as
+            # interrupted, so wait_for_playout() returns and the interruption completes.
+            for task in list(self._playout_tasks):
+                task.cancel()
+            self._playout_tasks.clear()
+            self._seg_started_at = None
+            if has_livekit:
+                for _ in range(self._pending_playback_count):
+                    self.on_playback_finished(playback_position=0.0, interrupted=True)
+            # Tell the client (browser) to stop playing already-sent audio.
             if self.on_clear is not None:
                 self.on_clear()
 
         async def aclose(self) -> None:
+            for task in list(self._playout_tasks):
+                task.cancel()
+            self._playout_tasks.clear()
             await self._queue.put(None)
 
         async def _drain(self) -> AsyncIterator[AudioFrame]:
