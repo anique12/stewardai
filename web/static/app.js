@@ -143,6 +143,22 @@ export class PCMPlayer {
     });
     this.cursor = 0;
     this.sources = new Set(); // live buffer-source nodes, for flush()
+    // analyser tap so the visualizer can react to the agent's voice
+    this.analyser = this.ctx.createAnalyser();
+    this.analyser.fftSize = 512;
+    this.analyser.connect(this.ctx.destination);
+    this._levelBuf = new Uint8Array(this.analyser.frequencyBinCount);
+  }
+
+  // RMS amplitude (0..~1) of what's currently playing — drives the orb.
+  level() {
+    this.analyser.getByteTimeDomainData(this._levelBuf);
+    let s = 0;
+    for (let i = 0; i < this._levelBuf.length; i++) {
+      const v = (this._levelBuf[i] - 128) / 128;
+      s += v * v;
+    }
+    return Math.sqrt(s / this._levelBuf.length);
   }
 
   // Accepts an ArrayBuffer of s16le bytes.
@@ -155,7 +171,7 @@ export class PCMPlayer {
     buf.getChannelData(0).set(f32);
     const node = this.ctx.createBufferSource();
     node.buffer = buf;
-    node.connect(this.ctx.destination);
+    node.connect(this.analyser);
     const now = this.ctx.currentTime;
     const start = Math.max(now, this.cursor);
     node.start(start);
