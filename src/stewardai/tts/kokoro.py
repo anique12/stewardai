@@ -78,27 +78,17 @@ class KokoroTTS:
         arr = np.asarray(audio, dtype=np.float32)
         return arr.reshape(-1)
 
-    def _synthesize_segments(self, text: str, voice: str) -> list[bytes]:
-        """Run Kokoro (blocking) and return per-segment s16le @16 kHz buffers.
-
-        Each list item is one segment's full PCM; the caller chunks and yields
-        them in order so the first segment can start playing immediately.
-        """
-        pipeline = self._ensure_pipeline()
-        segments: list[bytes] = []
-        for result in pipeline(text, voice=voice):
-            audio = getattr(result, "audio", None)
-            if audio is None and isinstance(result, tuple):
-                # (graphemes, phonemes, audio)
-                audio = result[-1]
-            if audio is None:
-                continue
-            arr = self._segment_to_float(audio)
-            if arr.size == 0:
-                continue
-            arr16 = resample_linear(arr, _KOKORO_RATE, SAMPLE_RATE)
-            segments.append(pcm_from_float(arr16))
-        return segments
+    def _segment_pcm(self, result) -> bytes | None:
+        """Convert one Kokoro segment result to s16le @16 kHz, or None to skip."""
+        audio = getattr(result, "audio", None)
+        if audio is None and isinstance(result, tuple):
+            audio = result[-1]  # (graphemes, phonemes, audio)
+        if audio is None:
+            return None
+        arr = self._segment_to_float(audio)
+        if arr.size == 0:
+            return None
+        return pcm_from_float(resample_linear(arr, _KOKORO_RATE, SAMPLE_RATE))
 
     async def synthesize(
         self, text: str, *, voice: str | None = None
@@ -106,11 +96,28 @@ class KokoroTTS:
         chosen = voice or self._default_voice
         if not text or not text.strip():
             return
-        # Kokoro yields per-segment; we run the whole (blocking) generator in a
-        # worker thread and stream the segments back in order. The first segment
-        # is short, so first-audio latency is one segment, not the utterance.
-        segments = await asyncio.to_thread(self._synthesize_segments, text, chosen)
-        for pcm in segments:
+        # Stream per segment: run Kokoro's (blocking) generator in a worker thread
+        # and hand each segment's PCM to the event loop AS SOON AS it's produced,
+        # so first-audio latency tracks the FIRST segment, not the whole utterance.
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+        _DONE = object()
+
+        def _produce() -> None:
+            try:
+                pipeline = self._ensure_pipeline()
+                for result in pipeline(text, voice=chosen):
+                    pcm = self._segment_pcm(result)
+                    if pcm:
+                        loop.call_soon_threadsafe(queue.put_nowait, pcm)
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, _DONE)
+
+        loop.run_in_executor(None, _produce)
+        while True:
+            pcm = await queue.get()
+            if pcm is _DONE:
+                break
             for frame in chunk_pcm(pcm):
                 if frame:
                     yield AudioFrame(pcm=frame, sample_rate=SAMPLE_RATE)
