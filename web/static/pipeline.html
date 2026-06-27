@@ -6,27 +6,30 @@
     <title>StewardAI — Pipeline</title>
     <link rel="stylesheet" href="/static/style.css" />
     <style>
-      .orb-wrap { display: flex; flex-direction: column; align-items: center; gap: 14px; }
-      #orb { width: 280px; height: 280px; max-width: 80vw; }
-      .controls { display: flex; align-items: center; gap: 14px; }
+      .orb-wrap { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+      #orb { width: 280px; height: 280px; max-width: 80vw; cursor: pointer; }
+      .controls { display: flex; align-items: center; gap: 14px; min-height: 44px; }
       .icon-btn {
-        width: 52px; height: 52px; padding: 0; border-radius: 50%; border: 1px solid #2a2f3a;
+        width: 44px; height: 44px; padding: 0; border-radius: 50%; border: 1px solid #2a2f3a;
         background: #161a22; color: #e6e9ef; display: grid; place-items: center;
-        cursor: pointer; transition: background .15s, border-color .15s, opacity .15s;
+        cursor: pointer; transition: background .15s, border-color .15s, transform .1s;
       }
       .icon-btn:hover { background: #1d2330; }
-      .icon-btn:disabled { opacity: .4; cursor: not-allowed; }
-      .icon-btn.muted { background: #3a1d22; border-color: #7f1d2e; color: #ff8a9b; }
-      .icon-btn svg { width: 24px; height: 24px; display: block; }
+      .icon-btn:active { transform: scale(0.94); }
+      .icon-btn[hidden] { display: none; }
+      .icon-btn svg { width: 18px; height: 18px; display: block; }
+      .icon-btn.start { background: #16361f; border-color: #1f7a3a; color: #4ade80; }
+      .icon-btn.start:hover { background: #1b4527; }
+      .icon-btn.end { background: #3a1d22; border-color: #7f1d2e; color: #ff8a9b; }
+      .icon-btn.muted { background: #3a2e16; border-color: #7a5b1f; color: #facc15; }
+      .status { color: #8b93a7; font-size: 13px; }
+      .status:empty { display: none; }
     </style>
   </head>
   <body>
     <header>
-      <h1>Pipeline &mdash; LiveKit agent</h1>
-      <div class="sub">
-        Mic &rarr; a real LiveKit <strong>AgentSession</strong> (VAD + turn detector +
-        STT/LLM/TTS nodes) &rarr; streamed agent audio. The orb reacts to live audio.
-      </div>
+      <h1>StewardAI</h1>
+      <div class="sub">Voice agent — tap the orb to talk.</div>
       <nav>
         <a href="/">Home</a>
         <a href="/tts">TTS</a>
@@ -39,10 +42,11 @@
         <div class="orb-wrap">
           <canvas id="orb" width="280" height="280"></canvas>
           <div class="controls">
-            <button id="talk">Talk</button>
-            <button id="mute" class="icon-btn" title="Mute mic" disabled aria-label="Mute microphone"></button>
+            <button id="start" class="icon-btn start" title="Start" aria-label="Start conversation"></button>
+            <button id="mute" class="icon-btn" title="Mute mic" aria-label="Mute microphone" hidden></button>
+            <button id="end" class="icon-btn end" title="End" aria-label="End conversation" hidden></button>
           </div>
-          <div class="status" id="status"><span class="dot"></span>Idle</div>
+          <div class="status" id="status"></div>
         </div>
       </div>
 
@@ -70,40 +74,42 @@
     <script type="module">
       import { $, wsURL, startMic, PCMPlayer, setStatus, logLine } from "/static/app.js";
 
-      const talkBtn = $("#talk");
-      const muteBtn = $("#mute");
+      const startBtn = $("#start"), muteBtn = $("#mute"), endBtn = $("#end");
       const status = $("#status");
       const transcriptEl = $("#transcript");
       const responseEl = $("#response");
       const metricsEl = $("#metrics");
       const logEl = $("#log");
 
+      const PHONE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.08 4.18 2 2 0 0 1 4.06 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>`;
+      const PHONE_OFF_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.8 12.8 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.4 19.4 0 0 1-3.33-2.67m-2.67-3.34a19.8 19.8 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.8 12.8 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
       const MIC_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>`;
       const MIC_OFF_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>`;
+      startBtn.innerHTML = PHONE_SVG;
       muteBtn.innerHTML = MIC_SVG;
+      endBtn.innerHTML = PHONE_OFF_SVG;
 
-      let mic = null, ws = null, player = null, talking = false, muted = false;
+      let mic = null, ws = null, player = null, active = false, muted = false;
       let turn = {}, micLevel = 0, animT = 0, smoothLevel = 0;
 
       // --- orb visualizer ---------------------------------------------------
       const orb = $("#orb");
       const g = orb.getContext("2d");
       const LAYERS = [
-        { color: "#22d3ee", off: 0, speed: 0.8 },   // cyan
-        { color: "#3b82f6", off: 2.1, speed: -1.0 }, // blue
-        { color: "#a855f7", off: 4.2, speed: 0.6 },  // purple
+        { color: "#22d3ee", off: 0, speed: 0.8 },
+        { color: "#3b82f6", off: 2.1, speed: -1.0 },
+        { color: "#a855f7", off: 4.2, speed: 0.6 },
       ];
       function drawOrb(level) {
         const w = orb.width, h = orb.height, cx = w / 2, cy = h / 2;
         g.clearRect(0, 0, w, h);
         const base = Math.min(w, h) * 0.26;
-        const amp = base * 0.09 + level * base * 0.32; // gentle idle wave + softened audio-reactive
+        const amp = base * 0.09 + level * base * 0.32;
         g.globalCompositeOperation = "lighter";
         for (const L of LAYERS) {
           g.beginPath();
           for (let a = 0; a <= Math.PI * 2 + 0.02; a += 0.04) {
-            const r =
-              base +
+            const r = base +
               Math.sin(a * 3 + animT * L.speed + L.off) * amp +
               Math.sin(a * 5 - animT * L.speed * 0.7 + L.off) * amp * 0.5;
             const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
@@ -114,25 +120,23 @@
           g.lineWidth = 3;
           g.shadowColor = L.color;
           g.shadowBlur = 22;
-          g.globalAlpha = 0.75;
+          g.globalAlpha = active ? 0.78 : 0.4; // dimmer when idle
           g.stroke();
         }
-        g.globalAlpha = 1;
-        g.shadowBlur = 0;
-        g.globalCompositeOperation = "source-over";
+        g.globalAlpha = 1; g.shadowBlur = 0; g.globalCompositeOperation = "source-over";
       }
       function loop() {
-        animT += 0.015; // morph speed (lively but smooth via the eased level below)
+        animT += 0.015;
         const agent = player ? player.level() : 0;
-        const target = talking ? Math.max(agent, micLevel) : 0;
-        smoothLevel += (target - smoothLevel) * 0.06; // ease in/out — no jumpy beats
+        const target = active ? Math.max(agent, micLevel) : 0;
+        smoothLevel += (target - smoothLevel) * 0.06;
         micLevel *= 0.9;
         drawOrb(smoothLevel);
         requestAnimationFrame(loop);
       }
       loop();
 
-      // --- metrics panel ----------------------------------------------------
+      // --- metrics ----------------------------------------------------------
       const METRIC_ROWS = [
         ["eou_delay_ms", "Finished → turn detected"],
         ["stt_ms", "STT decode"],
@@ -153,67 +157,64 @@
       }
 
       // --- session ----------------------------------------------------------
-      async function start() {
+      async function startSession() {
+        if (active) return;
+        active = true;
+        startBtn.hidden = true; muteBtn.hidden = false; endBtn.hidden = false;
+        transcriptEl.textContent = ""; responseEl.textContent = ""; metricsEl.innerHTML = ""; turn = {};
         player = new PCMPlayer(16000);
         await player.resume();
         ws = new WebSocket(wsURL("/ws/pipeline"));
         ws.binaryType = "arraybuffer";
         ws.onopen = async () => {
-          logLine(logEl, "ws open; building agent session…");
-          setStatus(status, "Starting agent…", true);
+          setStatus(status, "Connecting…", true);
           mic = await startMic((buf) => {
-            if (muted) return; // muted: don't send to the agent AND don't drive the orb
+            if (muted) return; // muted: don't send AND don't drive the orb
             const i16 = new Int16Array(buf);
             let s = 0;
             for (let i = 0; i < i16.length; i++) { const v = i16[i] / 32768; s += v * v; }
             micLevel = Math.max(micLevel, Math.sqrt(s / i16.length));
             if (ws && ws.readyState === WebSocket.OPEN) ws.send(buf);
           });
-          muteBtn.disabled = false;
-          logLine(logEl, `mic @ ${mic.sampleRate} Hz`);
         };
         ws.onmessage = (e) => {
           if (typeof e.data !== "string") { player.push(e.data); return; }
           const msg = JSON.parse(e.data);
-          if (msg.type === "ready") { setStatus(status, "Listening — just talk", true); logLine(logEl, "agent ready"); }
+          if (msg.type === "ready") { setStatus(status, "Listening", true); logLine(logEl, "agent ready"); }
           else if (msg.type === "transcript") { turn = {}; metricsEl.innerHTML = ""; transcriptEl.textContent = msg.text; responseEl.textContent = ""; logLine(logEl, "you: " + msg.text); }
           else if (msg.type === "reply") { responseEl.textContent = msg.text; logLine(logEl, "assistant: " + msg.text); }
           else if (msg.type === "metric") { handleMetric(msg); }
-          else if (msg.type === "clear") { if (player) player.flush(); logLine(logEl, "(interrupted)"); }
+          else if (msg.type === "clear") { if (player) player.flush(); }
           else if (msg.type === "error") { setStatus(status, "Error: " + msg.text); logLine(logEl, "error: " + msg.text); }
         };
         ws.onclose = () => logLine(logEl, "ws closed");
         ws.onerror = () => logLine(logEl, "ws error");
       }
 
-      async function stop() {
+      async function endSession() {
+        if (!active) return;
+        active = false;
         if (mic) await mic.stop();
         mic = null;
         if (ws) ws.close();
         ws = null;
         if (player) player.close();
         player = null;
-        muteBtn.disabled = true;
         muted = false;
-        muteBtn.classList.remove("muted");
-        muteBtn.innerHTML = MIC_SVG;
+        muteBtn.classList.remove("muted"); muteBtn.innerHTML = MIC_SVG;
+        startBtn.hidden = false; muteBtn.hidden = true; endBtn.hidden = true;
+        status.innerHTML = "";
       }
 
-      talkBtn.addEventListener("click", async () => {
-        talking = !talking;
-        talkBtn.classList.toggle("recording", talking);
-        talkBtn.textContent = talking ? "Stop" : "Talk";
-        if (talking) { transcriptEl.textContent = ""; responseEl.textContent = ""; metricsEl.innerHTML = ""; turn = {}; await start(); }
-        else { await stop(); setStatus(status, "Idle"); }
-      });
-
+      startBtn.addEventListener("click", startSession);
+      endBtn.addEventListener("click", endSession);
+      orb.addEventListener("click", () => { if (!active) startSession(); });
       muteBtn.addEventListener("click", () => {
-        if (muteBtn.disabled) return;
         muted = !muted;
         muteBtn.classList.toggle("muted", muted);
         muteBtn.innerHTML = muted ? MIC_OFF_SVG : MIC_SVG;
         muteBtn.title = muted ? "Unmute mic" : "Mute mic";
-        logLine(logEl, muted ? "mic muted" : "mic unmuted");
+        setStatus(status, muted ? "Muted" : "Listening", !muted);
       });
     </script>
   </body>
