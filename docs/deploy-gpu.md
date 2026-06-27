@@ -35,17 +35,17 @@ gcloud compute instances create stewardai-gpu \
   and pick the newest `common-cuXXX-ubuntu-2404-...`.
 
 ## 2. Code is on GitHub
-Repo: `github.com/aniquedev/stewardai` (private). Iterate later with `git push`
+Repo: `github.com/anique12/stewardai` (private). Iterate later with `git push`
 (Mac) → `git pull` (VM). The VM needs read auth for a private repo: a fine-grained
 PAT (Contents: read, this repo only) in the clone URL, or make it public:
-`gh repo edit aniquedev/stewardai --visibility public --accept-visibility-change-consequences`.
+`gh repo edit anique12/stewardai --visibility public --accept-visibility-change-consequences`.
 
 ## 3. SSH in + clone + install  (zone = us-central1-c)
 From Cloud Shell:
 ```bash
 gcloud compute ssh stewardai-gpu --zone=us-central1-c
 # on the VM:
-git clone https://github_pat_TOKEN@github.com/aniquedev/stewardai.git   # or public URL
+git clone https://github_pat_TOKEN@github.com/anique12/stewardai.git   # or public URL
 cd stewardai
 bash scripts/setup_gpu.sh      # system deps + venv + CUDA torch + .[cuda]; a few min
 ```
