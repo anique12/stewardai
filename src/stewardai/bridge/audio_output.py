@@ -115,6 +115,10 @@ def _make_queue_audio_output():
             if has_livekit:
                 super().__init__(label=label, capabilities=capabilities)
             self._queue: asyncio.Queue[AudioFrame | None] = asyncio.Queue()
+            # Optional barge-in hook: fired (no args) when the session interrupts
+            # the agent and calls clear_buffer(). Consumers (e.g. the web layer)
+            # set this to tell their client to stop playing buffered audio.
+            self.on_clear = None
 
         async def capture_frame(self, frame) -> None:  # noqa: ANN001 - rtc/AudioFrame or ours
             # We are the terminal sink: buffer the frame rather than chaining.
@@ -131,7 +135,14 @@ def _make_queue_audio_output():
             return None
 
         def clear_buffer(self) -> None:  # livekit AudioOutput hook; barge-in stop
-            return None
+            # Drop any agent audio buffered but not yet drained, then notify.
+            while True:
+                try:
+                    self._queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+            if self.on_clear is not None:
+                self.on_clear()
 
         async def aclose(self) -> None:
             await self._queue.put(None)

@@ -94,6 +94,10 @@ class KokoroTTS:
         self, text: str, *, voice: str | None = None
     ) -> AsyncIterator[AudioFrame]:
         chosen = voice or self._default_voice
+        # "stub" is the stub-backend sentinel (e.g. the global tts_default_voice
+        # default); it is not a real Kokoro voice, so fall back to our default.
+        if chosen == "stub":
+            chosen = self._default_voice
         if not text or not text.strip():
             return
         # Stream per segment: run Kokoro's (blocking) generator in a worker thread

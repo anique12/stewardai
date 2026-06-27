@@ -43,20 +43,28 @@ from stewardai.factory import make_llm, make_stt, make_tts
 _log = get_logger("agent.assembly")
 
 _DEFAULT_INSTRUCTIONS = (
-    "You are StewardAI, a concise, helpful voice assistant attending a live "
-    "meeting on the user's behalf. Keep replies short and conversational."
+    "You are a voice assistant taking to a human. Reply in "
+    "conversational sentence. Plain spoken text only — no lists, no "
+    "markdown, no emojis. Be direct."
 )
 
 
-def _load_vad():
+def _load_vad(s: Settings):
     """Local Silero VAD via the current inference API.
 
-    (``livekit.plugins.silero`` is deprecated in 1.6.x; ``inference.VAD`` is the
-    replacement and runs the bundled Silero model locally — no LiveKit Cloud.)
+    activation_threshold / min_speech_duration come from settings so a far-field,
+    noisy room can require louder/longer speech before it counts (reducing
+    background-speech false triggers that the English STT then hallucinates).
+    (``livekit.plugins.silero`` is deprecated in 1.6.x; ``inference.VAD`` runs the
+    bundled Silero model locally — no LiveKit Cloud.)
     """
     from livekit.agents import inference  # type: ignore
 
-    return inference.VAD(model="silero")
+    return inference.VAD(
+        model="silero",
+        activation_threshold=s.vad_activation_threshold,
+        min_speech_duration=s.vad_min_speech_duration,
+    )
 
 
 def _load_turn_detector():
@@ -75,8 +83,19 @@ def _load_turn_detector():
         return None
 
 
-def build_session(settings: Settings | None = None):
+def build_session(
+    settings: Settings | None = None,
+    *,
+    stt_backend=None,  # noqa: ANN001 - optional pre-built STTBackend to reuse
+    llm_backend=None,  # noqa: ANN001 - optional pre-built LLMBackend to reuse
+    tts_backend=None,  # noqa: ANN001 - optional pre-built TTSBackend to reuse
+):
     """Construct a roomless ``AgentSession`` wired with our nodes + VAD + turn det.
+
+    Pass ``stt_backend`` / ``llm_backend`` / ``tts_backend`` to reuse already-built
+    backends (so heavy models load ONCE and are shared across sessions, e.g. one
+    per browser connection on the web test page) instead of constructing fresh
+    ones via the factory.
 
     Returns the ``AgentSession``. I/O is NOT attached here (no room, no
     input/output) — callers (``run_agent`` or tests) bind ``session.input.audio``
@@ -90,15 +109,36 @@ def build_session(settings: Settings | None = None):
 
     from stewardai.agent.nodes import build_llm_node, build_stt_node, build_tts_node
 
-    stt = build_stt_node(make_stt(s))
-    llm = build_llm_node(make_llm(s))
-    tts = build_tts_node(make_tts(s), voice=s.tts_default_voice)
-    vad = _load_vad()
+    stt = build_stt_node(
+        stt_backend if stt_backend is not None else make_stt(s))
+    llm = build_llm_node(
+        llm_backend if llm_backend is not None else make_llm(s))
+    tts = build_tts_node(
+        tts_backend if tts_backend is not None else make_tts(s),
+        voice=s.tts_default_voice,
+    )
+    vad = _load_vad(s)
     turn_detection = _load_turn_detector()
 
-    kwargs: dict = {"vad": vad, "stt": stt, "llm": llm, "tts": tts}
+    # Endpointing is LiveKit's OWN config (not custom turn logic): min_delay must
+    # exceed STT latency so the linguistic/backchannel EOU check runs BEFORE the
+    # audio turn detector flushes the turn — otherwise turns fire on pauses and
+    # backchannels (the "eou detection ran after the audio eot turn was already
+    # flushed" warning). Tune via settings.turn_min_delay / turn_max_delay.
+    turn_handling: dict = {
+        "endpointing": {"min_delay": s.turn_min_delay, "max_delay": s.turn_max_delay},
+        "interruption": {"min_words": s.interruption_min_words},
+    }
     if turn_detection is not None:
-        kwargs["turn_detection"] = turn_detection
+        turn_handling["turn_detection"] = turn_detection
+
+    kwargs: dict = {
+        "vad": vad,
+        "stt": stt,
+        "llm": llm,
+        "tts": tts,
+        "turn_handling": turn_handling,
+    }
 
     session = AgentSession(**kwargs)
     _log.info(
@@ -107,6 +147,10 @@ def build_session(settings: Settings | None = None):
         llm=make_llm_name(llm),
         tts=make_tts_name(tts),
         turn_detector=turn_detection is not None,
+        min_delay=s.turn_min_delay,
+        max_delay=s.turn_max_delay,
+        vad_threshold=s.vad_activation_threshold,
+        interruption_min_words=s.interruption_min_words,
     )
     return session
 

@@ -47,6 +47,8 @@ this module never requires livekit; constructing/using the nodes does.
 
 from __future__ import annotations
 
+import asyncio
+
 from stewardai.common.audio import SAMPLE_RATE, Message, Transcript
 from stewardai.common.logging import get_logger
 from stewardai.interfaces import LLMBackend, STTBackend, TTSBackend
@@ -162,12 +164,24 @@ def build_llm_node(backend: LLMBackend, *, system: str | None = None, temperatur
             messages = _chat_ctx_to_messages(self._chat_ctx)
             request_id = _gen_id()
             _log.info("llm_chat", backend=self._inner.name, messages=len(messages))
-            async for delta in self._inner.complete(
-                messages, system=self._system, temperature=self._temperature
-            ):
-                if not delta:
-                    continue
-                self._event_ch.send_nowait(_make_chat_chunk(lk_llm, request_id, delta))
+            n = 0
+            try:
+                async for delta in self._inner.complete(
+                    messages, system=self._system, temperature=self._temperature
+                ):
+                    if not delta:
+                        continue
+                    n += 1
+                    self._event_ch.send_nowait(_make_chat_chunk(lk_llm, request_id, delta))
+            except asyncio.CancelledError:
+                # Expected on barge-in: the user started a new turn mid-generation.
+                _log.info("llm_cancelled", backend=self._inner.name, deltas=n)
+                raise
+            except Exception as exc:  # noqa: BLE001 - surface, don't swallow
+                _log.warning("llm_error", backend=self._inner.name, deltas=n, error=str(exc))
+                raise
+            else:
+                _log.info("llm_done", backend=self._inner.name, deltas=n)
 
     class StewardLLM(lk_llm.LLM):  # type: ignore[misc, valid-type]
         """LLM adapter for our ``LLMBackend``."""

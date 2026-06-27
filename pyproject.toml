@@ -30,11 +30,14 @@ dev = [
     "mypy>=1.10",
 ]
 # Real backends. Install ONE of cpu/cuda on the target box.
-# torch for cuda must come from the CUDA index; see scripts/setup.sh.
+# torch for cuda must come from the CUDA index; see scripts/setup_gpu.sh.
+# v1 STT = faster-whisper (clean deps). Parakeet/NeMo is a separate extra because
+# its deps are heavy + invasive (numpy downgrade) — install only when using it.
 cpu = [
     "torch>=2.2",
     "onnxruntime>=1.17",
-    "nemo_toolkit[asr]>=2.0",
+    "faster-whisper>=1.0",
+    "piper-tts>=1.0",
     "kokoro>=0.7",
     "livekit-agents>=1.0",
     "livekit-plugins-silero>=1.0",
@@ -42,12 +45,23 @@ cpu = [
 ]
 cuda = [
     "torch>=2.2",
-    "onnxruntime-gpu>=1.17",
-    "nemo_toolkit[asr]>=2.0",
+    # VAD + turn-detector are tiny ONNX models — keep them on CPU onnxruntime to
+    # avoid cuDNN version conflicts with CTranslate2 (and free the GPU for STT/TTS).
+    "onnxruntime>=1.17",
+    "faster-whisper>=1.0",
+    "piper-tts>=1.0",
     "kokoro>=0.7",
     "livekit-agents>=1.0",
     "livekit-plugins-silero>=1.0",
     "livekit-plugins-turn-detector>=1.0",
+    # CTranslate2 (faster-whisper) GPU runtime libs — pin so it doesn't fall back to
+    # a mismatched system cuDNN. CTranslate2 4.x needs cuDNN 9 for CUDA 12.
+    "nvidia-cublas-cu12",
+    "nvidia-cudnn-cu12>=9,<10",
+]
+# Parakeet STT (NeMo). Heavy + invasive deps; v2 isolates this in its own image.
+parakeet = [
+    "nemo_toolkit[asr]>=2.0",
 ]
 
 [tool.hatch.build.targets.wheel]

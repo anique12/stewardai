@@ -9,7 +9,7 @@
   <body>
     <header>
       <h1>TTS &mdash; text to speech</h1>
-      <div class="sub">POST text + voice &rarr; assembled 16&nbsp;kHz WAV &rarr; playback.</div>
+      <div class="sub">POST text + voice &rarr; <strong>streamed</strong> 16&nbsp;kHz PCM &rarr; incremental playback.</div>
       <nav>
         <a href="/">Home</a>
         <a href="/tts">TTS</a>
@@ -29,18 +29,14 @@
           <button id="speak">Speak</button>
         </div>
         <div class="status" id="status"></div>
-        <div class="row">
-          <audio id="player" controls style="width: 100%"></audio>
-        </div>
       </div>
     </main>
 
     <script type="module">
-      import { $, setStatus } from "/static/app.js";
+      import { $, setStatus, PCMPlayer } from "/static/app.js";
 
       const voiceSel = $("#voice");
       const status = $("#status");
-      const player = $("#player");
 
       async function loadVoices() {
         try {
@@ -57,7 +53,13 @@
       async function speak() {
         const text = $("#text").value.trim();
         if (!text) return;
-        setStatus(status, "Synthesizing...");
+        setStatus(status, "Synthesizing (streaming)…", true);
+        // PCMPlayer uses Web Audio; the Speak click is the user gesture that lets it run.
+        const player = new PCMPlayer(16000);
+        await player.resume();
+        const t0 = performance.now();
+        let firstAudioMs = null;
+        let bytes = 0;
         try {
           const res = await fetch("/api/tts", {
             method: "POST",
@@ -65,10 +67,31 @@
             body: JSON.stringify({ text, voice: voiceSel.value }),
           });
           if (!res.ok) throw new Error("HTTP " + res.status);
-          const blob = await res.blob();
-          player.src = URL.createObjectURL(blob);
-          await player.play();
-          setStatus(status, `Done — ${(blob.size / 1024).toFixed(1)} KB WAV`);
+          const reader = res.body.getReader();
+          let leftover = new Uint8Array(0); // carry an odd trailing byte across reads
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            let chunk = value;
+            if (leftover.length) {
+              const m = new Uint8Array(leftover.length + value.length);
+              m.set(leftover, 0);
+              m.set(value, leftover.length);
+              chunk = m;
+              leftover = new Uint8Array(0);
+            }
+            const even = chunk.length - (chunk.length % 2);
+            if (even > 0) {
+              if (firstAudioMs === null) {
+                firstAudioMs = Math.round(performance.now() - t0);
+              }
+              player.push(chunk.slice(0, even).buffer); // s16le -> Web Audio
+              bytes += even;
+            }
+            if (even < chunk.length) leftover = chunk.slice(even);
+          }
+          const secs = (bytes / 2 / 16000).toFixed(2);
+          setStatus(status, `Done — first audio ${firstAudioMs} ms · ${secs}s of speech`);
         } catch (err) {
           setStatus(status, "Error: " + err.message);
         }

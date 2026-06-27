@@ -8,9 +8,10 @@
   </head>
   <body>
     <header>
-      <h1>Pipeline &mdash; full voice loop</h1>
+      <h1>Pipeline &mdash; LiveKit agent</h1>
       <div class="sub">
-        Mic &rarr; STT &rarr; streamed LLM reply &rarr; streamed TTS audio, with per-stage timing.
+        Mic &rarr; a real LiveKit <strong>AgentSession</strong> (VAD + turn detector +
+        STT/LLM/TTS nodes) &rarr; streamed agent audio. Metrics below are LiveKit's own per-turn measurements.
       </div>
       <nav>
         <a href="/">Home</a>
@@ -41,38 +42,75 @@
       </div>
 
       <div class="card">
-        <h2>Timing (last turn)</h2>
-        <div class="timing" id="timing"></div>
+        <h2>Latency (last turn)</h2>
+        <div class="timing" id="metrics"></div>
+        <div class="sub" style="margin-top: 8px">
+          End-of-turn delay = how long after you stopped before LiveKit committed the turn.
+          TTFT = LLM time to first token. TTFB = TTS time to first audio.
+        </div>
       </div>
 
       <div class="card">
-        <h2>Log</h2>
+        <h2>Timeline</h2>
         <div class="log" id="log"></div>
       </div>
     </main>
 
     <script type="module">
-      import {
-        $,
-        wsURL,
-        startMic,
-        PCMPlayer,
-        setStatus,
-        renderTiming,
-        logLine,
-      } from "/static/app.js";
+      import { $, wsURL, startMic, PCMPlayer, setStatus, logLine } from "/static/app.js";
 
       const talkBtn = $("#talk");
       const status = $("#status");
       const transcriptEl = $("#transcript");
       const responseEl = $("#response");
-      const timingEl = $("#timing");
+      const metricsEl = $("#metrics");
       const logEl = $("#log");
 
       let mic = null;
       let ws = null;
       let player = null;
       let talking = false;
+      let turn = {}; // accumulated metrics for the current turn
+
+      // Ordered metric rows: label -> value (ms). Missing keys are hidden.
+      const METRIC_ROWS = [
+        ["eou_delay_ms", "Finished → turn detected"],
+        ["transcription_delay_ms", "Transcription delay"],
+        ["stt_ms", "STT decode"],
+        ["llm_ttft_ms", "LLM first token (TTFT)"],
+        ["llm_ms", "LLM full reply"],
+        ["tts_ttfb_ms", "TTS first audio (TTFB)"],
+        ["tts_ms", "TTS synth"],
+      ];
+
+      function renderMetrics() {
+        metricsEl.innerHTML = METRIC_ROWS.filter(([k]) => turn[k] != null)
+          .map(
+            ([k, label]) =>
+              `<div class="metric"><div class="k">${label}</div><div class="v">${turn[k]} ms</div></div>`
+          )
+          .join("");
+      }
+
+      function handleMetric(msg) {
+        if (msg.kind === "eou") {
+          turn.eou_delay_ms = msg.eou_delay_ms;
+          turn.transcription_delay_ms = msg.transcription_delay_ms;
+          logLine(logEl, `⏱ turn detected — ${msg.eou_delay_ms} ms after you stopped speaking`);
+        } else if (msg.kind === "stt") {
+          turn.stt_ms = msg.duration_ms;
+          logLine(logEl, `STT decoded in ${msg.duration_ms} ms`);
+        } else if (msg.kind === "llm") {
+          turn.llm_ttft_ms = msg.ttft_ms;
+          turn.llm_ms = msg.duration_ms;
+          logLine(logEl, `LLM first token ${msg.ttft_ms} ms · full reply ${msg.duration_ms} ms`);
+        } else if (msg.kind === "tts") {
+          turn.tts_ttfb_ms = msg.ttfb_ms;
+          turn.tts_ms = msg.duration_ms;
+          logLine(logEl, `TTS first audio ${msg.ttfb_ms} ms`);
+        }
+        renderMetrics();
+      }
 
       async function start() {
         player = new PCMPlayer(16000);
@@ -80,7 +118,8 @@
         ws = new WebSocket(wsURL("/ws/pipeline"));
         ws.binaryType = "arraybuffer";
         ws.onopen = async () => {
-          logLine(logEl, "ws open; starting mic");
+          logLine(logEl, "ws open; building agent session…");
+          setStatus(status, "Starting agent…", true);
           mic = await startMic((buf) => {
             if (ws && ws.readyState === WebSocket.OPEN) ws.send(buf);
           });
@@ -88,27 +127,33 @@
             logEl,
             `mic @ ${mic.sampleRate} Hz (${mic.usingWorklet ? "AudioWorklet" : "ScriptProcessor"})`
           );
-          setStatus(status, "Listening...", true);
         };
         ws.onmessage = (e) => {
           if (typeof e.data !== "string") {
-            // binary: TTS audio frame
-            player.push(e.data);
+            player.push(e.data); // agent TTS audio frame
             return;
           }
           const msg = JSON.parse(e.data);
-          if (msg.type === "transcript") {
+          if (msg.type === "ready") {
+            setStatus(status, "Listening — just talk", true);
+            logLine(logEl, "agent ready; LiveKit is handling turns");
+          } else if (msg.type === "transcript") {
+            turn = {}; // new turn → reset metrics
+            metricsEl.innerHTML = "";
             transcriptEl.textContent = msg.text;
             responseEl.textContent = "";
-            logLine(logEl, "transcript: " + msg.text);
-          } else if (msg.type === "token") {
-            responseEl.textContent += msg.text;
-          } else if (msg.type === "timing") {
-            renderTiming(timingEl, msg);
-            logLine(
-              logEl,
-              `turn done — total ${msg.t_total} ms (stt ${msg.t_stt}, ttft ${msg.t_llm_ttft}, ttfa ${msg.t_tts_ttfa})`
-            );
+            logLine(logEl, "you: " + msg.text);
+          } else if (msg.type === "reply") {
+            responseEl.textContent = msg.text;
+            logLine(logEl, "assistant: " + msg.text);
+          } else if (msg.type === "metric") {
+            handleMetric(msg);
+          } else if (msg.type === "clear") {
+            if (player) player.flush();
+            logLine(logEl, "(interrupted)");
+          } else if (msg.type === "error") {
+            setStatus(status, "Error: " + msg.text);
+            logLine(logEl, "error: " + msg.text);
           }
         };
         ws.onclose = () => logLine(logEl, "ws closed");
@@ -131,7 +176,8 @@
         if (talking) {
           transcriptEl.textContent = "";
           responseEl.textContent = "";
-          timingEl.innerHTML = "";
+          metricsEl.innerHTML = "";
+          turn = {};
           await start();
         } else {
           await stop();

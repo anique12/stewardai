@@ -142,6 +142,7 @@ export class PCMPlayer {
       sampleRate: rate,
     });
     this.cursor = 0;
+    this.sources = new Set(); // live buffer-source nodes, for flush()
   }
 
   // Accepts an ArrayBuffer of s16le bytes.
@@ -159,6 +160,19 @@ export class PCMPlayer {
     const start = Math.max(now, this.cursor);
     node.start(start);
     this.cursor = start + buf.duration;
+    this.sources.add(node);
+    node.onended = () => this.sources.delete(node);
+  }
+
+  // Stop everything queued/playing immediately (barge-in: the agent was cut off).
+  flush() {
+    for (const node of this.sources) {
+      try {
+        node.stop();
+      } catch (_) {}
+    }
+    this.sources.clear();
+    this.cursor = this.ctx.currentTime;
   }
 
   async resume() {

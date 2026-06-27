@@ -35,7 +35,11 @@ class LiteLLMClient:
         payload.extend({"role": m.role, "content": m.content} for m in messages)
 
         response = await litellm.acompletion(
-            model=self.model, messages=payload, stream=True, temperature=temperature
+            model=self.model,
+            messages=payload,
+            stream=True,
+            temperature=temperature,
+            timeout=self._s.llm_timeout_s,  # backstop against a silently hung stream
         )
         async for chunk in response:
             delta = chunk.choices[0].delta.content

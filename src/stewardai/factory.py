@@ -18,10 +18,12 @@ if TYPE_CHECKING:
 _STT = {
     "stub": ("stewardai.stt.stub", "StubSTT"),
     "parakeet_nemo": ("stewardai.stt.parakeet_nemo", "ParakeetNeMoSTT"),
+    "faster_whisper": ("stewardai.stt.whisper", "WhisperSTT"),
 }
 _TTS = {
     "stub": ("stewardai.tts.stub", "StubTTS"),
     "kokoro": ("stewardai.tts.kokoro", "KokoroTTS"),
+    "piper": ("stewardai.tts.piper", "PiperTTS"),
 }
 _LLM = {
     "stub": ("stewardai.llm.stub", "StubLLM"),

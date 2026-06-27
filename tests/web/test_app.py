@@ -44,12 +44,12 @@ def test_voices_contains_stub(client):
     assert "stub" in voices
 
 
-def test_tts_returns_wav(client):
+def test_tts_streams_pcm(client):
     res = client.post("/api/tts", json={"text": "hi", "voice": "stub"})
     assert res.status_code == 200
-    assert res.headers["content-type"] == "audio/wav"
-    # WAV files begin with the RIFF magic.
-    assert res.content[:4] == b"RIFF"
+    assert "octet-stream" in res.headers["content-type"]
+    body = res.content  # streamed raw s16le PCM
+    assert len(body) > 0 and len(body) % 2 == 0
 
 
 def test_ws_stt_yields_transcript(client, speech_frame, silence_frame):
