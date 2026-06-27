@@ -130,6 +130,8 @@ def build_session(
         "interruption": {
             "min_words": s.interruption_min_words,
             "resume_false_interruption": s.resume_false_interruption,
+            "mode": s.interruption_mode,
+            "min_duration": s.interruption_min_duration,
         },
     }
     if turn_detection is not None:

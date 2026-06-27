@@ -19,7 +19,7 @@ Use the **Ubuntu 24.04** CUDA image — it ships **Python 3.12** (our code needs
 the `-2204-` images are Python 3.10, too old). Driver is baked in (no install metadata).
 ```bash
 gcloud compute instances create stewardai-gpu \
-  --zone=us-central1-c \
+  --zone=us-central1-a \
   --machine-type=g2-standard-8 \
   --accelerator=type=nvidia-l4,count=1 \
   --maintenance-policy=TERMINATE \
@@ -40,10 +40,10 @@ Repo: `github.com/anique12/stewardai` (private). Iterate later with `git push`
 PAT (Contents: read, this repo only) in the clone URL, or make it public:
 `gh repo edit anique12/stewardai --visibility public --accept-visibility-change-consequences`.
 
-## 3. SSH in + clone + install  (zone = us-central1-c)
+## 3. SSH in + clone + install  (zone = us-central1-a)
 From Cloud Shell:
 ```bash
-gcloud compute ssh stewardai-gpu --zone=us-central1-c
+gcloud compute ssh stewardai-gpu --zone=us-central1-a
 # on the VM:
 git clone https://github_pat_TOKEN@github.com/anique12/stewardai.git   # or public URL
 cd stewardai
@@ -71,20 +71,40 @@ bash scripts/run_gpu.sh
 First start downloads the whisper-turbo CT2 model (~1.6GB) + the Piper voice, then
 warms both — give it a few minutes. Watch for `warmup_done` in the logs.
 
-## 6. Test from your laptop (SSH tunnel — don't open 8080 to the internet)
-In a second terminal on your **Mac**:
+## 6. Open the page in the browser (via Cloud Shell — port forward + Web Preview)
+The `/pipeline` page needs the mic, which requires a secure context (HTTPS/localhost),
+so don't hit the VM's public IP over HTTP. With the server running on the VM, open a
+**second Cloud Shell tab** and tunnel its port 8080 to the VM (force IPv4 — `localhost`
+resolves to `::1`, which Cloud Shell can't bind):
 ```bash
-gcloud compute ssh stewardai-gpu --zone=us-central1-c -- -N -L 8080:localhost:8080
+gcloud compute ssh stewardai-gpu --zone=us-central1-a -- -N -L 127.0.0.1:8080:127.0.0.1:8080
 ```
-Then open **http://localhost:8080/pipeline**, click Talk. Watch the **Latency**
-panel — the EOU/STT numbers should now be a fraction of the CPU values. If turns
-feel laggy or too eager, tune `TURN_MIN_DELAY` in `.env` and restart `run_gpu.sh`.
+Leave it running, then click **Web Preview → port 8080** (top-right of Cloud Shell) and
+add **`/pipeline`** to the URL. Watch the **Latency** panel; tune `TURN_MIN_DELAY` /
+interruption settings in `.env` and restart `run_gpu.sh` as needed.
 
-## 7. STOP the VM when done (it costs money running)
+(From a Mac with gcloud installed instead: same command, then open `http://localhost:8080/pipeline`.)
+
+---
+
+## Day-to-day commands (zone = us-central1-a)
 ```bash
-gcloud compute instances stop stewardai-gpu --zone=us-central1-c
+# SSH into the box
+gcloud compute ssh stewardai-gpu --zone=us-central1-a
+
+# find the zone if unsure
+gcloud compute instances list
+
+# START (before a session) / STOP (after — saves money)
+gcloud compute instances start stewardai-gpu --zone=us-central1-a
+gcloud compute instances stop  stewardai-gpu --zone=us-central1-a
+
+# port-forward for the browser (Cloud Shell), then Web Preview -> 8080
+gcloud compute ssh stewardai-gpu --zone=us-central1-a -- -N -L 127.0.0.1:8080:127.0.0.1:8080
 ```
-Stopped = ~$4/mo (disk only). Spot on-demand ≈ $0.28/hr while running.
+Stopped = ~$4/mo (disk only); running on-demand ≈ $0.85/hr (Spot ≈ $0.28/hr). **Stop it
+when you're done.** Note: an L4 stockout can block `start` in this zone — if so, snapshot
+the disk and recreate in another zone (see Gotchas).
 
 ---
 

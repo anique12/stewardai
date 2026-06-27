@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     # definitively stops the agent. (Set True for prod if you want backchannels like
     # "mm-hmm" to not cut the agent off.)
     resume_false_interruption: bool = False
+    # Barge-in responsiveness. "vad" = cut off on voice activity (fast, simple);
+    # "adaptive" = ML backchannel-vs-interruption (smarter, but ~1-2s slower to fire
+    # and suppresses speech early in the agent's turn). min_duration = seconds of
+    # speech before a barge-in registers.
+    interruption_mode: str = "vad"
+    interruption_min_duration: float = 0.25
 
     # LLM (Gemini via LiteLLM)
     gemini_api_key: str | None = None
