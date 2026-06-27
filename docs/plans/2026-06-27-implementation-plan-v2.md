@@ -75,7 +75,7 @@ The system is split into **independent services**, each with its **own dependenc
 - Each heavy ML library (NeMo, Kokoro) has a large, opinionated dependency tree. Co-installing them with each other and the app in ONE venv forces a single dependency resolution that downgrades/breaks shared packages and pollutes the namespace. Separate environments eliminate this.
 - A crash/segfault/OOM in one model no longer takes down the whole agent.
 - Each service scales/restarts independently and pins exactly its own system libs (CUDA, espeak-ng).
-- **Latency cost is one localhost hop (~sub-ms to low-ms)** — acceptable, and the same pattern already used for the Vexa bridge.
+- **Latency cost is one local IPC hop (~0.1–1 ms per HTTP-over-Unix-socket call)** — negligible vs. the model stages, and the same pattern already used for the Vexa bridge.
 
 **Co-location:** all services run on the **same host** (the GPU box) and talk over localhost/unix sockets. "Isolated" means separate *processes/containers*, not separate *machines*.
 
@@ -392,10 +392,12 @@ from stewardai_common.audio import Transcript
 class ServiceSTT:
     name = "service"
     def __init__(self, settings):
-        self._url = settings.stt_url.rstrip("/")           # e.g. http://stt:8001
-        self._client = httpx.AsyncClient(timeout=30.0)
+        # HTTP over a Unix domain socket: lowest-latency local IPC; connection kept alive.
+        self._client = httpx.AsyncClient(
+            transport=httpx.AsyncHTTPTransport(uds=settings.stt_uds),  # e.g. /run/stewardai/stt.sock
+            base_url="http://stt", timeout=30.0)
     async def transcribe(self, pcm: bytes, *, sample_rate: int = 16000, lang: str = "en") -> Transcript:
-        r = await self._client.post(f"{self._url}/transcribe", content=pcm,
+        r = await self._client.post("/transcribe", content=pcm,
                                     headers={"content-type": "application/octet-stream"})
         r.raise_for_status(); d = r.json()
         return Transcript(text=d["text"], is_final=d.get("is_final", True))
@@ -453,7 +455,7 @@ async def synth(req: Request):
     return StreamingResponse(gen(), media_type="application/octet-stream")
 ```
 
-**TTS client** (`tts_client.py`): POST text, read the streamed PCM, re-chunk into 640-byte `AudioFrame`s (mirror of `ServiceSTT`, using `httpx` `stream`).
+**TTS client** (`tts_client.py`): same UDS transport as `ServiceSTT` (`httpx.AsyncHTTPTransport(uds=settings.tts_uds)`, `base_url="http://tts"`); POST `{text, voice}`, read the streamed PCM via `httpx` `stream`, re-chunk into 640-byte `AudioFrame`s.
 
 ### 7e. LLM (`orchestrator/backends/llm_litellm.py`) — in-process, complete
 ```python
@@ -599,8 +601,8 @@ DEVICE=cpu                       # cpu|cuda (also set on stt/tts)
 STT_BACKEND=service              # service|stub|inprocess
 TTS_BACKEND=service              # service|stub|inprocess
 LLM_BACKEND=litellm              # litellm|stub
-STT_URL=http://stt:8001
-TTS_URL=http://tts:8002
+STT_UDS=/run/stewardai/stt.sock      # stt service listens here (uvicorn --uds); client dials it
+TTS_UDS=/run/stewardai/tts.sock      # tts service listens here
 GEMINI_API_KEY=...               # reused; never commit
 GEMINI_MODEL=gemini-2.5-flash-lite
 # LLM_MODEL=gemini/...           # optional explicit override (switch model here)
@@ -618,10 +620,10 @@ LOG_LEVEL=info  LOG_FORMAT=json
 
 ## 9. Deployment
 
-- **Each service is its own container** with its own deps (§3, §4). `docker-compose.yml` runs `orchestrator`, `stt`, `tts` on one host, networked over localhost. Vexa runs as its own stack; the bridge socket is shared (mount the Unix socket dir, or use TCP).
+- **Each service is its own container** with its own deps (§3, §4). The `stt`/`tts` services listen on a **Unix domain socket** (`uvicorn stt_service.app:app --uds $STT_UDS`, no TCP port); the orchestrator dials them via the `httpx` UDS transport. Mount a **shared volume** (e.g. `/run/stewardai`) into `orchestrator`, `stt`, and `tts` so the sockets are reachable across containers. Vexa's bridge socket is shared the same way.
 - **GPU:** `stt`/`tts` containers get the GPU (`deploy.resources.reservations.devices` for nvidia; build torch from the CUDA index) and `DEVICE=cuda`. Orchestrator stays CPU.
 - **Model pre-download** is a build/startup step (`scripts/predownload.py`) — the service `/health` must not report ready until the model is loaded.
-- **Mac/dev:** you may run the orchestrator with `STT_BACKEND=stub TTS_BACKEND=stub` + real `litellm` for fast iteration with no heavy deps; OR run the real `stt`/`tts` containers and point `STT_URL`/`TTS_URL` at them. Do **not** install nemo+kokoro+livekit into one shared venv (§4 rule 1).
+- **Mac/dev:** you may run the orchestrator with `STT_BACKEND=stub TTS_BACKEND=stub` + real `litellm` for fast iteration with no heavy deps; OR run the real `stt`/`tts` containers and point `STT_UDS`/`TTS_UDS` at the shared socket dir. **macOS caveat:** Unix sockets between the Docker VM and the host are unreliable on macOS — on Mac, either run the orchestrator in a container too (so all sockets live inside the Linux VM), or fall back to TCP locally. UDS is the production path on a native Linux host. Do **not** install nemo+kokoro+livekit into one shared venv (§4 rule 1).
 - **CPU↔GPU is `DEVICE` only** — same images, same code.
 
 ---
