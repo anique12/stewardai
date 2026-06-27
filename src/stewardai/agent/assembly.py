@@ -127,7 +127,10 @@ def build_session(
     # flushed" warning). Tune via settings.turn_min_delay / turn_max_delay.
     turn_handling: dict = {
         "endpointing": {"min_delay": s.turn_min_delay, "max_delay": s.turn_max_delay},
-        "interruption": {"min_words": s.interruption_min_words},
+        "interruption": {
+            "min_words": s.interruption_min_words,
+            "resume_false_interruption": s.resume_false_interruption,
+        },
     }
     if turn_detection is not None:
         turn_handling["turn_detection"] = turn_detection

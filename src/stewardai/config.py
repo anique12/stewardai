@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     vad_activation_threshold: float = 0.6
     vad_min_speech_duration: float = 0.2
     interruption_min_words: int = 2
+    # LiveKit default True: after a barge-in it pauses, waits, and if it judges the
+    # interruption "false" it RESUMES the same reply. We default False so a barge-in
+    # definitively stops the agent. (Set True for prod if you want backchannels like
+    # "mm-hmm" to not cut the agent off.)
+    resume_false_interruption: bool = False
 
     # LLM (Gemini via LiteLLM)
     gemini_api_key: str | None = None
