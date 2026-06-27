@@ -120,12 +120,15 @@ def _make_queue_audio_output():
             # the agent and calls clear_buffer(). Consumers (e.g. the web layer)
             # set this to tell their client to stop playing buffered audio.
             self.on_clear = None
-            # Per-segment playout tracking so LiveKit's wait_for_playout() reflects
-            # REAL playback time. Without this the framework thinks the turn finished
-            # instantly -> the agent isn't "speaking" -> barge-in has nothing to
-            # interrupt (the bug: new turn fires but old audio keeps playing).
-            self._seg_started_at: float | None = None
+            # Playout tracking. Segments play back-to-back (gaplessly) in the client,
+            # so we keep a cumulative playout cursor = monotonic time when ALL queued
+            # audio finishes — NOT per-segment capture times. Per-segment timing made
+            # multi-sentence replies report playback_finished far too early, so the
+            # agent "stopped speaking" mid-playback and a new turn overlapped the
+            # still-playing audio (the "plays the same audio again" bug).
+            self._seg_capturing: bool = False
             self._seg_seconds: float = 0.0
+            self._playout_cursor: float = 0.0  # monotonic time all queued audio ends
             self._playout_tasks: set[asyncio.Task] = set()
 
         async def capture_frame(self, frame) -> None:  # noqa: ANN001 - rtc/AudioFrame or ours
@@ -142,9 +145,9 @@ def _make_queue_audio_output():
                 sample_rate = frame.sample_rate or SAMPLE_RATE
             else:
                 return
-            # accumulate this segment's real-time duration (s16le -> samples / rate)
-            if self._seg_started_at is None:
-                self._seg_started_at = time.monotonic()
+            # accumulate this segment's audio duration (s16le -> samples / rate)
+            if not self._seg_capturing:
+                self._seg_capturing = True
                 self._seg_seconds = 0.0
             self._seg_seconds += (len(pcm_bytes) / 2) / sample_rate
             await self._queue.put(AudioFrame(pcm=pcm_bytes, sample_rate=sample_rate))
@@ -152,19 +155,23 @@ def _make_queue_audio_output():
         def flush(self) -> None:  # livekit AudioOutput hook; marks a segment boundary
             if has_livekit:
                 super().flush()
-            if self._seg_started_at is None:
+            if not self._seg_capturing:
                 return
-            started_at, seconds = self._seg_started_at, self._seg_seconds
-            self._seg_started_at = None
+            seconds = self._seg_seconds
+            self._seg_capturing = False
             self._seg_seconds = 0.0
             if has_livekit:
-                # report playback_finished once the audio has actually played out
-                task = asyncio.create_task(self._report_playout(started_at, seconds))
+                # this segment plays AFTER everything already queued (gapless), so it
+                # finishes at max(now, cursor) + its duration. Report playback_finished
+                # then — matching when the client actually finishes playing it.
+                end_play = max(time.monotonic(), self._playout_cursor) + seconds
+                self._playout_cursor = end_play
+                task = asyncio.create_task(self._report_playout(end_play, seconds))
                 self._playout_tasks.add(task)
                 task.add_done_callback(self._playout_tasks.discard)
 
-        async def _report_playout(self, started_at: float, seconds: float) -> None:
-            remaining = seconds - (time.monotonic() - started_at)
+        async def _report_playout(self, end_play: float, seconds: float) -> None:
+            remaining = end_play - time.monotonic()
             if remaining > 0:
                 await asyncio.sleep(remaining)
             self.on_playback_finished(playback_position=seconds, interrupted=False)
@@ -181,7 +188,9 @@ def _make_queue_audio_output():
             for task in list(self._playout_tasks):
                 task.cancel()
             self._playout_tasks.clear()
-            self._seg_started_at = None
+            self._seg_capturing = False
+            self._seg_seconds = 0.0
+            self._playout_cursor = time.monotonic()  # nothing queued anymore
             if has_livekit:
                 for _ in range(self._pending_playback_count):
                     self.on_playback_finished(playback_position=0.0, interrupted=True)
