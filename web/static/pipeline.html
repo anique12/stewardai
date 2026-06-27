@@ -10,14 +10,14 @@
       #orb { width: 280px; height: 280px; max-width: 80vw; }
       .controls { display: flex; align-items: center; gap: 14px; }
       .icon-btn {
-        width: 52px; height: 52px; border-radius: 50%; border: 1px solid #2a2f3a;
+        width: 52px; height: 52px; padding: 0; border-radius: 50%; border: 1px solid #2a2f3a;
         background: #161a22; color: #e6e9ef; display: grid; place-items: center;
         cursor: pointer; transition: background .15s, border-color .15s, opacity .15s;
       }
       .icon-btn:hover { background: #1d2330; }
       .icon-btn:disabled { opacity: .4; cursor: not-allowed; }
       .icon-btn.muted { background: #3a1d22; border-color: #7f1d2e; color: #ff8a9b; }
-      .icon-btn svg { width: 24px; height: 24px; }
+      .icon-btn svg { width: 24px; height: 24px; display: block; }
     </style>
   </head>
   <body>
@@ -83,21 +83,21 @@
       muteBtn.innerHTML = MIC_SVG;
 
       let mic = null, ws = null, player = null, talking = false, muted = false;
-      let turn = {}, micLevel = 0, animT = 0;
+      let turn = {}, micLevel = 0, animT = 0, smoothLevel = 0;
 
       // --- orb visualizer ---------------------------------------------------
       const orb = $("#orb");
       const g = orb.getContext("2d");
       const LAYERS = [
-        { color: "#22d3ee", off: 0, speed: 0.9 },   // cyan
-        { color: "#3b82f6", off: 2.1, speed: -1.2 },  // blue
-        { color: "#a855f7", off: 4.2, speed: 0.7 },   // purple
+        { color: "#22d3ee", off: 0, speed: 0.45 },   // cyan
+        { color: "#3b82f6", off: 2.1, speed: -0.6 },  // blue
+        { color: "#a855f7", off: 4.2, speed: 0.35 },  // purple
       ];
       function drawOrb(level) {
         const w = orb.width, h = orb.height, cx = w / 2, cy = h / 2;
         g.clearRect(0, 0, w, h);
         const base = Math.min(w, h) * 0.26;
-        const amp = base * 0.10 + level * base * 0.55; // idle wave + audio-reactive
+        const amp = base * 0.09 + level * base * 0.32; // gentle idle wave + softened audio-reactive
         g.globalCompositeOperation = "lighter";
         for (const L of LAYERS) {
           g.beginPath();
@@ -122,11 +122,12 @@
         g.globalCompositeOperation = "source-over";
       }
       function loop() {
-        animT += 0.016;
+        animT += 0.011; // slower morph
         const agent = player ? player.level() : 0;
-        const lvl = talking ? Math.max(agent, micLevel) : 0;
-        micLevel *= 0.88; // decay
-        drawOrb(lvl);
+        const target = talking ? Math.max(agent, micLevel) : 0;
+        smoothLevel += (target - smoothLevel) * 0.06; // ease in/out — no jumpy beats
+        micLevel *= 0.9;
+        drawOrb(smoothLevel);
         requestAnimationFrame(loop);
       }
       loop();
@@ -161,12 +162,12 @@
           logLine(logEl, "ws open; building agent session…");
           setStatus(status, "Starting agent…", true);
           mic = await startMic((buf) => {
-            // mic level for the orb (always), but only send audio when unmuted
+            if (muted) return; // muted: don't send to the agent AND don't drive the orb
             const i16 = new Int16Array(buf);
             let s = 0;
             for (let i = 0; i < i16.length; i++) { const v = i16[i] / 32768; s += v * v; }
             micLevel = Math.max(micLevel, Math.sqrt(s / i16.length));
-            if (!muted && ws && ws.readyState === WebSocket.OPEN) ws.send(buf);
+            if (ws && ws.readyState === WebSocket.OPEN) ws.send(buf);
           });
           muteBtn.disabled = false;
           logLine(logEl, `mic @ ${mic.sampleRate} Hz`);
