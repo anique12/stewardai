@@ -505,43 +505,39 @@ class LiteLLMClient:
 - `AgentSession.start(room=...)` — `room` is optional; if `session.input.audio` is set before `start()`, RoomIO is bypassed.
 - Imports: `from livekit import rtc`; `from livekit.agents.utils import aio`; `from livekit.agents.voice import io as lk_io` (`AudioInput`, `AudioOutput`, `AudioOutputCapabilities`).
 
-**`agent/nodes.py`** — adapt our backends to LiveKit node base classes. **VERIFY** each base class + method:
+**`agent/nodes.py`** — adapt our backends to LiveKit node base classes. **CONFIRMED on livekit-agents 1.6.4** (these construct cleanly inside `AgentSession`):
 - STT node: subclass `livekit.agents.stt.STT(capabilities=STTCapabilities(streaming=False, interim_results=False))`; implement `async def _recognize_impl(self, buffer, *, language, conn_options)` → flatten `buffer` to s16le → `await our_stt.transcribe(pcm)` → return `SpeechEvent(type=FINAL_TRANSCRIPT, alternatives=[SpeechData(language=language, text=..., confidence=...)])`.
 - LLM node: subclass `livekit.agents.llm.LLM`; `chat(...)` returns an `LLMStream` whose `_run` pushes `ChatChunk(id=..., delta=ChoiceDelta(role="assistant", content=delta))`.
 - TTS node: subclass `livekit.agents.tts.TTS(capabilities=TTSCapabilities(streaming=False), sample_rate=16000, num_channels=1)`; `synthesize(text, *, conn_options)` returns a `ChunkedStream` whose `_run(output_emitter)` calls `output_emitter.initialize(request_id, 16000, 1, mime_type="audio/pcm")` then `.push(pcm)`/`.flush()`. (Older 1.x: `_run(self)` pushing `SynthesizedAudio(frame=rtc.AudioFrame(...))` — support both via `inspect.signature`.)
 
-**`agent/assembly.py`**:
+**`agent/assembly.py`** — uses the CURRENT `inference` API (`livekit.plugins.silero` and `livekit.plugins.turn_detector` are DEPRECATED in 1.6.x):
 ```python
 def build_session(settings):
-    from livekit.agents import AgentSession, Agent
-    from livekit.plugins import silero
+    from livekit.agents import AgentSession, Agent, inference
     from .nodes import build_stt_node, build_llm_node, build_tts_node
     from ..bridge.audio_input import PushAudioInput
     from ..bridge.audio_output import QueueAudioOutput
-    turn = _load_turn_detector()                              # VERIFY: turn_detector.multilingual.MultilingualModel()
-    session = AgentSession(vad=silero.VAD.load(), stt=build_stt_node(settings),
-                           llm=build_llm_node(settings), tts=build_tts_node(settings),
-                           turn_detection=turn)
+    session = AgentSession(
+        vad=inference.VAD(model="silero"),                          # local Silero
+        stt=build_stt_node(make_stt(settings)),
+        llm=build_llm_node(make_llm(settings)),
+        tts=build_tts_node(make_tts(settings)),
+        turn_detection=inference.TurnDetector(version="v1-mini"),   # local CPU (v1 = hosted via LiveKit Inference)
+    )
     session.input.audio = PushAudioInput()
-    session.output.audio = QueueAudioOutput()
+    session.output.audio = QueueAudioOutput(label="vexa")
     return session
 
 async def run_agent(settings):
     from livekit.agents import Agent
     from ..bridge.audio_input import SocketAudioBridge
     session = build_session(settings)
-    bridge = SocketAudioBridge(settings)                      # serves the Vexa PCM socket
-    bridge.attach(session.input.audio)                        # pump socket frames -> PushAudioInput
+    bridge = SocketAudioBridge(settings)                            # serves the Vexa PCM socket
+    bridge.attach(session.input.audio)                              # pump socket frames -> PushAudioInput
     await session.start(agent=Agent(instructions=settings.system_prompt))  # NO room=
     await bridge.run_forever()
-
-def _load_turn_detector():
-    try:
-        from livekit.plugins.turn_detector.multilingual import MultilingualModel
-        return MultilingualModel()
-    except Exception:
-        return None   # fall back to VAD-only; log a warning
 ```
+> **CONFIRMED (v1 spike, livekit-agents 1.6.4):** `AgentSession` builds roomless with `inference.VAD(model="silero")` + `inference.TurnDetector(version="v1-mini")` + the `nodes.py` adapters (`session_built`, `turn_detector: true`). **`v1-mini` = local CPU** turn detector; **`v1` routes to LiveKit Inference (hosted, needs creds)** — for self-hosted use `v1-mini` and VERIFY at runtime it does not require LiveKit Cloud. **Migrate before v2.0:** pass `turn_handling=TurnHandlingOptions(...)` instead of `turn_detection=` (the latter still works in 1.6.x with a deprecation warning).
 
 ### 7g. Vexa ↔ agent bridge
 

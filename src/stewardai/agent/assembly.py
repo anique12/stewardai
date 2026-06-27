@@ -49,45 +49,30 @@ _DEFAULT_INSTRUCTIONS = (
 
 
 def _load_vad():
-    """Load the Silero VAD plugin (lazy; needs the livekit extra)."""
-    from livekit.plugins import silero  # type: ignore
+    """Local Silero VAD via the current inference API.
 
-    return silero.VAD.load()
+    (``livekit.plugins.silero`` is deprecated in 1.6.x; ``inference.VAD`` is the
+    replacement and runs the bundled Silero model locally — no LiveKit Cloud.)
+    """
+    from livekit.agents import inference  # type: ignore
+
+    return inference.VAD(model="silero")
 
 
 def _load_turn_detector():
-    """Load the audio turn-detector (v1-mini). Returns ``None`` if unavailable.
+    """Audio Turn Detector v1.0. Returns ``None`` if unavailable (VAD-only).
 
-    Tries the current multilingual audio model, then the legacy ``EOUModel``
-    symbol. Any import/attribute failure logs a warning and returns ``None`` so
-    the session still runs VAD-only.
+    ``version="v1-mini"`` is the small model intended to run locally on CPU;
+    ``version="v1"`` is the larger model served via LiveKit Inference (hosted).
+    (Replaces the deprecated ``livekit.plugins.turn_detector``.)
     """
     try:
-        from livekit.plugins import turn_detector  # type: ignore
-    except Exception as exc:  # noqa: BLE001 - plugin absent
+        from livekit.agents import inference  # type: ignore
+
+        return inference.TurnDetector(version="v1-mini")
+    except Exception as exc:  # noqa: BLE001
         _log.warning("turn_detector_unavailable", error=str(exc))
         return None
-
-    # Current API: submodule classes (audio v1-mini, multilingual).
-    try:
-        from livekit.plugins.turn_detector.multilingual import (  # type: ignore
-            MultilingualModel,
-        )
-
-        return MultilingualModel()
-    except Exception:  # noqa: BLE001 - fall through to legacy symbols
-        pass
-
-    # Legacy API surfaces: a top-level EOUModel / TurnDetector.
-    for attr in ("EOUModel", "TurnDetector"):
-        cls = getattr(turn_detector, attr, None)
-        if cls is not None:
-            try:
-                return cls()
-            except Exception as exc:  # noqa: BLE001
-                _log.warning("turn_detector_ctor_failed", attr=attr, error=str(exc))
-    _log.warning("turn_detector_no_known_class")
-    return None
 
 
 def build_session(settings: Settings | None = None):
