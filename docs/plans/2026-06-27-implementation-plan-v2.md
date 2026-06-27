@@ -421,6 +421,8 @@ class ServiceSTT:
 ### 7d. TTS service (`services/tts`) — Kokoro behind HTTP (streams PCM)
 
 > The TTS image MUST install Kokoro's G2P system dependency, or synthesis fails at runtime: `RUN apt-get update && apt-get install -y espeak-ng`.
+>
+> **CONFIRMED (v1 spike, kokoro 0.9.4):** the API below works as written — `from kokoro import KPipeline`, `KPipeline(lang_code="a", device=...)`, iterate `pipeline(text, voice=...)` for per-segment results whose `.audio` is 24 kHz float (resample to 16 kHz). Voices `af_heart` (default, validated), `af_bella`, `am_michael`, `bf_emma`. Validated by a Kokoro→Parakeet round-trip (synthesized speech transcribed back to the exact input text).
 
 **`kokoro_engine.py`**:
 ```python
