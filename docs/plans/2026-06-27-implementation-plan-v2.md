@@ -422,7 +422,7 @@ class ServiceSTT:
 
 > The TTS image MUST install Kokoro's G2P system dependency, or synthesis fails at runtime: `RUN apt-get update && apt-get install -y espeak-ng`.
 >
-> **CONFIRMED (v1 spike, kokoro 0.9.4):** the API below works as written — `from kokoro import KPipeline`, `KPipeline(lang_code="a", device=...)`, iterate `pipeline(text, voice=...)` for per-segment results whose `.audio` is 24 kHz float (resample to 16 kHz). Voices `af_heart` (default, validated), `af_bella`, `am_michael`, `bf_emma`. Validated by a Kokoro→Parakeet round-trip (synthesized speech transcribed back to the exact input text).
+> **CONFIRMED (v1 spike, kokoro 0.9.4):** the API below works as written — `from kokoro import KPipeline`, `KPipeline(lang_code="a", device=...)`, iterate `pipeline(text, voice=...)` for per-segment results whose `.audio` is 24 kHz float (resample to 16 kHz). Voices `af_heart` (default, validated), `af_bella`, `am_michael`, `bf_emma`. Validated by a Kokoro→Parakeet round-trip (synthesized speech transcribed back to the exact input text). **Stream per-segment:** run the Kokoro generator in a worker thread and hand each segment's PCM to the event loop via a `queue` *as it is produced* — do NOT collect all segments into a list before yielding (that makes first-audio = whole-utterance synth time). Kokoro cannot stream sub-segment, so first-audio is bounded by synthesizing the first segment; on CPU that's ~1–2 s (GPU ~0.1–0.2 s).
 
 **`kokoro_engine.py`**:
 ```python
