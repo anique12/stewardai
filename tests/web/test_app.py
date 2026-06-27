@@ -6,7 +6,6 @@ import os
 
 import pytest
 from fastapi.testclient import TestClient
-from tests.conftest import silence_frame, speech_frame
 
 
 @pytest.fixture(scope="module")
@@ -53,7 +52,7 @@ def test_tts_returns_wav(client):
     assert res.content[:4] == b"RIFF"
 
 
-def test_ws_stt_yields_transcript(client):
+def test_ws_stt_yields_transcript(client, speech_frame, silence_frame):
     # Speech (loud frames) followed by >600 ms of silence triggers one utterance.
     speech = speech_frame()
     silence = silence_frame()
