@@ -168,7 +168,7 @@ stewardai/
           stt_client.py              # HTTP client -> stt service  (STTBackend)
           tts_client.py              # HTTP client -> tts service  (TTSBackend)
           llm_litellm.py             # LiteLLMClient (Gemini)      (LLMBackend)
-        turn/endpointer.py           # light silence endpointer (web pipeline only)
+        turn/endpointer.py           # Silero-VAD endpointing (+ energy fallback); trims trailing silence
         bridge/                      # Vexa socket in / tts_sink out (§7g)
           transport.py  audio_input.py  audio_output.py  vexa_client.py
         agent/                       # LiveKit roomless assembly (§7f)
@@ -599,6 +599,8 @@ Selection via env: `STT_BACKEND=service|stub|inprocess`, `TTS_BACKEND=service|st
 
 ### 7i. Web test pages (`orchestrator/web/`)
 FastAPI + vanilla JS. Routes: `GET /` `/stt` `/tts` `/pipeline`; `GET /api/voices`; `POST /api/tts` (text→WAV); `WS /ws/stt` (browser streams 16 kHz s16le PCM → `SilenceEndpointer` → `make_stt().transcribe` → transcript JSON); `WS /ws/pipeline` (capture → endpointer → STT → `make_llm().complete` streamed → `make_tts().synthesize` streamed back as binary → `TurnTimer` summary JSON). Browser mic capture: AudioWorklet (ScriptProcessor fallback), downsample to 16 kHz mono s16le, 320-sample frames. The `/pipeline` page exercises STT/LLM/TTS via whatever backends are configured (point at the running services for a real end-to-end test).
+
+**Endpointing — do this exactly (avoids "words during silence"):** use **Silero VAD** for speech detection (it's already in the orchestrator image), NOT a raw RMS energy gate — an energy threshold treats ambient mic noise as speech, and the ASR then **hallucinates words on noise/silence**. Then: require ≥250 ms of detected speech before accepting an utterance, and **trim trailing silence** — send only the speech span (+ ~60 ms tail pad) to STT, because Parakeet (like most ASR) emits phantom words when fed trailing silence. A tuned energy endpointer (threshold ≥0.02, trailing-silence trimmed) is acceptable only as a no-dependency fallback for the standalone pages.
 
 ### 7j. Evals (`services/evals` or a CLI)
 - STT: WER via `jiwer.wer(ref, hyp)` over a labeled clip set + per-clip latency. **Use real labeled audio** (or `say`-generated clips with known text); document that synthetic audio is a wiring check only.
