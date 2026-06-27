@@ -145,6 +145,13 @@ async def ws_stt(ws: WebSocket) -> None:
         return
 
 
+_VOICE_SYSTEM_PROMPT = (
+    "You are StewardAI, a voice assistant in a live meeting. Reply in ONE short, "
+    "conversational sentence (20 words max). Plain spoken text only — no lists, no markdown, "
+    "no emojis. Be direct."
+)
+
+
 @app.websocket("/ws/pipeline")
 async def ws_pipeline(ws: WebSocket) -> None:
     """Full voice loop: capture -> STT -> LLM (stream) -> TTS (stream) over one ws."""
@@ -169,7 +176,9 @@ async def ws_pipeline(ws: WebSocket) -> None:
 
             reply_parts: list[str] = []
             first_token_marked = False
-            async for delta in llm.complete([Message("user", transcript.text)]):
+            async for delta in llm.complete(
+                [Message("user", transcript.text)], system=_VOICE_SYSTEM_PROMPT
+            ):
                 if not first_token_marked:
                     timer.mark("llm_ttft")
                     first_token_marked = True
