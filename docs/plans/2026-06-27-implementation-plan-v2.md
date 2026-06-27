@@ -88,30 +88,41 @@ LLM is always in-process (it's a network API, no local model). VAD + Turn Detect
 
 ---
 
-## 4. What v1 got wrong — and the rules that follow (READ THIS)
+## 4. Non-negotiable practices (do exactly this)
 
-These are concrete failures observed building v1. The rules are mandatory.
+1. **Isolate each heavy backend in its own service/image** (§3). The orchestrator image must NOT install or import `nemo` or `kokoro`. The `stt` image installs only NeMo+torch; the `tts` image only Kokoro+torch. This keeps each dependency resolution independent — no cross-component version downgrades, no namespace collisions.
 
-1. **Monolithic shared venv → dependency hell.** Installing `nemo_toolkit[asr]` into the app's venv **downgraded `numpy` 2.5→2.4.6 and `jiwer` 4.0→3.1.0** and changed `huggingface_hub`/`tokenizers` to satisfy NeMo's pins, and a NeMo dependency shipped a top-level `tests` package that **shadowed the project's `tests/`** and broke the suite.
-   **Rule:** Isolate heavy backends in their own service/venv/container (§3). The orchestrator must NOT import `nemo` or `kokoro`.
+2. **A component is "done" only when its real backend is installed and validated against a real input** (§10). Stubs exist solely for tests and pipeline wiring — never treat a stub as the finished component.
 
-2. **"Built" was conflated with "running."** v1 shipped with **stub** STT/TTS active and the real models never installed/run; it was described as working when only the LLM was real.
-   **Rule:** A component is "done" only when its **real backend is installed and validated against a real input** (§ validation gates). Stubs are for tests and pipeline wiring only.
+3. **Use only the models in §2.** Never substitute an STT/TTS model. If a locked model won't run in an environment, fix the environment (or isolate it).
 
-3. **Off-stack substitution under pressure.** When real STT was hard, v1 proposed `faster-whisper`.
-   **Rule:** Never substitute a model outside §2. If a locked model won't run in an environment, fix the environment (or isolate it), don't swap the model.
+4. **Pre-download models as an explicit, verified step** — never download inside the request path. Use exactly this (xet disabled + resumable), and gate the service's `/health` on the model being loaded:
+   ```python
+   import os
+   os.environ["HF_HUB_DISABLE_XET"] = "1"     # avoids the xet transfer stalling
+   from huggingface_hub import snapshot_download
+   snapshot_download("nvidia/parakeet-tdt-0.6b-v3")   # resumable + idempotent
+   ```
+   Mount the host HF cache (or a named volume) into the `stt`/`tts` images so the model is fetched once and reused (no re-download per build/run).
 
-4. **Model download stalled (HuggingFace xet transfer).** Lazy "download on first inference" hid a stalled download (64 MB of 2.4 GB, no error).
-   **Rule:** Pre-download models as an explicit, validated build step with `HF_HUB_DISABLE_XET=1` and resumable `snapshot_download`; verify files exist before the service reports ready. Never lazy-download inside the request path.
+5. **Share test helpers via pytest fixtures; never `import tests.*`** (a cross-test import breaks if any installed dependency ships a top-level `tests` package). Put helpers in `conftest.py` as fixtures, request them by name:
+   ```python
+   # conftest.py
+   import numpy as np, pytest
+   from stewardai_common.audio import SAMPLE_RATE, SAMPLES_PER_FRAME, pcm_from_float
+   def _speech(freq=440.0, amp=0.3):
+       t = np.arange(SAMPLES_PER_FRAME) / SAMPLE_RATE
+       return pcm_from_float((amp * np.sin(2 * np.pi * freq * t)).astype(np.float32))
+   @pytest.fixture
+   def speech_frame(): return _speech
+   @pytest.fixture
+   def silence_frame(): return lambda: b"\x00\x00" * SAMPLES_PER_FRAME
+   # usage:  def test_x(speech_frame, silence_frame): ...; speech_frame(); silence_frame()
+   ```
 
-5. **Fragile cross-test imports.** `from tests.conftest import ...` broke when a dependency installed a top-level `tests` package.
-   **Rule:** Share test helpers via **pytest fixtures** (discovered by path), never `import tests.*`.
+6. **Validate STT/TTS with real speech, not synthetic tones** (§10). Generate a known clip (`say -o c.aiff "the quick brown fox" && afconvert -f WAVE -d LEI16@16000 -c 1 c.aiff c.wav`, or `espeak`), or bundle one.
 
-6. **Validation used synthetic audio.** A sine wave proves nothing about transcription.
-   **Rule:** Validate STT with **real speech** (generate with `say`/`espeak`/a bundled clip), and the full loop against a real LLM.
-
-7. **LiveKit APIs assumed, not verified.** v1's LiveKit adapters were written against assumed method names.
-   **Rule:** Pin `livekit-agents` to a known version; treat every LiveKit API in §7f as **VERIFY** against that version before relying on it.
+7. **Pin `livekit-agents` to a fixed version and verify every LiveKit API in §7f against that version** before relying on it (the node base-classes, the turn-detector class path, and roomless `start()` semantics drift across minor versions).
 
 ---
 
@@ -406,6 +417,8 @@ class ServiceSTT:
 
 ### 7d. TTS service (`services/tts`) — Kokoro behind HTTP (streams PCM)
 
+> The TTS image MUST install Kokoro's G2P system dependency, or synthesis fails at runtime: `RUN apt-get update && apt-get install -y espeak-ng`.
+
 **`kokoro_engine.py`**:
 ```python
 import asyncio
@@ -659,7 +672,7 @@ LOG_LEVEL=info  LOG_FORMAT=json
 
 ---
 
-## 12. Pitfalls (codified from v1)
+## 12. Final checklist
 
 - **Never** co-install `nemo` + `kokoro` + `livekit` + the app in one venv. One heavy lib per service.
 - **Never** lazy-download models in the request path; pre-download with `HF_HUB_DISABLE_XET=1` + resumable `snapshot_download`; verify files exist.
