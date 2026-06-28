@@ -265,7 +265,9 @@ async def ws_pipeline(ws: WebSocket) -> None:
         session.on("metrics_collected", _on_metrics)
 
         async def _pump_output() -> None:
-            async for frame in audio_out:
+            # paced_frames sends at ~real time (small client buffer) + reports playback,
+            # so the backlog stays server-side and a barge-in drops it instantly.
+            async for frame in audio_out.paced_frames():
                 await ws.send_bytes(frame.pcm)
 
         await session.start(agent=agent)

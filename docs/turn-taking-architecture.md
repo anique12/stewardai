@@ -101,8 +101,10 @@ barge-in at second 3 stops it instantly. No `max_tokens`, no monologue special-c
 
 ## Concrete remaining work (in priority order)
 
-1. **Paced output sender** with server-side backlog + send-based `playback_finished`
-   (replaces the unpaced `_pump_output` and the capture-time gapless cursor). ← the fix.
+1. ~~Paced output sender~~ — **DONE** (`QueueAudioOutput.paced_frames`): sends at ~1×
+   real time, keeps the backlog server-side, reports `playback_finished` per segment as
+   it's sent, drops the backlog on `clear_buffer`. Verified: 1s of audio drains in ~0.9s
+   (not instantly), 1 playback_finished per segment, clear reports interrupted + flushes.
 2. **Client flush on `clear_buffer`** — already wired; keep.
 3. **Reply length** — leave UNbounded; pacing makes it a non-issue. (No `max_tokens`.)
 4. **Echo** — test path: headphones; Vexa path: input-gating while speaking.

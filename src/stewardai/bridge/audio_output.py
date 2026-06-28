@@ -91,6 +91,10 @@ class SinkPlayer:
         _log.info("fallback_wav_written", path=path, samples=int(samples.size))
 
 
+# Sentinel marking a TTS segment boundary in the playout queue.
+_SEGMENT_END = object()
+
+
 def _make_queue_audio_output():
     """Build the QueueAudioOutput class, subclassing livekit's AudioOutput if present."""
     try:
@@ -115,21 +119,12 @@ def _make_queue_audio_output():
         def __init__(self, label: str = "vexa") -> None:
             if has_livekit:
                 super().__init__(label=label, capabilities=capabilities)
-            self._queue: asyncio.Queue[AudioFrame | None] = asyncio.Queue()
-            # Optional barge-in hook: fired (no args) when the session interrupts
-            # the agent and calls clear_buffer(). Consumers (e.g. the web layer)
-            # set this to tell their client to stop playing buffered audio.
+            self._queue: asyncio.Queue = asyncio.Queue()
+            # Barge-in hook: fired when the session interrupts and calls clear_buffer();
+            # consumers (the web layer) use it to tell the client to flush its buffer.
             self.on_clear = None
-            # Playout tracking. Segments play back-to-back (gaplessly) in the client,
-            # so we keep a cumulative playout cursor = monotonic time when ALL queued
-            # audio finishes — NOT per-segment capture times. Per-segment timing made
-            # multi-sentence replies report playback_finished far too early, so the
-            # agent "stopped speaking" mid-playback and a new turn overlapped the
-            # still-playing audio (the "plays the same audio again" bug).
-            self._seg_capturing: bool = False
-            self._seg_seconds: float = 0.0
-            self._playout_cursor: float = 0.0  # monotonic time all queued audio ends
-            self._playout_tasks: set[asyncio.Task] = set()
+            # audio seconds sent in the current (not-yet-finished) segment
+            self._seg_played: float = 0.0
 
         async def capture_frame(self, frame) -> None:  # noqa: ANN001 - rtc/AudioFrame or ours
             if has_livekit:
@@ -145,70 +140,70 @@ def _make_queue_audio_output():
                 sample_rate = frame.sample_rate or SAMPLE_RATE
             else:
                 return
-            # accumulate this segment's audio duration (s16le -> samples / rate)
-            if not self._seg_capturing:
-                self._seg_capturing = True
-                self._seg_seconds = 0.0
-            self._seg_seconds += (len(pcm_bytes) / 2) / sample_rate
             await self._queue.put(AudioFrame(pcm=pcm_bytes, sample_rate=sample_rate))
 
-        def flush(self) -> None:  # livekit AudioOutput hook; marks a segment boundary
+        def flush(self) -> None:  # livekit AudioOutput hook; marks a TTS segment boundary
             if has_livekit:
                 super().flush()
-            if not self._seg_capturing:
-                return
-            seconds = self._seg_seconds
-            self._seg_capturing = False
-            self._seg_seconds = 0.0
-            if has_livekit:
-                # this segment plays AFTER everything already queued (gapless), so it
-                # finishes at max(now, cursor) + its duration. Report playback_finished
-                # then — matching when the client actually finishes playing it.
-                end_play = max(time.monotonic(), self._playout_cursor) + seconds
-                self._playout_cursor = end_play
-                task = asyncio.create_task(self._report_playout(end_play, seconds))
-                self._playout_tasks.add(task)
-                task.add_done_callback(self._playout_tasks.discard)
-
-        async def _report_playout(self, end_play: float, seconds: float) -> None:
-            remaining = end_play - time.monotonic()
-            if remaining > 0:
-                await asyncio.sleep(remaining)
-            self.on_playback_finished(playback_position=seconds, interrupted=False)
+            self._queue.put_nowait(_SEGMENT_END)
 
         def clear_buffer(self) -> None:  # livekit AudioOutput hook; barge-in stop
-            # Drop buffered-but-unsent audio.
+            # Drop the un-sent backlog (most of a long reply is still here — never sent),
+            # report each still-pending segment interrupted so wait_for_playout() returns,
+            # and tell the client to flush its small look-ahead.
             while True:
                 try:
                     self._queue.get_nowait()
                 except asyncio.QueueEmpty:
                     break
-            # Cancel pending playout timers and report every still-pending segment as
-            # interrupted, so wait_for_playout() returns and the interruption completes.
-            for task in list(self._playout_tasks):
-                task.cancel()
-            self._playout_tasks.clear()
-            self._seg_capturing = False
-            self._seg_seconds = 0.0
-            self._playout_cursor = time.monotonic()  # nothing queued anymore
+            self._seg_played = 0.0
             if has_livekit:
                 for _ in range(self._pending_playback_count):
                     self.on_playback_finished(playback_position=0.0, interrupted=True)
-            # Tell the client (browser) to stop playing already-sent audio.
             if self.on_clear is not None:
                 self.on_clear()
 
-        async def aclose(self) -> None:
-            for task in list(self._playout_tasks):
-                task.cancel()
-            self._playout_tasks.clear()
-            await self._queue.put(None)
-
-        async def _drain(self) -> AsyncIterator[AudioFrame]:
+        async def paced_frames(self, lookahead: float = 0.25) -> AsyncIterator[AudioFrame]:
+            """Drain at ~real time, keeping only ``lookahead`` seconds buffered on the
+            client, and report playback_finished as each segment is sent. The backlog
+            stays server-side, so a barge-in (clear_buffer) drops most of a long reply
+            instantly instead of having shoved it all to the client. The caller just
+            transmits each yielded frame.
+            """
+            play_until = time.monotonic()
             while True:
                 item = await self._queue.get()
                 if item is None:
                     return
+                if item is _SEGMENT_END:
+                    if has_livekit:
+                        self.on_playback_finished(
+                            playback_position=self._seg_played, interrupted=False
+                        )
+                    self._seg_played = 0.0
+                    continue
+                now = time.monotonic()
+                if play_until < now:
+                    play_until = now  # client buffer drained — start fresh
+                ahead = play_until - now
+                if ahead > lookahead:
+                    await asyncio.sleep(ahead - lookahead)
+                dur = (len(item.pcm) / 2) / (item.sample_rate or SAMPLE_RATE)
+                play_until += dur
+                self._seg_played += dur
+                yield item
+
+        async def aclose(self) -> None:
+            self._queue.put_nowait(None)
+
+        async def _drain(self) -> AsyncIterator[AudioFrame]:
+            # Frame-only drain for a self-pacing sink (e.g. paplay/Vexa); skips markers.
+            while True:
+                item = await self._queue.get()
+                if item is None:
+                    return
+                if item is _SEGMENT_END:
+                    continue
                 yield item
 
         def __aiter__(self) -> AsyncIterator[AudioFrame]:
