@@ -186,7 +186,8 @@ def build_llm_node(
                 _log.info("llm_gated_decide", backend=self._inner.name, speak=decision.speak)
                 if not decision.speak:
                     return  # emit no deltas -> AgentSession stays silent
-                self._event_ch.send_nowait(_make_chat_chunk(lk_llm, request_id, decision.text))
+                if decision.text:
+                    self._event_ch.send_nowait(_make_chat_chunk(lk_llm, request_id, decision.text))
                 _log.info("llm_done", backend=self._inner.name, deltas=1)
                 return
             # ungated path (browser 1:1): stream complete() deltas as before

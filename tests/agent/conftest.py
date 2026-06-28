@@ -7,8 +7,6 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("livekit.agents")
-
 
 @pytest.fixture
 def make_chat_ctx():
