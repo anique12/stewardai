@@ -1,7 +1,16 @@
 # Vexa Integration Design — StewardAI meeting voice agent
 
-**Status:** Design (approved direction, pending spec review)
+**Status:** Approved; in implementation.
 **Date:** 2026-06-28
+
+> **Reconciliation (2026-06-28):** the existing `vexa-patch/` already implements the
+> **inbound** path as a **combined 16 kHz mix** (not per-speaker) — wire-compatible
+> with `transport.py`, staged but not yet applied to the bot. The wake-gated model
+> makes a combined mix correct, so the design uses **one combined stream** (speaker
+> attribution deferred to Vexa diarization). Output **reuses the same forwarder↔agent
+> connection** (agent writes PCM back over the server's client writer) rather than a
+> second socket. Read "per-speaker" below as "single combined stream." See the
+> implementation plan's "Pre-execution reconciliation" for specifics.
 **Depends on:** the existing StewardAI voice core (LiveKit `AgentSession`, STT/LLM/TTS backends, `SocketAudioBridge`, paced-output bridge) and a self-hosted Vexa deployment.
 
 ## Goal

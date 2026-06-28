@@ -8,6 +8,32 @@
 
 **Tech Stack:** Python 3.12, `livekit-agents` 1.6.x, LiteLLM (Gemini), `redis` (async), asyncio sockets, pytest/pytest-asyncio.
 
+## Pre-execution reconciliation (read first — supersedes conflicting details below)
+
+Reviewing the existing `vexa-patch/` (already-authored inbound patch) changed two things:
+
+1. **Inbound is already built and is a COMBINED 16 kHz mix, not per-speaker.**
+   `vexa-patch/forwarder.ts` + `pcm-worklet.js` already tap the combined meeting
+   mix and stream wire-compatible frames into `transport.py`. So the AgentSession
+   consumes **one combined stream** (what the existing servers already receive) —
+   no per-speaker work. Speaker attribution is deferred (Vexa diarization stays
+   available). Wherever a task below says "per-speaker," read "single combined
+   stream." The wake-gated model makes this correct.
+
+2. **Output reuses the SAME connection (no separate FrameSender / port).** The
+   forwarder is the client and our `transport.py` server already retains the
+   client's writer (`_source_writer`). So **Task 1 changes:** instead of a new
+   `FrameSender` connecting to a bot port, add `async def send(self, pcm: bytes)`
+   to `_FrameServerBase` that writes `_LEN.pack(len(pcm)) + pcm` to
+   `_source_writer`. The meeting runner (Task 6) sends paced output via
+   `inbound.send(frame.pcm)`. Drop `bot_pcm_host`/`bot_pcm_port` from config. The
+   round-trip test still uses a client that reads the bytes back. Everything else
+   (Decision/decide, gated node, RedisControl, runner, fake-bot test) is unchanged.
+
+The Vexa-bot follow-up plan then only needs: a read-path in `forwarder.ts` →
+`startPCMStream`, the `mic_on`/`mic_off`/`speak_stop` command handlers, and
+*applying* the (already-authored, inbound) patch to the bot.
+
 ## Global Constraints
 
 - Canonical inbound audio format: **PCM s16le, 16 kHz, mono** (`stewardai.common.audio.SAMPLE_RATE = 16000`). Matches what Vexa tees.
