@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
-from stewardai.common.audio import Message
+from stewardai.common.audio import Decision, Message
 
 
 class StubLLM:
     name = "stub"
 
     def __init__(self, settings: object | None = None) -> None:
-        pass
+        self.next_decision: Decision | None = None  # set by tests; None -> stay silent
 
     async def complete(
         self, messages: list[Message], *, system: str | None = None, temperature: float = 0.4
@@ -20,6 +20,9 @@ class StubLLM:
         reply = f"You said: {last_user}. This is a stubbed reply."
         for word in reply.split():
             yield word + " "
+
+    async def decide(self, messages: list[Message], *, system: str | None = None) -> Decision:  # noqa: ANN001
+        return self.next_decision or Decision(speak=False)
 
     async def aclose(self) -> None:
         return None

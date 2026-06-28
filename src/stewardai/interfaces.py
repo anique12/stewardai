@@ -7,7 +7,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Protocol, runtime_checkable
 
-from stewardai.common.audio import AudioFrame, Message, Transcript
+from stewardai.common.audio import AudioFrame, Decision, Message, Transcript
 
 
 @runtime_checkable
@@ -45,6 +45,12 @@ class LLMBackend(Protocol):
         self, messages: list[Message], *, system: str | None = None, temperature: float = 0.4
     ) -> AsyncIterator[str]:
         """Stream response token deltas."""
+        ...
+
+    async def decide(
+        self, messages: list[Message], *, system: str | None = None
+    ) -> Decision:
+        """Decide whether to respond. Returns Decision(speak=False) to stay silent."""
         ...
 
     async def aclose(self) -> None: ...

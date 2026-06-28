@@ -49,6 +49,13 @@ class Message:
 
 
 @dataclass(slots=True)
+class Decision:
+    """Outcome of the agent's per-utterance decide: stay silent, or speak `text`."""
+    speak: bool
+    text: str = ""
+
+
+@dataclass(slots=True)
 class Conversation:
     """Rolling message history for the LLM."""
 
