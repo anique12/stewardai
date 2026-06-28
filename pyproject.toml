@@ -63,6 +63,11 @@ cuda = [
 parakeet = [
     "nemo_toolkit[asr]>=2.0",
 ]
+# Chatterbox TTS (Resemble AI, MIT). Most natural open TTS; own extra to keep its
+# deps from perturbing the cpu/cuda set (install alongside cuda when A/B-ing TTS).
+chatterbox = [
+    "chatterbox-tts>=0.1",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/stewardai"]

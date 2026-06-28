@@ -97,6 +97,15 @@ class Settings(BaseSettings):
     # Piper TTS (local neural). Voice models (.onnx + .json) download here on first use.
     piper_data_dir: str = "~/.cache/stewardai/piper"
 
+    # Chatterbox TTS (Resemble AI, MIT) — most natural open TTS; needs the
+    # `chatterbox` extra. Multilingual (23 langs) by default to match STT; set
+    # chatterbox_multilingual=false for the English-only model. chatterbox_language
+    # is the language_id for the multilingual model (it has no auto-detect).
+    # chatterbox_voice_sample: optional path to a short wav for zero-shot cloning.
+    chatterbox_multilingual: bool = True
+    chatterbox_language: str = "en"
+    chatterbox_voice_sample: str | None = None
+
     # Logging
     log_level: str = "info"
     log_format: Literal["json", "console"] = "json"

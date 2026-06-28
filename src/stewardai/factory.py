@@ -26,6 +26,7 @@ _TTS = {
     "stub": ("stewardai.tts.stub", "StubTTS"),
     "kokoro": ("stewardai.tts.kokoro", "KokoroTTS"),
     "piper": ("stewardai.tts.piper", "PiperTTS"),
+    "chatterbox": ("stewardai.tts.chatterbox", "ChatterboxTTS"),
 }
 _LLM = {
     "stub": ("stewardai.llm.stub", "StubLLM"),
