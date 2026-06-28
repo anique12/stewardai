@@ -175,12 +175,14 @@ These patches are maintained as a small Vexa fork; the bot Docker image is rebui
 
 - **Capture (Vexa → us):** already **16 kHz** mono Float32 — matches our canonical
   `SAMPLE_RATE`; no resample needed inbound.
-- **Playback (us → Vexa):** our TTS (Kokoro/Chatterbox) is natively **24 kHz**, and
-  the bot's `paplay` PCM paths default to **24 kHz**. So lock the playback path to
-  **24 kHz end-to-end**: the paced bridge's frame `sample_rate`, the TCP sender's
-  declared rate, and the bot's `startPCMStream` rate must all be **24 kHz** and
-  equal. (`paced_frames` derives timing from the frame's `sample_rate`; a mismatch
-  drifts both pitch and the playback-finished accounting.)
+- **Playback (us → Vexa):** our TTS backends (Kokoro/Chatterbox) are natively 24 kHz
+  but **resample to 16 kHz** (`SAMPLE_RATE`) inside `synthesize()`, and `StewardTTS`
+  declares 16 kHz — so the agent pipeline is **16 kHz end-to-end**. Lock the playback
+  path to **16 kHz**: the frames we send already carry 16 kHz, and the bot's
+  `startPCMStream` must `paplay` at **16 kHz** to match (a mismatch = chipmunk audio).
+  `paced_frames` paces by each frame's own `sample_rate`, so there is no separate rate
+  to thread through the sender. (Corrected from an earlier 24 kHz assumption: the
+  backends resample down to 16 kHz, they don't emit 24 kHz to the pipeline.)
 - **Do not** use `common/audio.py:resample_linear` ("adequate for stubs/tests") on
   the production playback path; use a proper resampler if any resample is needed.
 
@@ -242,7 +244,7 @@ These patches are maintained as a small Vexa fork; the bot Docker image is rebui
 **In scope:** single meeting, one bot + one agent, started manually; per-speaker
 audio tee; PCM-in playback; mic on/off + stop over Redis; always-listening
 transcript context; LLM-gated `stay_silent`/`speak` via tool calling; our STT +
-TTS; addressed-only behavior via prompt; 24 kHz playback contract; the three
+TTS; addressed-only behavior via prompt; 16 kHz playback contract; the three
 plumbing additions; the fake-bot integration test.
 
 **Explicitly deferred:** multi-meeting concurrency — this is two separate pieces of
@@ -268,5 +270,6 @@ the in-container (topology B) deployment.
   bind-mount; latency identical (sub-ms, same host).
 - **Control over Redis, separate from PCM** — Vexa's existing channel; keeps
   `speak_stop` off the audio backlog.
-- **24 kHz playback end-to-end** — matches both our TTS and the bot's `paplay`.
+- **16 kHz playback end-to-end** — our TTS resamples its native 24 kHz down to 16 kHz
+  (`SAMPLE_RATE`); the bot `paplay`s at 16 kHz to match. (Earlier 24 kHz assumption corrected.)
 - **Cheap model for the decide loop** — it runs per-utterance; tiering deferred.

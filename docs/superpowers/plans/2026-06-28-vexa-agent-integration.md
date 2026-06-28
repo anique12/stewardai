@@ -4,7 +4,7 @@
 
 **Goal:** Build the StewardAI agent-side pieces that let our LiveKit `AgentSession` run a meeting through Vexa: receive meeting audio over a socket, decide-per-utterance whether to speak (LLM tool calling), and stream paced TTS audio + barge-in control back to the Vexa bot — all testable against a *fake bot* with no real Vexa.
 
-**Architecture:** Keep the LiveKit `AgentSession` (it owns VAD / turn detection / STT invocation / barge-in). The "respond or stay silent" decision lives **inside the LLM node**: it calls `LLMBackend.decide(...)` (tool calling → `speak` / `stay_silent`); on silent it emits no deltas (AgentSession stays quiet), on speak it streams the reply. Output is the existing paced-output bridge, but its frames are streamed over a TCP socket to the bot (new `FrameSender`) at 24 kHz, and barge-in fires `mic_off` + `speak_stop` to the bot over Redis. The Vexa bot patches (per-speaker audio tee, PCM-in, mic/stop commands) are a **separate plan**; this plan stands alone behind a fake bot.
+**Architecture:** Keep the LiveKit `AgentSession` (it owns VAD / turn detection / STT invocation / barge-in). The "respond or stay silent" decision lives **inside the LLM node**: it calls `LLMBackend.decide(...)` (tool calling → `speak` / `stay_silent`); on silent it emits no deltas (AgentSession stays quiet), on speak it streams the reply. Output is the existing paced-output bridge, but its frames are streamed back over the existing inbound TCP connection (`FrameServer.send`) at 16 kHz, and barge-in fires `mic_off` + `speak_stop` to the bot over Redis. The Vexa bot patches (per-speaker audio tee, PCM-in, mic/stop commands) are a **separate plan**; this plan stands alone behind a fake bot.
 
 **Tech Stack:** Python 3.12, `livekit-agents` 1.6.x, LiteLLM (Gemini), `redis` (async), asyncio sockets, pytest/pytest-asyncio.
 
@@ -37,7 +37,7 @@ The Vexa-bot follow-up plan then only needs: a read-path in `forwarder.ts` →
 ## Global Constraints
 
 - Canonical inbound audio format: **PCM s16le, 16 kHz, mono** (`stewardai.common.audio.SAMPLE_RATE = 16000`). Matches what Vexa tees.
-- **Playback path is 24 kHz end-to-end** — the paced sender's frame `sample_rate`, the wire, and the bot's `paplay --rate` must all be 24000 (spec "Sample-rate contract"). Our TTS (Kokoro/Chatterbox) is natively 24 kHz.
+- **Playback path is 16 kHz end-to-end** — `StewardTTS` declares 16 kHz (`SAMPLE_RATE`) and the TTS backends resample their native 24 kHz down to 16 kHz, so the frames carry 16 kHz and the bot's `paplay --rate` must be 16000 to match. `paced_frames` paces by each frame's own `sample_rate` (no separate rate to thread). (Corrected from an earlier 24 kHz assumption.)
 - Wire protocol for PCM frames is the existing `transport.py` framing: `[4-byte big-endian uint32 length N][N bytes PCM]`. Do **not** invent a new framing.
 - **livekit / torch / redis are optional deps** — every heavy import stays **lazy** inside functions/methods, matching the existing codebase (`nodes.py`, `audio_input.py`). Modules must import without them.
 - Never use `common/audio.py:resample_linear` on the production playback path ("adequate for stubs/tests" only).
