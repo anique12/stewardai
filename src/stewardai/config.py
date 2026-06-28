@@ -73,6 +73,14 @@ class Settings(BaseSettings):
     bridge_tcp_port: int = 8765
     bridge_socket_path: str = "/tmp/stewardai.sock"
 
+    # Vexa bot integration (Redis control channel + meeting identity)
+    redis_url: str = "redis://localhost:6379"
+    vexa_meeting_id: str | None = None
+    vexa_platform: str = "google_meet"
+    # Playback rate end-to-end into the meeting (matches TTS output + bot paplay).
+    # Locked at 24 kHz per Global Constraints.
+    playback_sample_rate: int = 24000
+
     # TTS
     tts_default_voice: str = "stub"
 

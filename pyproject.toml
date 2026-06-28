@@ -42,6 +42,7 @@ cpu = [
     "livekit-agents>=1.0",
     "livekit-plugins-silero>=1.0",
     "livekit-plugins-turn-detector>=1.0",
+    "redis>=5",
 ]
 cuda = [
     "torch>=2.2",
@@ -54,6 +55,7 @@ cuda = [
     "livekit-agents>=1.0",
     "livekit-plugins-silero>=1.0",
     "livekit-plugins-turn-detector>=1.0",
+    "redis>=5",
     # CTranslate2 (faster-whisper) GPU runtime libs — pin so it doesn't fall back to
     # a mismatched system cuDNN. CTranslate2 4.x needs cuDNN 9 for CUDA 12.
     "nvidia-cublas-cu12",
