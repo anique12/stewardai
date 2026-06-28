@@ -97,3 +97,38 @@ async def run_meeting(settings: Settings | None = None) -> None:
             await control.aclose()
         with contextlib.suppress(Exception):
             await server.aclose()
+
+
+def _main() -> None:
+    """CLI entrypoint: run the meeting agent until interrupted (Ctrl-C).
+
+    All config comes from env / .env: VEXA_MEETING_ID (must match the bot's
+    Redis command-channel meeting id), STT_BACKEND / TTS_BACKEND, GEMINI_API_KEY,
+    BRIDGE_TCP_HOST / BRIDGE_TCP_PORT (the bot's forwarder connects here), REDIS_URL.
+    The agent listens on BRIDGE_TCP_PORT for the patched Vexa bot to connect, then
+    listens to the meeting, decides per utterance, and speaks back when addressed.
+    """
+    from stewardai.common.logging import configure_logging
+
+    s = get_settings()
+    configure_logging(level=s.log_level, fmt=s.log_format)
+    if not s.vexa_meeting_id:
+        _log.warning(
+            "vexa_meeting_id_unset",
+            note="set VEXA_MEETING_ID so mic/stop commands target the right bot",
+        )
+    _log.info(
+        "meeting_agent_boot",
+        meeting=s.vexa_meeting_id,
+        listen=f"{s.bridge_tcp_host}:{s.bridge_tcp_port}",
+        stt=s.stt_backend,
+        tts=s.tts_backend,
+    )
+    try:
+        asyncio.run(run_meeting(s))
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    _main()
