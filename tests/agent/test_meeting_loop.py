@@ -66,7 +66,10 @@ async def test_pump_sends_paced_frames_to_server():
 # ---------------------------------------------------------------------------
 # Heavy e2e test — requires livekit.agents
 # ---------------------------------------------------------------------------
-pytest.importorskip("livekit")
+# NOTE: the livekit guard lives INSIDE the heavy test (not at module scope) so a
+# no-livekit base install can still import this module and run the light
+# `test_pump_sends_paced_frames_to_server` above — its imports are all
+# livekit-free.
 
 
 @pytest.mark.heavy
@@ -86,6 +89,7 @@ async def test_meeting_loop_silent_then_speaks():
     Phase 2 (speak):  StubLLM.next_decision = Decision(speak=True, text="Hi!")
         -> StubTTS synthesizes PCM -> _pump_paced streams it -> FakeBot.received > 0.
     """
+    pytest.importorskip("livekit")
     import importlib.util, pathlib
     _fb_path = pathlib.Path(__file__).parent / "fake_bot.py"
     _spec = importlib.util.spec_from_file_location("fake_bot", _fb_path)
@@ -147,7 +151,11 @@ async def test_meeting_loop_silent_then_speaks():
     pump1 = asyncio.create_task(_pump_paced(out1, server))
     await asyncio.wait_for(pump1, timeout=2.0)
 
-    # Bot should have received nothing in this phase — read briefly to confirm.
+    # Sequencing matters: _pump_paced is awaited to COMPLETION above, so if it
+    # had (wrongly) sent any bytes they are already in the TCP buffer by now.
+    # read_for then DRAINS that buffer and the == 0 check catches the regression.
+    # The 0.3s window is just a drain margin, not a wait for anything in-flight —
+    # do NOT reorder read_for before the pump's completion or this becomes a race.
     await bot.read_for(seconds=0.3)
     assert len(bot.received) == 0, (
         f"Silent phase: expected 0 bytes, got {len(bot.received)}"
