@@ -77,9 +77,8 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379"
     vexa_meeting_id: str | None = None
     vexa_platform: str = "google_meet"
-    # Playback rate end-to-end into the meeting (matches TTS output + bot paplay).
-    # Locked at 24 kHz per Global Constraints.
-    playback_sample_rate: int = 24000
+    # rate the Vexa bot should paplay our PCM at; our pipeline is 16 kHz end-to-end (SAMPLE_RATE).
+    playback_sample_rate: int = 16000
 
     # TTS
     tts_default_voice: str = "stub"

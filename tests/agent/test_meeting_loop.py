@@ -18,6 +18,13 @@ from stewardai.agent.meeting_runner import _pump_paced
 _LEN = struct.Struct(">I")
 
 
+async def _wait_connected(server, timeout=2.0):
+    async def _poll():
+        while server._source_writer is None:
+            await asyncio.sleep(0.01)
+    await asyncio.wait_for(_poll(), timeout)
+
+
 @pytest.mark.asyncio
 async def test_pump_sends_paced_frames_to_server():
     server = TcpFrameServer(host="127.0.0.1", port=0)
@@ -32,9 +39,9 @@ async def test_pump_sends_paced_frames_to_server():
     reader, writer = await asyncio.open_connection("127.0.0.1", server.port)
 
     # Wait for server to register our connection before pumping
-    await asyncio.sleep(0.05)
+    await _wait_connected(server)
 
-    await _pump_paced(out, server, rate=24000)
+    await asyncio.wait_for(_pump_paced(out, server), timeout=5)
 
     # Read length-prefixed frames back on the client side
     got = b""

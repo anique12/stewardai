@@ -18,12 +18,14 @@ from stewardai.config import Settings, get_settings
 _log = get_logger("agent.meeting_runner")
 
 
-async def _pump_paced(audio_out, server: TcpFrameServer, rate: int) -> None:  # noqa: ANN001
+async def _pump_paced(audio_out, server: TcpFrameServer) -> None:  # noqa: ANN001
     """Drain the paced output and stream each frame to the bot at ~real time.
 
     Sends each AudioFrame's PCM via the server's send() method, which writes
     length-prefixed bytes back to the connected source client (full-duplex on
     the same TCP connection that delivers inbound meeting audio).
+
+    Pacing is self-determined by each frame's own sample_rate.
     """
     async for frame in audio_out.paced_frames():
         await server.send(frame.pcm)
@@ -69,7 +71,7 @@ async def run_meeting(settings: Settings | None = None) -> None:
 
     await control.mic_on()
     await session.start(agent=agent)
-    pump = asyncio.create_task(_pump_paced(audio_out, server, s.playback_sample_rate))
+    pump = asyncio.create_task(_pump_paced(audio_out, server))
     feed = asyncio.create_task(_feed_inbound(server, audio_in))
     _log.info("meeting_agent_started", meeting=s.vexa_meeting_id)
     try:
@@ -81,5 +83,7 @@ async def run_meeting(settings: Settings | None = None) -> None:
                 await t
         with contextlib.suppress(Exception):
             await session.aclose()
+        with contextlib.suppress(Exception):
+            await control.mic_off()
         await control.aclose()
         await server.aclose()
