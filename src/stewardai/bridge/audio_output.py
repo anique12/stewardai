@@ -123,6 +123,11 @@ def _make_queue_audio_output():
             # Barge-in hook: fired when the session interrupts and calls clear_buffer();
             # consumers (the web layer) use it to tell the client to flush its buffer.
             self.on_clear = None
+            # Per-utterance mic-gating hooks (sync callables or None).
+            # on_segment_start fires just before the first frame of a new segment is
+            # yielded; on_segment_end fires after the _SEGMENT_END sentinel is processed.
+            self.on_segment_start = None
+            self.on_segment_end = None
             # audio seconds sent in the current (not-yet-finished) segment
             self._seg_played: float = 0.0
 
@@ -171,6 +176,7 @@ def _make_queue_audio_output():
             transmits each yielded frame.
             """
             play_until = time.monotonic()
+            seg_active = False  # True once the first frame of a segment has been yielded
             while True:
                 item = await self._queue.get()
                 if item is None:
@@ -181,7 +187,15 @@ def _make_queue_audio_output():
                             playback_position=self._seg_played, interrupted=False
                         )
                     self._seg_played = 0.0
+                    seg_active = False
+                    if self.on_segment_end is not None:
+                        self.on_segment_end()
                     continue
+                # Fire on_segment_start on the first frame of each new segment.
+                if not seg_active:
+                    seg_active = True
+                    if self.on_segment_start is not None:
+                        self.on_segment_start()
                 now = time.monotonic()
                 if play_until < now:
                     play_until = now  # client buffer drained — start fresh

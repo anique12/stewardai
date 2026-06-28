@@ -70,7 +70,14 @@ async def run_meeting(settings: Settings | None = None) -> None:
 
     audio_out.on_clear = _on_clear
 
-    await control.mic_on()
+    # Per-utterance mic gating: unmute right before the first frame of each
+    # TTS segment is sent, mute again once the segment sentinel is processed.
+    # Note: mic_on is async scheduled via create_task, so the very first frame
+    # may be sent ~1 event-loop tick before the mic is fully open — acceptable
+    # for v1 (tens-of-ms onset clip is inaudible in practice).
+    audio_out.on_segment_start = lambda: loop.create_task(control.mic_on())
+    audio_out.on_segment_end = lambda: loop.create_task(control.mic_off())
+
     await session.start(agent=agent)
     pump = asyncio.create_task(_pump_paced(audio_out, server))
     feed = asyncio.create_task(_feed_inbound(server, audio_in))
