@@ -140,9 +140,14 @@ These patches are maintained as a small Vexa fork; the bot Docker image is rebui
   bridge** → TCP audio-in **sender** → bot `startPCMStream`. Before the first
   frame, emit `mic_on`; after playout, emit `mic_off` (on a short delay — see
   Limitations).
-- **Barge-in / clear:** if the agent is speaking and the addressed speaker resumes,
-  `clear_buffer` drops our server-side backlog **and** emits `speak_stop` over the
-  Redis control channel; the bot `interrupt()`s playback.
+- **Barge-in / clear (mute-first):** if the agent is speaking and the addressed
+  speaker resumes, we do all of: (1) emit **`mic_off` immediately** — muting
+  `virtual_mic` is the *fastest cut* (zeroes the signal at the mic, avoiding the
+  PulseAudio sink/remap residual that killing `paplay` alone would leave draining);
+  (2) emit **`speak_stop`** so the bot `interrupt()`s and the half-finished reply is
+  truncated at the source (so it doesn't resume when the mic next unmutes); and
+  (3) `clear_buffer` drops our server-side backlog. The mute is the fast stop; the
+  source-kill makes it stick.
 
 ### 3. New plumbing this requires (gaps the reviews found)
 
@@ -172,14 +177,17 @@ These patches are maintained as a small Vexa fork; the bot Docker image is rebui
 
 ## Known limitations / realism (set expectations now)
 
-- **Barge-in is ~0.5–1 s, not instant.** Through `paplay` → PulseAudio sink →
-  remap → Chromium → WebRTC encode → far-end jitter buffer, ~250–600 ms of audio is
-  already in-flight and unrecoverable when we stop, plus the control round-trip.
-  This is inherent to *any* bot speaking in a meeting, not a flaw in our approach.
-  Mitigations: keep replies short, lower `paplay`/Pulse target latency, put
-  `speak_stop` on its own low-latency channel. The paced bridge matters **less**
-  here than in the browser (Vexa owns most of the downstream buffering) — its real
-  remaining value is keeping backlog server-side so we don't flood the socket.
+- **Barge-in is fast but not instant — ~150–300 ms with mute-first (estimate, to be
+  measured).** Muting `virtual_mic` zeroes the signal at the mic, so what remains is
+  only audio already *past* the mic — network-in-flight + each participant's WebRTC
+  jitter buffer (~40–200 ms), which no sender-side action can erase (it's in the
+  *listeners'* buffers). This is inherent to *any* bot speaking in a meeting. Killing
+  `paplay` alone (without muting) is worse, ~0.5–1 s, because the sink/remap residual
+  drains too. A poor network grows the jitter-buffer term. Mitigations: mute-first
+  (above), keep replies short, control on its own low-latency channel. The paced
+  bridge matters **less** here than in the browser (Vexa owns most downstream
+  buffering) — its real remaining value is keeping backlog server-side so we don't
+  flood the socket. **Measure the real residual on the deployed setup.**
 - **LLM-gated output is non-deterministic.** It will occasionally answer when not
   addressed or miss a cue; tuned via prompt, iterated post-v1.
 - **Decide-call cost.** One LLM call per utterance in a busy meeting; mitigated by a
@@ -228,7 +236,12 @@ transcript context; LLM-gated `stay_silent`/`speak` via tool calling; our STT +
 TTS; addressed-only behavior via prompt; 24 kHz playback contract; the three
 plumbing additions; the fake-bot integration test.
 
-**Explicitly deferred:** multi-meeting orchestration / auto-spawn pairing; a
+**Explicitly deferred:** multi-meeting concurrency — this is two separate pieces of
+later work: (a) an **orchestrator** that spawns/pairs one agent instance per bot by
+meeting-id and tears it down on meeting end (the design supports it; we just don't
+build the spawner in v1), and (b) **GPU capacity planning**, since every concurrent
+meeting's STT+TTS share the one L4 — concurrency is ultimately a capacity/cost
+question, not a correctness one. Also deferred: auto-spawn pairing; a
 dedicated acoustic wake-word model (v1 lets the LLM recognize the wake word from
 the transcript); tiered model routing; speaker-identity-aware addressing beyond
 what the transcript labels give; AEC hardening; production resilience/scaling;
