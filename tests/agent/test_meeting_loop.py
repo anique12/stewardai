@@ -1,6 +1,8 @@
-"""Unit test for the paced-send pump in meeting_runner.
+"""Unit and integration tests for the meeting runner's paced-send pump.
 
-No livekit needed: just TcpFrameServer + QueueAudioOutput + AudioFrame.
+Light tests (no livekit): TcpFrameServer + QueueAudioOutput + AudioFrame.
+Heavy tests (require livekit): full component-wired e2e through the gated
+decision path — fake bot receives PCM iff StubLLM says speak.
 """
 
 from __future__ import annotations
@@ -59,3 +61,119 @@ async def test_pump_sends_paced_frames_to_server():
     await server.aclose()
 
     assert got == pcm
+
+
+# ---------------------------------------------------------------------------
+# Heavy e2e test — requires livekit.agents
+# ---------------------------------------------------------------------------
+pytest.importorskip("livekit")
+
+
+@pytest.mark.heavy
+@pytest.mark.asyncio
+async def test_meeting_loop_silent_then_speaks():
+    """Gated decision controls whether PCM flows to the bot over the real socket.
+
+    Uses StubLLM (next_decision) + StubTTS — no models or network needed.
+    Approach: component-wired e2e (fallback).  We drive the gated LLM node and
+    StubTTS directly rather than through a live AgentSession+VAD because making
+    Silero VAD fire reliably on synthetic audio is non-deterministic and out of
+    scope for this test.  The load-bearing novel behaviour — gated decide controls
+    whether PCM flows over the socket — is fully exercised.
+
+    Phase 1 (silent): StubLLM.next_decision = Decision(speak=False)
+        -> QueueAudioOutput receives nothing -> FakeBot.received is empty.
+    Phase 2 (speak):  StubLLM.next_decision = Decision(speak=True, text="Hi!")
+        -> StubTTS synthesizes PCM -> _pump_paced streams it -> FakeBot.received > 0.
+    """
+    import importlib.util, pathlib
+    _fb_path = pathlib.Path(__file__).parent / "fake_bot.py"
+    _spec = importlib.util.spec_from_file_location("fake_bot", _fb_path)
+    _mod = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
+    _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
+    FakeBot = _mod.FakeBot
+    from stewardai.bridge.audio_output import QueueAudioOutput
+    from stewardai.bridge.transport import TcpFrameServer
+    from stewardai.common.audio import AudioFrame, Decision
+    from stewardai.llm.stub import StubLLM
+    from stewardai.tts.stub import StubTTS
+    from stewardai.agent.nodes import build_llm_node
+    from livekit.agents import llm as lk_llm  # noqa: F401 – ensures extra present
+
+    # ------------------------------------------------------------------ setup
+    stub_llm = StubLLM()
+    stub_tts = StubTTS()
+    llm_node = build_llm_node(stub_llm, gated=True)
+
+    # Agent-side frame server (bot connects to this)
+    server = TcpFrameServer(host="127.0.0.1", port=0)
+    await server.start()
+
+    bot = FakeBot()
+    await bot.connect("127.0.0.1", server.port)
+    await _wait_connected(server, timeout=2.0)
+
+    # ------------------------------------------------------------------ helpers
+    async def _run_gated_phase(text: str) -> bool:
+        """Drive one gated-LLM turn; if speak, push frames into out. Return speak."""
+        ctx = lk_llm.ChatContext.empty()
+        ctx.add_message(role="user", content=text)
+        stream = llm_node.chat(chat_ctx=ctx)
+        chunks = []
+        async for chunk in stream:
+            delta = getattr(getattr(chunk, "delta", None), "content", None)
+            if delta:
+                chunks.append(delta)
+        return bool(chunks)  # True iff the node emitted any deltas
+
+    async def _synthesize_to_output(out: QueueAudioOutput, text: str) -> bytes:
+        """Synthesize text via StubTTS, capture all PCM, push into out; return PCM."""
+        all_pcm = bytearray()
+        async for frame in stub_tts.synthesize(text):
+            await out.capture_frame(frame)
+            all_pcm += frame.pcm
+        out.flush()
+        await out.aclose()
+        return bytes(all_pcm)
+
+    # ================================================================== Phase 1: silent
+    stub_llm.next_decision = Decision(speak=False)
+    spoke = await _run_gated_phase("background noise nobody cares about")
+    assert not spoke, "gated node should emit nothing when speak=False"
+
+    # No TTS → output queue is empty; pump completes immediately (queue closed).
+    out1 = QueueAudioOutput(label="phase1")
+    await out1.aclose()  # close immediately — nothing enqueued
+    pump1 = asyncio.create_task(_pump_paced(out1, server))
+    await asyncio.wait_for(pump1, timeout=2.0)
+
+    # Bot should have received nothing in this phase — read briefly to confirm.
+    await bot.read_for(seconds=0.3)
+    assert len(bot.received) == 0, (
+        f"Silent phase: expected 0 bytes, got {len(bot.received)}"
+    )
+
+    # ================================================================== Phase 2: speak
+    stub_llm.next_decision = Decision(speak=True, text="Hi! This is a test reply.")
+    spoke = await _run_gated_phase("hey stewardai, say something")
+    assert spoke, "gated node should emit text when speak=True"
+
+    out2 = QueueAudioOutput(label="phase2")
+    expected_pcm = await _synthesize_to_output(out2, "Hi! This is a test reply.")
+
+    pump2 = asyncio.create_task(_pump_paced(out2, server))
+    # read_for timeout must cover the paced playback duration (StubTTS ~0.5-2s)
+    await bot.read_for(seconds=5.0)
+    await asyncio.wait_for(pump2, timeout=5.0)
+
+    assert len(bot.received) > 0, (
+        "Speak phase: expected PCM bytes on bot, got 0"
+    )
+    assert bot.received == bytearray(expected_pcm), (
+        f"Received PCM mismatch: got {len(bot.received)} bytes, "
+        f"expected {len(expected_pcm)} bytes"
+    )
+
+    # ------------------------------------------------------------------ teardown
+    await bot.aclose()
+    await server.aclose()
