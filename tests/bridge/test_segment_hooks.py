@@ -118,3 +118,51 @@ def test_segment_start_fires_once_for_multi_frame_segment() -> None:
 
     assert len(frames) == 3
     assert len(starts) == 1, "on_segment_start must fire only on the first frame of each segment"
+
+
+# ---------------------------------------------------------------------------
+# Mid-segment shutdown: frame (no flush) then aclose() must still fire end (I1)
+# ---------------------------------------------------------------------------
+
+
+def test_segment_end_fires_on_mid_segment_shutdown() -> None:
+    ao = QueueAudioOutput(label="test")
+
+    starts: list[int] = []
+    ends: list[int] = []
+    ao.on_segment_start = lambda: starts.append(1)
+    ao.on_segment_end = lambda: ends.append(1)
+
+    # No flush — the queue closes while the segment is still active.
+    asyncio.run(ao.capture_frame(_SILENT_FRAME))
+    asyncio.run(ao.aclose())
+
+    frames = _drain(ao)
+
+    assert len(frames) == 1
+    assert len(starts) == 1, "on_segment_start should fire once"
+    assert len(ends) == 1, "on_segment_end must fire on shutdown to mute the mic"
+
+
+# ---------------------------------------------------------------------------
+# Empty flush (no frames) must NOT fire on_segment_end (I2: no unpaired mic_off)
+# ---------------------------------------------------------------------------
+
+
+def test_empty_flush_does_not_fire_segment_end() -> None:
+    ao = QueueAudioOutput(label="test")
+
+    starts: list[int] = []
+    ends: list[int] = []
+    ao.on_segment_start = lambda: starts.append(1)
+    ao.on_segment_end = lambda: ends.append(1)
+
+    # Flush with no frames captured first.
+    ao.flush()
+    asyncio.run(ao.aclose())
+
+    frames = _drain(ao)
+
+    assert len(frames) == 0
+    assert len(starts) == 0, "no frames → on_segment_start must not fire"
+    assert len(ends) == 0, "empty flush must not schedule an unpaired mic_off"

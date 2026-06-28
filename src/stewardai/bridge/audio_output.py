@@ -180,6 +180,10 @@ def _make_queue_audio_output():
             while True:
                 item = await self._queue.get()
                 if item is None:
+                    # Shutdown mid-segment: fire on_segment_end so the mic is muted
+                    # (otherwise it stays hot — there was a paired on_segment_start).
+                    if seg_active and self.on_segment_end is not None:
+                        self.on_segment_end()
                     return
                 if item is _SEGMENT_END:
                     if has_livekit:
@@ -187,9 +191,12 @@ def _make_queue_audio_output():
                             playback_position=self._seg_played, interrupted=False
                         )
                     self._seg_played = 0.0
-                    seg_active = False
-                    if self.on_segment_end is not None:
-                        self.on_segment_end()
+                    # Only fire on_segment_end if a segment was actually open — an
+                    # empty flush (no frames) must not schedule an unpaired mic_off.
+                    if seg_active:
+                        seg_active = False
+                        if self.on_segment_end is not None:
+                            self.on_segment_end()
                     continue
                 # Fire on_segment_start on the first frame of each new segment.
                 if not seg_active:
