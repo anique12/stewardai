@@ -57,6 +57,12 @@ _DEFAULT_INSTRUCTIONS = (
     "offer an alternative or ask how to proceed."
 )
 
+_MEETING_DECIDE_SYSTEM = (
+    "You are a meeting assistant, always listening to the live transcript. "
+    "Only respond when directly addressed by your wake word/name or clearly asked something; "
+    "otherwise call stay_silent. When you respond, call speak with a concise spoken reply."
+)
+
 
 def _load_vad(s: Settings):
     """Local Silero VAD via the current inference API.
@@ -98,6 +104,7 @@ def build_session(
     stt_backend=None,  # noqa: ANN001 - optional pre-built STTBackend to reuse
     llm_backend=None,  # noqa: ANN001 - optional pre-built LLMBackend to reuse
     tts_backend=None,  # noqa: ANN001 - optional pre-built TTSBackend to reuse
+    gated: bool = False,
 ):
     """Construct a roomless ``AgentSession`` wired with our nodes + VAD + turn det.
 
@@ -120,8 +127,11 @@ def build_session(
 
     stt = build_stt_node(
         stt_backend if stt_backend is not None else make_stt(s))
-    llm = build_llm_node(
-        llm_backend if llm_backend is not None else make_llm(s))
+    _llm_backend = llm_backend if llm_backend is not None else make_llm(s)
+    if gated:
+        llm = build_llm_node(_llm_backend, system=_MEETING_DECIDE_SYSTEM, gated=True)
+    else:
+        llm = build_llm_node(_llm_backend)
     tts = build_tts_node(
         tts_backend if tts_backend is not None else make_tts(s),
         voice=s.tts_default_voice,
