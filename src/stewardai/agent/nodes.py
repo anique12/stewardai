@@ -142,8 +142,25 @@ def _lang_str(language) -> str | None:  # noqa: ANN001
 # --------------------------------------------------------------------------- #
 # LLM node
 # --------------------------------------------------------------------------- #
-def build_llm_node(backend: LLMBackend, *, system: str | None = None, temperature: float = 0.4):
+def build_llm_node(
+    backend: LLMBackend,
+    *,
+    system: str | None = None,
+    temperature: float = 0.4,
+    gated: bool = False,
+):
     """Return a ``livekit.agents.llm.LLM`` instance wrapping ``backend``.
+
+    Args:
+        backend: Our ``LLMBackend`` (must also implement ``decide`` when ``gated=True``).
+        system: Optional system-prompt override.
+        temperature: Sampling temperature (ungated path only).
+        gated: When ``True``, each turn calls ``backend.decide()`` first.  If the
+            decision is ``speak=False`` the stream emits **no deltas** so the
+            ``AgentSession`` produces no speech.  When ``speak=True`` the single
+            ``decision.text`` is emitted as one chunk.  When ``False`` (default,
+            browser 1:1 path) the stream falls through to ``backend.complete()``
+            as before — behaviour is unchanged.
 
     Raises ``ImportError`` (lazily) if livekit is not installed.
     """
@@ -152,17 +169,27 @@ def build_llm_node(backend: LLMBackend, *, system: str | None = None, temperatur
     class StewardLLMStream(lk_llm.LLMStream):  # type: ignore[misc, valid-type]
         """Streams ``backend.complete`` deltas as ``ChatChunk`` events."""
 
-        def __init__(self, llm, *, chat_ctx, tools, conn_options, inner, system, temperature):  # noqa: ANN001
+        def __init__(self, llm, *, chat_ctx, tools, conn_options, inner, system, temperature, gated):  # noqa: ANN001
             super().__init__(
                 llm, chat_ctx=chat_ctx, tools=tools or [], conn_options=conn_options
             )
             self._inner = inner
             self._system = system
             self._temperature = temperature
+            self._gated = gated
 
         async def _run(self) -> None:
             messages = _chat_ctx_to_messages(self._chat_ctx)
             request_id = _gen_id()
+            if self._gated:
+                decision = await self._inner.decide(messages, system=self._system)
+                _log.info("llm_gated_decide", backend=self._inner.name, speak=decision.speak)
+                if not decision.speak:
+                    return  # emit no deltas -> AgentSession stays silent
+                self._event_ch.send_nowait(_make_chat_chunk(lk_llm, request_id, decision.text))
+                _log.info("llm_done", backend=self._inner.name, deltas=1)
+                return
+            # ungated path (browser 1:1): stream complete() deltas as before
             _log.info("llm_chat", backend=self._inner.name, messages=len(messages))
             n = 0
             try:
@@ -186,11 +213,12 @@ def build_llm_node(backend: LLMBackend, *, system: str | None = None, temperatur
     class StewardLLM(lk_llm.LLM):  # type: ignore[misc, valid-type]
         """LLM adapter for our ``LLMBackend``."""
 
-        def __init__(self, inner: LLMBackend, system: str | None, temperature: float) -> None:
+        def __init__(self, inner: LLMBackend, system: str | None, temperature: float, gated: bool) -> None:
             super().__init__()
             self._inner = inner
             self._system = system
             self._temperature = temperature
+            self._gated = gated
 
         def chat(
             self,
@@ -214,12 +242,13 @@ def build_llm_node(backend: LLMBackend, *, system: str | None = None, temperatur
                 inner=self._inner,
                 system=self._system,
                 temperature=self._temperature,
+                gated=self._gated,
             )
 
         async def aclose(self) -> None:  # type: ignore[override]
             await self._inner.aclose()
 
-    return StewardLLM(backend, system, temperature)
+    return StewardLLM(backend, system, temperature, gated)
 
 
 def _chat_ctx_to_messages(chat_ctx) -> list[Message]:  # noqa: ANN001
