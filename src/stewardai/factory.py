@@ -18,7 +18,9 @@ if TYPE_CHECKING:
 _STT = {
     "stub": ("stewardai.stt.stub", "StubSTT"),
     "parakeet_nemo": ("stewardai.stt.parakeet_nemo", "ParakeetNeMoSTT"),
+    "parakeet": ("stewardai.stt.parakeet_nemo", "ParakeetNeMoSTT"),  # alias
     "faster_whisper": ("stewardai.stt.whisper", "WhisperSTT"),
+    "whisper": ("stewardai.stt.whisper", "WhisperSTT"),  # alias
 }
 _TTS = {
     "stub": ("stewardai.tts.stub", "StubTTS"),

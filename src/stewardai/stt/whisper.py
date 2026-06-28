@@ -1,8 +1,9 @@
-"""Real STT backend: Whisper large-v3-turbo via faster-whisper (CTranslate2).
+"""Real STT backend: Whisper large-v3 via faster-whisper (CTranslate2).
 
 Like Parakeet this is a BATCH model — we decode the finalized utterance buffer
 (turn detection / endpointing happens upstream). CTranslate2 is fast on CPU with
-``int8`` (``float16`` on CUDA). English-only by default.
+``int8`` (``float16`` on CUDA). Multilingual: with ``whisper_language`` unset the
+language is auto-detected per utterance; pin it (e.g. "en") to force one.
 
 Anti-hallucination settings matter here: Whisper is notorious for emitting
 "thank you"/"yeah" on noise or background speech, so we decode greedily
@@ -39,7 +40,8 @@ class WhisperSTT:
         compute_type = ct if ct and not ct.startswith("#") else (
             "float16" if device == "cuda" else "int8"
         )
-        self._lang = self._s.whisper_language or "en"
+        # None -> faster-whisper auto-detects the language per utterance (multilingual).
+        self._lang = self._s.whisper_language or None
         self._beam_size = self._s.whisper_beam_size
         model_name = self._s.whisper_model
 

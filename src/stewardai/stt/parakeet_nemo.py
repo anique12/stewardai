@@ -18,8 +18,6 @@ from stewardai.config import Settings, get_settings
 
 _log = get_logger("stt.parakeet")
 
-_MODEL_NAME = "nvidia/parakeet-tdt-0.6b-v3"
-
 
 class ParakeetNeMoSTT:
     name = "parakeet_nemo"
@@ -27,16 +25,18 @@ class ParakeetNeMoSTT:
     def __init__(self, settings: Settings | None = None) -> None:
         self._s = settings or get_settings()
         self._device = self._s.device  # "cpu" | "cuda"
+        # v3 (multilingual) by default; switch to v2 (English-only) purely by env.
+        model_name = self._s.parakeet_model
 
         # Lazy heavy import: importing this module must not require NeMo/torch.
         from nemo.collections.asr.models import ASRModel  # noqa: PLC0415
 
-        _log.info("loading_model", model=_MODEL_NAME, device=self._device)
-        model = ASRModel.from_pretrained(model_name=_MODEL_NAME)
+        _log.info("loading_model", model=model_name, device=self._device)
+        model = ASRModel.from_pretrained(model_name=model_name)
         model = model.to(self._device)
         model.eval()
         self._model = model
-        _log.info("model_loaded", model=_MODEL_NAME, device=self._device)
+        _log.info("model_loaded", model=model_name, device=self._device)
 
     async def transcribe(
         self, pcm: bytes, *, sample_rate: int = SAMPLE_RATE, lang: str = "en"

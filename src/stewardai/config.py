@@ -76,11 +76,23 @@ class Settings(BaseSettings):
     # TTS
     tts_default_voice: str = "stub"
 
-    # Whisper STT (faster-whisper / CTranslate2). Batch model, fast on CPU (int8).
-    whisper_model: str = "large-v3-turbo"
+    # Whisper STT (faster-whisper / CTranslate2). Batch model, multilingual.
+    # large-v3 (NOT turbo): more accurate and full 99-language support. turbo trades
+    # accuracy for speed and sits a notch below large-v3 on WER — for meetings we
+    # prefer accuracy. Swap models / backends purely by env (no code change).
+    whisper_model: str = "large-v3"
     whisper_compute_type: str | None = None  # None -> int8 (cpu) / float16 (cuda)
-    whisper_beam_size: int = 1  # greedy-ish; fastest on CPU
-    whisper_language: str = "en"
+    whisper_beam_size: int = 1  # greedy-ish; fastest on CPU. Raise (e.g. 5) for accuracy.
+    # None -> auto-detect the language per utterance (multilingual). Pin to a code
+    # (e.g. "en") to force one language: faster and avoids mis-detection on short or
+    # noisy utterances, at the cost of only recognizing that language.
+    whisper_language: str | None = None
+
+    # Parakeet STT (NVIDIA NeMo). v3 = multilingual (25 European langs); v2 is
+    # English-only and a touch more accurate on English. Needs the `parakeet` extra
+    # (nemo_toolkit[asr] + torch); GPU strongly recommended. Select with
+    # STT_BACKEND=parakeet (alias of parakeet_nemo).
+    parakeet_model: str = "nvidia/parakeet-tdt-0.6b-v3"
 
     # Piper TTS (local neural). Voice models (.onnx + .json) download here on first use.
     piper_data_dir: str = "~/.cache/stewardai/piper"
