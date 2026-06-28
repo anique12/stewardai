@@ -85,6 +85,22 @@ class _FrameServerBase:
                 return
             yield item
 
+    async def send(self, pcm: bytes) -> None:
+        """Send length-prefixed PCM back to the connected source client (full-duplex).
+
+        This is the symmetric counterpart of ``_read_frames_into``: it reuses the
+        same ``_source_writer`` that ``_on_client`` stored when the inbound client
+        connected, so the same TCP connection carries audio in BOTH directions.
+
+        No-op (with a debug log) if no client is connected yet — the forwarder
+        reconnects and pre-connection output is simply dropped rather than raised.
+        """
+        if self._source_writer is None:
+            _log.debug("send_dropped_no_client", bytes=len(pcm))
+            return
+        self._source_writer.write(_LEN.pack(len(pcm)) + pcm)
+        await self._source_writer.drain()
+
     async def aclose(self) -> None:
         if self._closed:
             return
