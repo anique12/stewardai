@@ -11,8 +11,6 @@ from __future__ import annotations
 import asyncio
 import struct
 
-import pytest
-
 from stewardai.bridge.transport import TcpFrameServer
 
 _LEN = struct.Struct(">I")

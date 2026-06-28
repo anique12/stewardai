@@ -12,10 +12,10 @@ import struct
 
 import pytest
 
+from stewardai.agent.meeting_runner import _pump_paced
 from stewardai.bridge.audio_output import QueueAudioOutput
 from stewardai.bridge.transport import TcpFrameServer
 from stewardai.common.audio import AudioFrame
-from stewardai.agent.meeting_runner import _pump_paced
 
 _LEN = struct.Struct(">I")
 
@@ -53,7 +53,7 @@ async def test_pump_sends_paced_frames_to_server():
             (n,) = _LEN.unpack(header)
             payload = await asyncio.wait_for(reader.readexactly(n), timeout=1.0)
             got += payload
-        except (asyncio.TimeoutError, asyncio.IncompleteReadError):
+        except (TimeoutError, asyncio.IncompleteReadError):
             break
 
     writer.close()
@@ -90,19 +90,21 @@ async def test_meeting_loop_silent_then_speaks():
         -> StubTTS synthesizes PCM -> _pump_paced streams it -> FakeBot.received > 0.
     """
     pytest.importorskip("livekit")
-    import importlib.util, pathlib
+    import importlib.util
+    import pathlib
     _fb_path = pathlib.Path(__file__).parent / "fake_bot.py"
     _spec = importlib.util.spec_from_file_location("fake_bot", _fb_path)
     _mod = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
     _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
     FakeBot = _mod.FakeBot
+    from livekit.agents import llm as lk_llm  # noqa: F401 – ensures extra present
+
+    from stewardai.agent.nodes import build_llm_node
     from stewardai.bridge.audio_output import QueueAudioOutput
     from stewardai.bridge.transport import TcpFrameServer
-    from stewardai.common.audio import AudioFrame, Decision
+    from stewardai.common.audio import Decision
     from stewardai.llm.stub import StubLLM
     from stewardai.tts.stub import StubTTS
-    from stewardai.agent.nodes import build_llm_node
-    from livekit.agents import llm as lk_llm  # noqa: F401 – ensures extra present
 
     # ------------------------------------------------------------------ setup
     stub_llm = StubLLM()

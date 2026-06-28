@@ -169,7 +169,9 @@ def build_llm_node(
     class StewardLLMStream(lk_llm.LLMStream):  # type: ignore[misc, valid-type]
         """Streams ``backend.complete`` deltas as ``ChatChunk`` events."""
 
-        def __init__(self, llm, *, chat_ctx, tools, conn_options, inner, system, temperature, gated):  # noqa: ANN001
+        def __init__(  # noqa: ANN001
+            self, llm, *, chat_ctx, tools, conn_options, inner, system, temperature, gated
+        ):
             super().__init__(
                 llm, chat_ctx=chat_ctx, tools=tools or [], conn_options=conn_options
             )
@@ -214,7 +216,9 @@ def build_llm_node(
     class StewardLLM(lk_llm.LLM):  # type: ignore[misc, valid-type]
         """LLM adapter for our ``LLMBackend``."""
 
-        def __init__(self, inner: LLMBackend, system: str | None, temperature: float, gated: bool) -> None:
+        def __init__(
+            self, inner: LLMBackend, system: str | None, temperature: float, gated: bool
+        ) -> None:
             super().__init__()
             self._inner = inner
             self._system = system

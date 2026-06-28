@@ -61,7 +61,7 @@ class FakeBot:
                     self._reader.readexactly(n), timeout=seconds
                 )
                 self.received += payload
-        except (asyncio.TimeoutError, asyncio.IncompleteReadError):
+        except (TimeoutError, asyncio.IncompleteReadError):
             return
 
     async def aclose(self) -> None:

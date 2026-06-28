@@ -11,9 +11,9 @@ import pytest
 pytest.importorskip("livekit")
 pytestmark = pytest.mark.heavy
 
+from stewardai.agent.nodes import build_llm_node  # noqa: E402
 from stewardai.common.audio import Decision  # noqa: E402
 from stewardai.llm.stub import StubLLM  # noqa: E402
-from stewardai.agent.nodes import build_llm_node  # noqa: E402
 
 
 async def _collect_text(stream) -> str:

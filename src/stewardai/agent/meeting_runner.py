@@ -48,6 +48,7 @@ async def run_meeting(settings: Settings | None = None) -> None:
     """
     s = settings or get_settings()
     from livekit.agents import AgentSession  # noqa: F401  (ensures extra present)
+
     from stewardai.agent.assembly import build_agent, build_session
     from stewardai.bridge.audio_input import _build_push_audio_input
     from stewardai.bridge.audio_output import QueueAudioOutput
@@ -85,5 +86,7 @@ async def run_meeting(settings: Settings | None = None) -> None:
             await session.aclose()
         with contextlib.suppress(Exception):
             await control.mic_off()
-        await control.aclose()
-        await server.aclose()
+        with contextlib.suppress(Exception):
+            await control.aclose()
+        with contextlib.suppress(Exception):
+            await server.aclose()
