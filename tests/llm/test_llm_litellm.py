@@ -20,7 +20,7 @@ async def test_litellm_wiring(monkeypatch):
         def __init__(self, c):
             self.choices = [_Choice(c)]
 
-    async def fake_acompletion(*, model, messages, stream, temperature):
+    async def fake_acompletion(*, model, messages, stream, temperature, **kwargs):
         captured["model"] = model
         captured["messages"] = messages
 
