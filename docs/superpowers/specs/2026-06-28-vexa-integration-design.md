@@ -211,6 +211,15 @@ These patches are maintained as a small Vexa fork; the bot Docker image is rebui
   is in the meeting; if AEC is imperfect the agent could transcribe itself. Because
   output is LLM-gated (rare) and we can suppress the addressed-speaker's own-audio
   window, this is low-risk for v1 but noted.
+- **Forwarder reconnect is NOT yet handled (single connection per meeting).** The
+  agent's inbound `TcpFrameServer` accepts the first forwarder connection and sets
+  `_have_source`; it never resets that on disconnect, so if `forwarder.ts` drops and
+  **auto-reconnects** (network blip / bot restart), the new connection is rejected as
+  `extra_client_dropped` and the meeting goes deaf+mute for its remainder (only a
+  warning is logged). Acceptable for v1's manually-started single meeting, but a
+  **required fast-follow before the live loop is trusted**: reset
+  `_have_source`/`_source_writer` on disconnect AND keep the inbound read loop alive
+  across a reconnect (a small redesign of `_FrameServerBase`, not a one-liner).
 
 ## Error handling
 
