@@ -98,8 +98,14 @@ class _FrameServerBase:
         if self._source_writer is None:
             _log.debug("send_dropped_no_client", bytes=len(pcm))
             return
-        self._source_writer.write(_LEN.pack(len(pcm)) + pcm)
-        await self._source_writer.drain()
+        try:
+            self._source_writer.write(_LEN.pack(len(pcm)) + pcm)
+            await self._source_writer.drain()
+        except (ConnectionError, OSError) as exc:
+            # Forwarder crashed / half-closed: drop the client so later sends
+            # fall back to the no-op path and never crash the TTS output loop.
+            _log.warning("send_error_dropping_client", error=str(exc))
+            self._source_writer = None
 
     async def aclose(self) -> None:
         if self._closed:

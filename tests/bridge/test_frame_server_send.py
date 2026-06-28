@@ -67,3 +67,57 @@ async def test_send_before_client_is_safe_noop():
         await server.send(b"\x00" * 640)  # must not raise
     finally:
         await server.aclose()
+
+
+async def test_send_after_client_disconnect_is_safe_noop():
+    """If the client disconnects, send() must not raise and later sends are no-ops."""
+    server = TcpFrameServer(host="127.0.0.1", port=0)
+    await server.start()
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", server.port)
+        # Let the server register the connection (_on_client stores the writer).
+        await asyncio.sleep(0.05)
+
+        # Client goes away (mirrors a forwarder crash / TCP RST).
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:  # noqa: BLE001
+            pass
+        await asyncio.sleep(0.05)
+
+        # First send may hit the broken writer; it must NOT raise and must drop
+        # the client, so the second send is a clean no-op.
+        await server.send(b"\x00" * 640)
+        await server.send(b"\x00" * 640)
+    finally:
+        await server.aclose()
+
+
+async def test_send_drops_client_when_writer_errors():
+    """A writer that raises on drain() must be swallowed and the client dropped.
+
+    Loopback writes can be buffered, so a real disconnect doesn't deterministically
+    surface the error on the next send. This injects a writer whose drain() raises
+    to prove send() catches it, does not propagate, and resets _source_writer so
+    later sends are no-ops (re-enabling the safe path for the TTS output loop).
+    """
+
+    class _BrokenWriter:
+        def write(self, _data: bytes) -> None:  # accepts bytes, like StreamWriter
+            pass
+
+        async def drain(self) -> None:
+            raise ConnectionResetError("peer reset")
+
+    server = TcpFrameServer(host="127.0.0.1", port=0)
+    await server.start()
+    try:
+        # Simulate a registered-but-now-broken source connection.
+        server._source_writer = _BrokenWriter()  # type: ignore[assignment]
+
+        await server.send(b"\x00" * 640)  # must NOT raise
+        assert server._source_writer is None  # client dropped on error
+        await server.send(b"\x00" * 640)  # now a clean no-op
+    finally:
+        await server.aclose()
