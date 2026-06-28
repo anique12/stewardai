@@ -1,24 +1,35 @@
 /**
- * steward-forwarder.ts — Vexa → StewardAI audio forwarder.
+ * steward-forwarder.ts — Vexa ⇄ StewardAI full-duplex audio forwarder.
  *
- * Receives PCM from either capture path:
+ * INBOUND (Vexa → StewardAI): receives meeting PCM from either capture path:
  *   - Meet/Teams: 640-byte s16le 20 ms frames posted by the AudioWorklet
- *     (audioworklet/pcm-worklet.js) and bridged to Node via
+ *     (steward-pcm-worklet) and bridged to Node via
  *     page.exposeFunction('__vexaStewardFrame', ...).
- *   - Zoom Web: raw s16le @ 16 kHz mono Buffers tapped from parecord stdout
- *     (see zoom_tap.md), in arbitrary chunk sizes.
+ *   - Zoom Web: raw s16le @ 16 kHz mono Buffers tapped from parecord stdout,
+ *     in arbitrary chunk sizes.
+ *   Everything is normalized to s16le / 16 kHz / mono / 20 ms (640-byte) frames
+ *   and sent length-prefixed over the socket to the StewardAI bridge.
  *
- * Normalizes everything to s16le / 16 kHz / mono / 20 ms (640-byte) frames and
- * sends them length-prefixed over a Unix domain socket or TCP socket to the
- * StewardAI bridge. Wire format matches src/stewardai/bridge/transport.py:
+ * OUTBOUND (StewardAI → Vexa): the agent sends its TTS audio BACK over the SAME
+ *   socket, same framing, 16 kHz s16le. This class READS those frames off the
+ *   socket, decodes them, and emits each decoded PCM payload as an "agentPcm"
+ *   event (a Node Buffer). index.ts feeds those buffers to TTSPlaybackService so
+ *   they play into the meeting via PulseAudio tts_sink.
  *
- *     frame = [4-byte big-endian uint32 N][N bytes s16le PCM],  N = 640
+ * Wire format (BOTH directions) matches src/stewardai/bridge/transport.py:
+ *
+ *     frame = [4-byte big-endian uint32 N][N bytes s16le PCM]
+ *
+ * Outbound (the frames we send) always use N = 640. Inbound (the frames we
+ * receive from the agent) may use ANY N — we tolerate partial reads and any
+ * frame size exactly like transport.py's reader (n == 0 skipped, n > 1 MiB
+ * treated as a desync and the read buffer reset).
  *
  * Self-contained: uses only Node's `net` and `events` (no new npm deps; `net`
- * is already imported in vexa-bot index.ts:23). Connect/reconnect is handled
+ * is already imported in vexa-bot index.ts). Connect/reconnect is handled
  * internally with backoff; if the StewardAI agent isn't listening yet, frames
  * are dropped (bounded) until the socket comes up. The forwarder is strictly
- * best-effort: it must never throw into Vexa's recording path.
+ * best-effort: it must never throw into Vexa's recording/playback path.
  *
  * Drop-in location: services/vexa-bot/core/src/services/steward-forwarder.ts
  */
@@ -27,6 +38,8 @@ import * as net from "net";
 import { EventEmitter } from "events";
 
 const FRAME_BYTES = 640; // 20 ms @ 16 kHz mono s16le (320 samples × 2)
+const HEADER_BYTES = 4; // big-endian uint32 length prefix
+const MAX_FRAME = 1 << 20; // 1 MiB — matches transport.py's desync guard
 
 export type StewardTransport = "tcp" | "unix";
 
@@ -40,7 +53,7 @@ export interface StewardForwarderOptions {
   /** Unix socket path. Default from BRIDGE_SOCKET_PATH, else "/tmp/stewardai.sock". */
   socketPath?: string;
   /**
-   * Input sample format hint:
+   * Input sample format hint (INBOUND meeting audio fed via feedPcm):
    *   - "s16le" (default): feedPcm receives 16-bit PCM Buffers (Zoom parecord,
    *     and the worklet path which already emits s16le bytes).
    *   - "f32": feedPcm receives 32-bit float little-endian Buffers in [-1, 1]
@@ -77,6 +90,14 @@ function resolveOptions(opts: StewardForwarderOptions): Required<
   };
 }
 
+/**
+ * Events emitted:
+ *   - "agentPcm" (Buffer):    one decoded outbound (agent→Vexa) PCM frame.
+ *   - "connected" ():         socket connected to the StewardAI bridge.
+ *   - "disconnected" ():      socket closed (auto-reconnect scheduled).
+ *   - "backpressure" ():      a write returned false (non-fatal).
+ *   - "closed" ():            close() finished.
+ */
 export class StewardForwarder extends EventEmitter {
   private o: ReturnType<typeof resolveOptions>;
   private socket: net.Socket | null = null;
@@ -93,9 +114,16 @@ export class StewardForwarder extends EventEmitter {
   private pending: Buffer[] = [];
   private pendingBytes = 0;
 
+  /**
+   * INBOUND READ buffer: accumulates bytes received from the agent until a full
+   * [4-byte length][payload] frame is available. Carried across "data" events.
+   */
+  private recvBuf: Buffer = Buffer.alloc(0);
+
   // Lightweight stats (emitted on close / queryable for logging).
   public framesSent = 0;
   public framesDropped = 0;
+  public framesReceived = 0;
 
   constructor(opts: StewardForwarderOptions = {}) {
     super();
@@ -109,10 +137,10 @@ export class StewardForwarder extends EventEmitter {
   }
 
   /**
-   * Feed PCM from a capture source. Accepts a Node Buffer (or anything
-   * Buffer.from can wrap). Reslices to exact 640-byte s16le frames; the
-   * remainder is carried to the next call. Never throws — capture paths can
-   * call this without try/catch and still be safe, but wrapping is cheap.
+   * Feed INBOUND meeting PCM from a capture source. Accepts a Node Buffer (or
+   * anything Buffer.from can wrap). Reslices to exact 640-byte s16le frames; the
+   * remainder is carried to the next call. Never throws — capture paths can call
+   * this without try/catch and still be safe, but wrapping is cheap.
    */
   feedPcm(chunk: Buffer | Uint8Array | ArrayBuffer): void {
     if (this.closed) return;
@@ -132,7 +160,7 @@ export class StewardForwarder extends EventEmitter {
       }
 
       // Reslice into exact 20 ms (640-byte) frames.
-      let data = this.resliceTail.length
+      const data = this.resliceTail.length
         ? Buffer.concat([this.resliceTail, buf])
         : buf;
 
@@ -151,9 +179,9 @@ export class StewardForwarder extends EventEmitter {
 
   /** Length-prefix one 640-byte frame and write (or queue) it. */
   private _sendFrame(frame: Buffer): void {
-    const header = Buffer.allocUnsafe(4);
+    const header = Buffer.allocUnsafe(HEADER_BYTES);
     header.writeUInt32BE(frame.length, 0); // big-endian uint32, matches transport.py
-    const packet = Buffer.concat([header, frame], 4 + frame.length);
+    const packet = Buffer.concat([header, frame], HEADER_BYTES + frame.length);
 
     if (this.connected && this.socket && this.socket.writable) {
       // writable false / write returning false (backpressure) → still buffered
@@ -190,6 +218,57 @@ export class StewardForwarder extends EventEmitter {
     }
   }
 
+  /**
+   * INBOUND frame decoder. Appends `chunk` to recvBuf and pulls out every
+   * complete [4-byte BE length][payload] frame, emitting each payload as
+   * "agentPcm". Tolerates partial reads (the tail is carried in recvBuf) and is
+   * resilient to a desynced/garbage length prefix (resets the buffer rather
+   * than allocating wildly). Strictly best-effort: never throws upward.
+   */
+  private _onData(chunk: Buffer): void {
+    try {
+      this.recvBuf = this.recvBuf.length
+        ? Buffer.concat([this.recvBuf, chunk])
+        : chunk;
+
+      let off = 0;
+      while (this.recvBuf.length - off >= HEADER_BYTES) {
+        const n = this.recvBuf.readUInt32BE(off);
+        if (n === 0) {
+          // Zero-length frame — skip the header (matches transport.py).
+          off += HEADER_BYTES;
+          continue;
+        }
+        if (n > MAX_FRAME) {
+          // Desynced/garbage length. Drop everything buffered and resync from
+          // the next bytes that arrive rather than allocating up to ~4 GiB.
+          this.o.log(`recv frame_too_large (n=${n}) — resetting read buffer`);
+          this.recvBuf = Buffer.alloc(0);
+          return;
+        }
+        if (this.recvBuf.length - off < HEADER_BYTES + n) {
+          // Full payload not here yet — wait for more bytes.
+          break;
+        }
+        const start = off + HEADER_BYTES;
+        // Copy out so the emitted Buffer is stable independent of recvBuf reuse.
+        const payload = Buffer.from(this.recvBuf.subarray(start, start + n));
+        off = start + n;
+        this.framesReceived += 1;
+        this.emit("agentPcm", payload);
+      }
+
+      // Carry the unconsumed tail (partial header or partial payload).
+      this.recvBuf = off > 0
+        ? (off < this.recvBuf.length ? Buffer.from(this.recvBuf.subarray(off)) : Buffer.alloc(0))
+        : this.recvBuf;
+    } catch (err: any) {
+      this.o.log(`recv decode error (dropped): ${err?.message || err}`);
+      // On any unexpected error, drop the buffer to avoid a stuck desync.
+      this.recvBuf = Buffer.alloc(0);
+    }
+  }
+
   private _connect(): void {
     if (this.closed || this.connecting || this.connected) return;
     this.connecting = true;
@@ -198,6 +277,7 @@ export class StewardForwarder extends EventEmitter {
       this.connecting = false;
       this.connected = true;
       this.backoffMs = 250; // reset backoff on a good connection
+      this.recvBuf = Buffer.alloc(0); // fresh read state per connection
       this.o.log(
         this.o.transport === "unix"
           ? `connected (unix ${this.o.socketPath})`
@@ -214,6 +294,9 @@ export class StewardForwarder extends EventEmitter {
 
     sock.setNoDelay(true); // low-latency: don't Nagle-coalesce 640-byte frames
 
+    // INBOUND: decode agent TTS frames off the same socket.
+    sock.on("data", (buf: Buffer) => this._onData(buf));
+
     sock.on("error", (err: any) => {
       // ECONNREFUSED etc. while the agent isn't up yet — expected; reconnect.
       this.o.log(`socket error: ${err?.code || err?.message || err}`);
@@ -223,6 +306,7 @@ export class StewardForwarder extends EventEmitter {
       this.connected = false;
       this.connecting = false;
       this.socket = null;
+      this.recvBuf = Buffer.alloc(0); // discard a half-frame from the dead socket
       this.emit("disconnected");
       this._scheduleReconnect();
     });
@@ -254,6 +338,11 @@ export class StewardForwarder extends EventEmitter {
     return out;
   }
 
+  /** True if the bridge socket is currently connected. */
+  isConnected(): boolean {
+    return this.connected;
+  }
+
   /** Stop forwarding and close the socket. Idempotent. */
   close(): void {
     if (this.closed) return;
@@ -271,7 +360,10 @@ export class StewardForwarder extends EventEmitter {
       this.socket = null;
     }
     this.connected = false;
-    this.o.log(`closed (sent=${this.framesSent}, dropped=${this.framesDropped})`);
+    this.recvBuf = Buffer.alloc(0);
+    this.o.log(
+      `closed (sent=${this.framesSent}, dropped=${this.framesDropped}, received=${this.framesReceived})`,
+    );
     this.emit("closed");
   }
 }
@@ -282,6 +374,7 @@ export class StewardForwarder extends EventEmitter {
  *   import { createStewardForwarder } from "./services/steward-forwarder";
  *   const stewardForwarder = createStewardForwarder();   // reads BRIDGE_* env
  *   stewardForwarder.start();
+ *   stewardForwarder.on("agentPcm", (frame) => { ...play to tts_sink... });
  *   // Zoom:        pulseAudioCapture.setStewardForwarder(stewardForwarder)
  *   // Meet/Teams:  expose '__vexaStewardFrame' → stewardForwarder.feedPcm(...)
  *   // on leave:    stewardForwarder.close()

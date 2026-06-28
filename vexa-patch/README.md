@@ -221,6 +221,70 @@ doesn't matter.
 
 ---
 
+## 4b. Output + control (full-duplex)
+
+The forwarder is now **full-duplex**: it both SENDS inbound meeting PCM and
+READS the agent's TTS audio back over the **same socket**, same framing
+(`[4-byte BE N][N bytes s16le PCM]`), at **16 kHz** s16le mono. The agent side
+(`bridge/transport.py` `FrameServer.send`) writes TTS frames to the same
+`_source_writer` the inbound client connected on, so one TCP/Unix connection
+carries audio both ways. The agent additionally sends **control** over the
+Redis command channel the bot already subscribes to.
+
+### Output: agent TTS → meeting
+
+`forwarder.ts` (`steward-forwarder.ts`) now attaches a `data` handler, buffers
+bytes across reads, decodes the same length-prefixed frames, and emits each
+decoded payload as an **`"agentPcm"`** event (a Node `Buffer`). It tolerates
+partial reads, skips `N == 0`, and resets its read buffer on `N > 1 MiB`
+(desync guard, matching `transport.py`). It never throws into Vexa.
+
+In `index.ts`, on each `"agentPcm"` frame the bot plays it to the PulseAudio
+`tts_sink` via the existing `TTSPlaybackService.startPCMStream(16000, 1, 's16le')`
+(returns `{ write, end, onDone }`). The paplay stream is opened **lazily on the
+first frame** (and `unmuteTtsAudio()` is called then — `startPCMStream` does NOT
+unmute on its own, unlike `playPCM`). On `speak_stop` the bot calls
+`ttsPlaybackService.interrupt()` (SIGKILLs paplay) and resets the stream handle
+so the next frame opens a fresh stream.
+
+| What | File:anchor | Verified line (2026-06-29) |
+|------|-------------|----------------------------|
+| forwarder construct + `agentPcm` wiring (opt-in `STEWARD_BRIDGE_ENABLED=true`) | after per-speaker pipeline init, before platform dispatch | `index.ts` ~2690 |
+| `playStewardAgentFrame()` / `resetStewardTtsStream()` + `stewardForwarder` module var + `getStewardForwarder()` | next to the voice-agent service vars | `index.ts` ~153–195 |
+| `import { StewardForwarder, createStewardForwarder }` + meet-tap import | service-import block | `index.ts` 15–18 |
+| `unmuteTtsAudio` / `muteTtsAudio` made `export`ed (no behavior change) | `tts-playback.ts` | lines 11, 25 |
+| forwarder `close()` + `stopStewardMeetTap()` in graceful-leave cleanup | voice-agent cleanup block | `index.ts` ~784 |
+
+### Control: Redis actions on `bot_commands:meeting:{meetingId}`
+
+The agent sends JSON `{"action": "..."}` on the channel the bot already
+subscribes to (subscription `index.ts` ~2278; dispatch `else if` chain
+`index.ts` ~564). Added cases:
+
+| Action | Behavior (in `handleRedisMessage`) |
+|--------|------------------------------------|
+| `mic_on`  | `unmuteTtsAudio()` (lift PulseAudio `tts_sink`/`virtual_mic` mute) **and** `microphoneService.unmute()` (lift the meeting-UI mic button). Both are required for TTS to reach the meeting. |
+| `mic_off` | `muteTtsAudio()` + `ttsPlaybackService.interrupt()` + reset steward stream + `microphoneService.mute()`. |
+| `speak_stop` | (existing case, extended) `ttsPlaybackService.interrupt()` **and** `resetStewardTtsStream()` so the next `agentPcm` reopens a fresh stream. |
+
+### Meet/Teams combined-mix tap (new module)
+
+`steward-meet-tap.ts` holds the AudioWorklet source (== `audioworklet/pcm-worklet.js`)
+and `startStewardMeetTap(page, forwarder)` / `stopStewardMeetTap(page)`. The
+worklet is loaded via a **Blob URL** built in the page (no static asset server),
+exposes `__vexaStewardFrame` → `forwarder.feedPcm(...)`, connects all
+`audio`/`video` MediaStream elements into one `GainNode` mix → worklet, and
+re-scans every 15 s for late joiners. It is started ~8 s after platform dispatch
+(so media elements exist) and is independent of Vexa's per-speaker capture.
+
+### Wire/format notes
+
+- Agent TTS is **16 kHz** s16le mono (NOT 24 kHz). The bot opens paplay at 16000.
+- The forwarder always SENDS `N = 640` (20 ms). It READS any `N`.
+- Everything is gated behind `STEWARD_BRIDGE_ENABLED=true`; when unset the
+  forwarder is never constructed and all taps are no-ops (`getStewardForwarder()`
+  returns `null`, which `PulseAudioCapture.setStewardForwarder(null)` accepts).
+
 ## 5. Files in this directory
 
 | File | Purpose |
