@@ -1,5 +1,6 @@
 import pytest
 from stewardai.common.audio import Decision, Message
+from stewardai.llm.litellm_client import _parse_decision
 from stewardai.llm.stub import StubLLM
 
 
@@ -21,9 +22,6 @@ async def test_stub_decide_defaults_silent():
 # ---------------------------------------------------------------------------
 # Pure parser tests — no network, no LLM call
 # ---------------------------------------------------------------------------
-from stewardai.llm.litellm_client import _parse_decision  # noqa: E402
-
-
 class _FakeFn:
     def __init__(self, name, arguments):
         self.name = name
@@ -47,3 +45,9 @@ def test_parse_decision_stay_silent():
 
 def test_parse_decision_none_defaults_silent():
     assert _parse_decision(None).speak is False
+
+
+def test_parse_decision_malformed_json():
+    d = _parse_decision([_FakeToolCall("speak", "not-valid-json{")])
+    assert d.speak is False
+    assert d.text == ""
