@@ -48,15 +48,27 @@ async def run_meeting(settings: Settings | None = None) -> None:
     """
     s = settings or get_settings()
     from livekit.agents import AgentSession  # noqa: F401  (ensures extra present)
+    from livekit.agents import metrics as lk_metrics  # per-turn timing breakdown
+    from livekit.agents.utils import http_context  # http session for cloud plugins
 
     from stewardai.agent.assembly import build_agent, build_session
     from stewardai.bridge.audio_input import _build_push_audio_input
     from stewardai.bridge.audio_output import QueueAudioOutput
+    from stewardai.factory import make_llm
+    from stewardai.llm.warmup import warmup_llm
 
     server = TcpFrameServer(s.bridge_tcp_host, s.bridge_tcp_port)
     await server.start()
     control = RedisControl(s.redis_url, s.vexa_meeting_id or "unknown")
-    session = build_session(s, stt_backend=None, llm_backend=None, tts_backend=None, gated=True)
+    # Build the LLM backend explicitly so we can warm its connection before the first
+    # turn (the first Gemini call is ~5.8s cold vs ~0.56s warm — see llm.warmup).
+    llm_backend = make_llm(s)
+    # gated=False: normal voice-agent behavior (responds to each turn with the
+    # _DEFAULT_INSTRUCTIONS persona), NOT the wake-gated "only speak when addressed"
+    # decide flow.
+    session = build_session(
+        s, stt_backend=None, llm_backend=llm_backend, tts_backend=None, gated=False
+    )
     agent = build_agent(s)
     audio_in = _build_push_audio_input()()
     audio_out = QueueAudioOutput(label="vexa")
@@ -65,38 +77,74 @@ async def run_meeting(settings: Settings | None = None) -> None:
     loop = asyncio.get_running_loop()
 
     def _on_clear() -> None:
-        loop.create_task(control.mic_off())
+        # Barge-in: just stop the agent's current speech. The mic stays ON (see below),
+        # so no mic_off here — muting on barge-in is unnecessary and only adds thrash.
         loop.create_task(control.speak_stop())
 
     audio_out.on_clear = _on_clear
 
-    # Per-utterance mic gating: unmute right before the first frame of each
-    # TTS segment is sent, mute again once the segment sentinel is processed.
-    # Note: mic_on is async scheduled via create_task, so the very first frame
-    # may be sent ~1 event-loop tick before the mic is fully open — acceptable
-    # for v1 (tens-of-ms onset clip is inaudible in practice).
-    audio_out.on_segment_start = lambda: loop.create_task(control.mic_on())
-    audio_out.on_segment_end = lambda: loop.create_task(control.mic_off())
+    # Mic stays ON for the whole session (no per-utterance gating). The previous
+    # mic_on@segment-start / mic_off@segment-end logic raced Google Meet's unmute
+    # latency and muted the bot WHILE the agent was still speaking (multi-segment
+    # replies clipped). The agent only feeds the bot TTS audio when it actually speaks,
+    # so an always-on mic transmits speech when present and silence otherwise — gating
+    # buys nothing. mic_on is published once, after session.start, below.
+    # (on_segment_start/on_segment_end intentionally left unset.)
 
-    await session.start(agent=agent)
-    pump = asyncio.create_task(_pump_paced(audio_out, server))
-    feed = asyncio.create_task(_feed_inbound(server, audio_in))
-    _log.info("meeting_agent_started", meeting=s.vexa_meeting_id)
-    try:
-        await asyncio.Event().wait()
-    finally:
-        for t in (pump, feed):
-            t.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await t
+    # Per-turn timing breakdown (LiveKit's OWN measurements) -> logs, so the meeting
+    # path is observable like /pipeline (which streams these to the browser). Shows
+    # WHERE a slow turn goes: endpointing (eou_delay) vs STT vs LLM (ttft) vs TTS (ttfb).
+    # If these sum to far less than the felt latency, the rest is the Vexa transport +
+    # mic-unmute path (tap -> TCP -> agent, and TTS -> TCP -> bot -> PulseAudio -> Meet).
+    def _ms(x):  # noqa: ANN001, ANN202 - seconds float | None -> ms int | None
+        return round(x * 1000) if x is not None else None
+
+    def _log_metrics(ev) -> None:  # noqa: ANN001 - MetricsCollectedEvent
+        m = ev.metrics
+        if isinstance(m, lk_metrics.EOUMetrics):
+            _log.info("turn_eou", eou_delay_ms=_ms(m.end_of_utterance_delay),
+                      transcription_delay_ms=_ms(m.transcription_delay))
+        elif isinstance(m, lk_metrics.STTMetrics):
+            _log.info("turn_stt", duration_ms=_ms(m.duration))
+        elif isinstance(m, lk_metrics.LLMMetrics):
+            _log.info("turn_llm", ttft_ms=_ms(m.ttft), duration_ms=_ms(m.duration))
+        elif isinstance(m, lk_metrics.TTSMetrics):
+            _log.info("turn_tts", ttfb_ms=_ms(m.ttfb), duration_ms=_ms(m.duration))
+
+    session.on("metrics_collected", _log_metrics)
+
+    # Warm the LLM connection BEFORE we start listening, so the first real turn doesn't
+    # pay the ~5s cold-connection cost (measured ~5.8s cold vs ~0.56s warm).
+    await warmup_llm(llm_backend)
+
+    # Cloud STT/TTS plugins (deepgram/cartesia) need an http session context, which
+    # only exists inside a LiveKit job; roomless we open one explicitly. Harmless for
+    # the local backends (they don't use it).
+    async with http_context.open():
+        await session.start(agent=agent)
+        # Unmute the bot once and leave it on for the session (the bot subscribes to its
+        # Redis command channel at startup, so this reaches it; it already connected the
+        # audio bridge by now — client_connected precedes session.start completing).
         with contextlib.suppress(Exception):
-            await session.aclose()
-        with contextlib.suppress(Exception):
-            await control.mic_off()
-        with contextlib.suppress(Exception):
-            await control.aclose()
-        with contextlib.suppress(Exception):
-            await server.aclose()
+            await control.mic_on()
+        pump = asyncio.create_task(_pump_paced(audio_out, server))
+        feed = asyncio.create_task(_feed_inbound(server, audio_in))
+        _log.info("meeting_agent_started", meeting=s.vexa_meeting_id)
+        try:
+            await asyncio.Event().wait()
+        finally:
+            for t in (pump, feed):
+                t.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await t
+            with contextlib.suppress(Exception):
+                await session.aclose()
+            with contextlib.suppress(Exception):
+                await control.mic_off()
+            with contextlib.suppress(Exception):
+                await control.aclose()
+            with contextlib.suppress(Exception):
+                await server.aclose()
 
 
 def _main() -> None:

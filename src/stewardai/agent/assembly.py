@@ -36,6 +36,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 
+from stewardai.common.audio import SAMPLE_RATE
 from stewardai.common.logging import get_logger
 from stewardai.config import Settings, get_settings
 from stewardai.factory import make_llm, make_stt, make_tts
@@ -98,6 +99,34 @@ def _load_turn_detector():
         return None
 
 
+def _load_deepgram_stt(s: Settings):
+    """Cloud STT via Deepgram (native LiveKit plugin): streaming, runs on YOUR
+    Deepgram account (DEEPGRAM_API_KEY) — no local CPU, not LiveKit Cloud. Matched
+    to 16 kHz (the bot tees meeting audio at 16 kHz)."""
+    from livekit.plugins import deepgram  # type: ignore  # lazy
+
+    kwargs: dict = {"model": s.deepgram_model, "sample_rate": SAMPLE_RATE}
+    if s.deepgram_api_key:
+        kwargs["api_key"] = s.deepgram_api_key
+    _log.info("stt_cloud_deepgram", model=s.deepgram_model)
+    return deepgram.STT(**kwargs)
+
+
+def _load_cartesia_tts(s: Settings):
+    """Cloud TTS via Cartesia (native LiveKit plugin): runs on YOUR Cartesia
+    account (CARTESIA_API_KEY) — no local CPU. Forced to 16 kHz to match the Vexa
+    bot's startPCMStream playback rate (else the reply is pitch-shifted)."""
+    from livekit.plugins import cartesia  # type: ignore  # lazy
+
+    kwargs: dict = {"model": s.cartesia_model, "sample_rate": SAMPLE_RATE}
+    if s.cartesia_api_key:
+        kwargs["api_key"] = s.cartesia_api_key
+    if s.cartesia_voice:
+        kwargs["voice"] = s.cartesia_voice
+    _log.info("tts_cloud_cartesia", model=s.cartesia_model, voice=s.cartesia_voice or "default")
+    return cartesia.TTS(**kwargs)
+
+
 def build_session(
     settings: Settings | None = None,
     *,
@@ -125,17 +154,25 @@ def build_session(
 
     from stewardai.agent.nodes import build_llm_node, build_stt_node, build_tts_node
 
-    stt = build_stt_node(
-        stt_backend if stt_backend is not None else make_stt(s))
+    # STT: cloud (Deepgram, native plugin — no local CPU) or our local wrapped backend.
+    if s.stt_backend == "deepgram":
+        stt = _load_deepgram_stt(s)
+    else:
+        stt = build_stt_node(
+            stt_backend if stt_backend is not None else make_stt(s))
     _llm_backend = llm_backend if llm_backend is not None else make_llm(s)
     if gated:
         llm = build_llm_node(_llm_backend, system=_MEETING_DECIDE_SYSTEM, gated=True)
     else:
         llm = build_llm_node(_llm_backend)
-    tts = build_tts_node(
-        tts_backend if tts_backend is not None else make_tts(s),
-        voice=s.tts_default_voice,
-    )
+    # TTS: cloud (Cartesia, native plugin — no local CPU) or our local wrapped backend.
+    if s.tts_backend == "cartesia":
+        tts = _load_cartesia_tts(s)
+    else:
+        tts = build_tts_node(
+            tts_backend if tts_backend is not None else make_tts(s),
+            voice=s.tts_default_voice,
+        )
     vad = _load_vad(s)
     turn_detection = _load_turn_detector()
 
@@ -163,6 +200,9 @@ def build_session(
         "tts": tts,
         "turn_handling": turn_handling,
     }
+    # Only pass when enabled, so we keep LiveKit's own default (NOT_GIVEN) otherwise.
+    if s.preemptive_generation:
+        kwargs["preemptive_generation"] = True
 
     session = AgentSession(**kwargs)
     _log.info(
@@ -175,6 +215,7 @@ def build_session(
         max_delay=s.turn_max_delay,
         vad_threshold=s.vad_activation_threshold,
         interruption_min_words=s.interruption_min_words,
+        preemptive_generation=s.preemptive_generation,
     )
     return session
 

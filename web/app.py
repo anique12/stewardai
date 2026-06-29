@@ -32,32 +32,50 @@ from stewardai.common.audio import SAMPLE_RATE
 from stewardai.common.logging import TurnTimer, configure_logging, get_logger
 from stewardai.config import get_settings
 from stewardai.factory import make_llm, make_stt, make_tts
+from stewardai.llm.warmup import warmup_llm
 from stewardai.turn.endpointer import SilenceEndpointer
 
 STATIC_DIR = Path(__file__).parent / "static"
 
 log = get_logger("web")
 
+# Cloud STT/TTS (Deepgram / Cartesia) are native LiveKit plugins constructed INSIDE
+# build_session for the /pipeline AgentSession path. They are NOT factory backends —
+# they have no transcribe()/synthesize() Protocol and run only inside an AgentSession
+# (with a LiveKit http session). So when one is selected we don't pre-build, warm, or
+# expose it on the single-component /stt and /tts pages.
+_CLOUD_BACKENDS = frozenset({"deepgram", "cartesia"})
 
-async def _warmup(stt, tts) -> None:  # noqa: ANN001
-    """Force the heavy local models to load at startup, not on the first turn.
+
+def _is_cloud(backend_name: str) -> bool:
+    return backend_name in _CLOUD_BACKENDS
+
+
+async def _warmup(stt, tts, llm) -> None:  # noqa: ANN001
+    """Force the heavy local models + the LLM connection to ready at startup.
 
     Purely a preload so a user's first utterance isn't blocked behind a cold
-    model load. This does NOT touch how/when the agent listens, thinks or
-    responds — LiveKit owns all of that.
+    model load (local STT/TTS) or a cold HTTP connection (the first Gemini call
+    is ~5.8s cold vs ~0.56s warm). This does NOT touch how/when the agent
+    listens, thinks or responds — LiveKit owns all of that. A ``None`` STT/TTS
+    backend means cloud (Deepgram/Cartesia) is selected — nothing local to
+    preload, so it's skipped.
     """
     import time
 
     t0 = time.perf_counter()
-    try:
-        await stt.transcribe(b"\x00\x00" * (SAMPLE_RATE // 2))  # 0.5s of silence
-    except Exception as exc:  # noqa: BLE001 - warmup is best-effort
-        log.warning("stt_warmup_failed", error=str(exc))
-    try:
-        async for _frame in tts.synthesize("ok"):
-            break  # first frame is enough to trigger the model load
-    except Exception as exc:  # noqa: BLE001
-        log.warning("tts_warmup_failed", error=str(exc))
+    if stt is not None:
+        try:
+            await stt.transcribe(b"\x00\x00" * (SAMPLE_RATE // 2))  # 0.5s of silence
+        except Exception as exc:  # noqa: BLE001 - warmup is best-effort
+            log.warning("stt_warmup_failed", error=str(exc))
+    if tts is not None:
+        try:
+            async for _frame in tts.synthesize("ok"):
+                break  # first frame is enough to trigger the model load
+        except Exception as exc:  # noqa: BLE001
+            log.warning("tts_warmup_failed", error=str(exc))
+    await warmup_llm(llm)  # establish the LLM HTTP connection (best-effort, logs its own ms)
     log.info("warmup_done", ms=round((time.perf_counter() - t0) * 1000))
 
 
@@ -65,22 +83,26 @@ async def _warmup(stt, tts) -> None:  # noqa: ANN001
 async def lifespan(app: FastAPI):
     settings = get_settings()
     configure_logging(level=settings.log_level, fmt=settings.log_format)
-    # Instantiate backends once; reuse across requests/connections.
+    # Instantiate backends once; reuse across requests/connections. Cloud STT/TTS are
+    # built inside build_session (the /pipeline path) and have no factory backend, so
+    # leave them as None here and skip pre-build + warmup. The LLM is always ours.
     app.state.settings = settings
-    app.state.stt = make_stt(settings)
-    app.state.tts = make_tts(settings)
+    app.state.stt = None if _is_cloud(settings.stt_backend) else make_stt(settings)
+    app.state.tts = None if _is_cloud(settings.tts_backend) else make_tts(settings)
     app.state.llm = make_llm(settings)
     log.info(
         "web_startup",
-        stt=app.state.stt.name,
-        tts=app.state.tts.name,
+        stt=app.state.stt.name if app.state.stt is not None else f"{settings.stt_backend} (cloud)",
+        tts=app.state.tts.name if app.state.tts is not None else f"{settings.tts_backend} (cloud)",
         llm=app.state.llm.name,
     )
-    await _warmup(app.state.stt, app.state.tts)
+    await _warmup(app.state.stt, app.state.tts, app.state.llm)
     try:
         yield
     finally:
         for backend in (app.state.stt, app.state.tts, app.state.llm):
+            if backend is None:
+                continue
             try:
                 await backend.aclose()
             except Exception:  # pragma: no cover - best-effort shutdown
@@ -117,6 +139,10 @@ async def pipeline_page() -> FileResponse:
 
 @app.get("/api/voices")
 async def api_voices() -> JSONResponse:
+    if app.state.tts is None:  # cloud TTS — only available via /pipeline
+        return JSONResponse(
+            {"voices": [], "note": f"cloud TTS ({app.state.settings.tts_backend}); use /pipeline"}
+        )
     return JSONResponse({"voices": app.state.tts.voices})
 
 
@@ -126,7 +152,11 @@ class TTSRequest(BaseModel):
 
 
 @app.post("/api/tts")
-async def api_tts(req: TTSRequest) -> StreamingResponse:
+async def api_tts(req: TTSRequest):
+    if app.state.tts is None:  # cloud TTS has no standalone synthesize() — use /pipeline
+        msg = f"cloud TTS ({app.state.settings.tts_backend}) is only available via /pipeline"
+        return JSONResponse({"error": msg}, status_code=503)
+
     # Stream raw s16le PCM frames as the TTS produces them (per-segment), so the
     # browser can start playback before the whole utterance is synthesized.
     async def gen():
@@ -144,6 +174,11 @@ def _new_endpointer() -> SilenceEndpointer:
 async def ws_stt(ws: WebSocket) -> None:
     """Receive binary 16 kHz mono s16le PCM frames; emit transcripts on EOU."""
     await ws.accept()
+    if app.state.stt is None:  # cloud STT has no standalone transcribe() — use /pipeline
+        msg = f"cloud STT ({app.state.settings.stt_backend}) is only available via /pipeline"
+        await _safe_send(ws, {"type": "error", "text": msg})
+        await ws.close()
+        return
     endpointer = _new_endpointer()
     stt = app.state.stt
     try:
@@ -186,6 +221,7 @@ async def ws_pipeline(ws: WebSocket) -> None:
     await ws.accept()
     try:
         from livekit.agents import metrics as lk_metrics
+        from livekit.agents.utils import http_context
 
         from stewardai.agent.assembly import build_agent, build_session
         from stewardai.bridge.audio_input import _build_push_audio_input
@@ -201,6 +237,12 @@ async def ws_pipeline(ws: WebSocket) -> None:
     audio_in = None
     audio_out = None
     out_task: asyncio.Task | None = None
+    # Cloud STT/TTS plugins (deepgram/cartesia) need a LiveKit http session, which only
+    # exists inside a LiveKit job; roomless we open one for this connection's lifetime
+    # (entered manually so the handler body below isn't re-indented). Harmless for the
+    # local backends — they don't touch it.
+    http_session_cm = http_context.open()
+    await http_session_cm.__aenter__()
     try:
         # Reuse the shared, already-loaded backends — no per-connection model reload.
         session = build_session(
@@ -297,4 +339,6 @@ async def ws_pipeline(ws: WebSocket) -> None:
         if session is not None:
             with suppress(Exception):
                 await session.aclose()
+        with suppress(Exception):
+            await http_session_cm.__aexit__(None, None, None)
         log.info("pipeline_agent_stopped")

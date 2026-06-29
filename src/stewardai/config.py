@@ -59,6 +59,15 @@ class Settings(BaseSettings):
     interruption_mode: str = "vad"
     interruption_min_duration: float = 0.25
 
+    # Preemptive generation: start the LLM (and TTS) on the INTERIM streaming-STT
+    # transcript BEFORE the end-of-turn is committed, overlapping the LLM's TTFT with the
+    # speech/endpointing window. A real latency win with streaming STT (Deepgram); a no-op
+    # with batch STT (no interim transcripts to act on). Cost: a speculative generation is
+    # discarded if the transcript changes (the user keeps talking), spending extra LLM
+    # tokens — a good trade on a cheap fast model (flash), riskier on a busy multi-speaker
+    # meeting. Default off; enable per-run with PREEMPTIVE_GENERATION=true.
+    preemptive_generation: bool = False
+
     # LLM (Gemini via LiteLLM)
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-2.0-flash"
@@ -112,6 +121,16 @@ class Settings(BaseSettings):
     chatterbox_multilingual: bool = True
     chatterbox_language: str = "en"
     chatterbox_voice_sample: str | None = None
+
+    # Cloud STT/TTS (offload local CPU). Set STT_BACKEND=deepgram / TTS_BACKEND=cartesia
+    # to use these native LiveKit plugins instead of local whisper/kokoro. They call
+    # YOUR Deepgram/Cartesia accounts directly (keys below) — NOT LiveKit Cloud. The
+    # gated LLM decide logic is unchanged. Keys live in .env (like GEMINI_API_KEY).
+    deepgram_api_key: str | None = None
+    deepgram_model: str = "nova-3"
+    cartesia_api_key: str | None = None
+    cartesia_model: str = "sonic-3"
+    cartesia_voice: str | None = None  # None -> Cartesia's default voice
 
     # Logging
     log_level: str = "info"
