@@ -31,9 +31,20 @@ async def _pump_paced(audio_out, server: TcpFrameServer) -> None:  # noqa: ANN00
         await server.send(frame.pcm)
 
 
-async def _feed_inbound(server: TcpFrameServer, audio_in) -> None:  # noqa: ANN001
-    """Forward inbound socket frames into the LiveKit PushAudioInput."""
+async def _feed_inbound(server: TcpFrameServer, audio_in, on_first_frame=None) -> None:  # noqa: ANN001
+    """Forward inbound socket frames into the LiveKit PushAudioInput.
+
+    The FIRST inbound frame means the bot is admitted and meeting audio is flowing
+    (the combined-mix tap only connects post-admission) — the right moment to fire
+    ``on_first_frame`` (unmute), avoiding the startup-mic_on / admission race that
+    leaves the bot muted if the agent starts before the bot is let into the meeting.
+    """
+    first = True
     async for pcm in server.frames():
+        if first:
+            first = False
+            if on_first_frame is not None:
+                on_first_frame()
         audio_in.push(pcm)
     with contextlib.suppress(Exception):
         audio_in.end_input()
@@ -71,12 +82,29 @@ async def run_meeting(settings: Settings | None = None) -> None:
     session = build_session(
         s, stt_backend=None, llm_backend=llm_backend, tts_backend=None, gated=True
     )
-    agent = build_meeting_agent(s, tracker=tracker, transcript=transcript)
+    loop = asyncio.get_running_loop()
+
+    async def _write_summary(trigger: str) -> None:
+        """Generate + write the summary artifact from the transcript so far."""
+        with contextlib.suppress(Exception):
+            summary = await asyncio.wait_for(
+                generate_summary(llm_backend, transcript), timeout=15.0
+            )
+            write_summary(s.vexa_meeting_id or "unknown", summary)
+            _log.info("summary_written", trigger=trigger, meeting=s.vexa_meeting_id)
+
+    # Reliable trigger: write the artifact when a turn asks Steward to summarize
+    # (shutdown-time generation does not survive signal/async cancellation).
+    agent = build_meeting_agent(
+        s,
+        tracker=tracker,
+        transcript=transcript,
+        on_summarize=lambda: loop.create_task(_write_summary("command")),
+    )
     audio_in = _build_push_audio_input()()
     audio_out = QueueAudioOutput(label="vexa")
     session.input.audio = audio_in
     session.output.audio = audio_out
-    loop = asyncio.get_running_loop()
 
     def _on_clear() -> None:
         # Barge-in: just stop the agent's current speech. The mic stays ON (see below),
@@ -90,7 +118,9 @@ async def run_meeting(settings: Settings | None = None) -> None:
     # latency and muted the bot WHILE the agent was still speaking (multi-segment
     # replies clipped). The agent only feeds the bot TTS audio when it actually speaks,
     # so an always-on mic transmits speech when present and silence otherwise — gating
-    # buys nothing. mic_on is published once, after session.start, below.
+    # buys nothing. mic_on is published once, on the FIRST inbound frame (i.e. once the
+    # bot is admitted and audio is flowing — see _feed_inbound), NOT at startup, which
+    # would race admission and leave the bot muted.
     # (on_segment_start/on_segment_end intentionally left unset.)
 
     # Per-turn timing breakdown (LiveKit's OWN measurements) -> logs, so the meeting
@@ -127,13 +157,14 @@ async def run_meeting(settings: Settings | None = None) -> None:
         speaker_sub = SpeakerSubscriber(s.redis_url, s.vexa_meeting_id or "unknown", tracker)
         with contextlib.suppress(Exception):
             await speaker_sub.start()
-        # Unmute the bot once and leave it on for the session (the bot subscribes to its
-        # Redis command channel at startup, so this reaches it; it already connected the
-        # audio bridge by now — client_connected precedes session.start completing).
-        with contextlib.suppress(Exception):
-            await control.mic_on()
+        # Unmute the bot on the FIRST inbound frame (the bot is admitted + audio is
+        # flowing by then), not here — publishing mic_on at startup races admission and
+        # the bot stays muted if it hasn't been let in yet.
+        def _unmute_once() -> None:
+            loop.create_task(control.mic_on())
+
         pump = asyncio.create_task(_pump_paced(audio_out, server))
-        feed = asyncio.create_task(_feed_inbound(server, audio_in))
+        feed = asyncio.create_task(_feed_inbound(server, audio_in, on_first_frame=_unmute_once))
         _log.info("meeting_agent_started", meeting=s.vexa_meeting_id)
         try:
             await asyncio.Event().wait()
@@ -142,11 +173,10 @@ async def run_meeting(settings: Settings | None = None) -> None:
                 t.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await t
+            # Best-effort backup (the "summarize" command trigger is the reliable one;
+            # this may not complete under signal/async cancellation).
             with contextlib.suppress(Exception):
-                summary = await asyncio.wait_for(
-                    generate_summary(llm_backend, transcript), timeout=10.0
-                )
-                write_summary(s.vexa_meeting_id or "unknown", summary)
+                await _write_summary("shutdown")
             with contextlib.suppress(Exception):
                 await session.aclose()
             with contextlib.suppress(Exception):

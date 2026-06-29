@@ -248,9 +248,14 @@ _MEETING_SYSTEM = (
 )
 
 
-def build_meeting_agent(settings=None, *, tracker=None, transcript=None):  # noqa: ANN001
+def build_meeting_agent(settings=None, *, tracker=None, transcript=None, on_summarize=None):  # noqa: ANN001
     """Agent that labels each finalized user turn with the active speaker and
-    records it to ``transcript`` (a list[str]) for later summarization."""
+    records it to ``transcript`` (a list[str]) for later summarization.
+
+    When a turn explicitly asks Steward to summarize, fires ``on_summarize()`` (the
+    runner writes the artifact from the transcript-so-far). This command trigger is
+    the reliable one — shutdown-time generation does not survive signal/async
+    cancellation."""
     from livekit.agents import Agent  # type: ignore
 
     class MeetingAgent(Agent):  # type: ignore[misc, valid-type]
@@ -258,6 +263,7 @@ def build_meeting_agent(settings=None, *, tracker=None, transcript=None):  # noq
             super().__init__(instructions=_MEETING_SYSTEM)
             self._tracker = tracker
             self._transcript = transcript if transcript is not None else []
+            self._on_summarize = on_summarize
 
         async def on_user_turn_completed(self, turn_ctx, new_message) -> None:  # noqa: ANN001
             # Prepend the active speaker's name so the decide LLM sees "[Name]: ..."
@@ -267,6 +273,10 @@ def build_meeting_agent(settings=None, *, tracker=None, transcript=None):  # noq
                 with contextlib.suppress(Exception):
                     new_message.content = [labeled]
                 self._transcript.append(labeled)
+                # Explicit "summarize" request -> write the artifact now (transcript is
+                # complete through this turn). v1 heuristic: substring match.
+                if self._on_summarize is not None and "summariz" in raw.lower():
+                    self._on_summarize()
 
     return MeetingAgent()
 
