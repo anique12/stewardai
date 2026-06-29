@@ -78,7 +78,7 @@ packages = ["src/stewardai"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-pythonpath = ["."]
+pythonpath = [".", "src"]
 markers = [
     "heavy: requires heavy ML deps (torch/nemo/kokoro/livekit); skipped unless installed",
 ]
