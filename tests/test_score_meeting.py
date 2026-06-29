@@ -23,3 +23,4 @@ def test_score_full_match():
     assert r["action_item_recall"] == 1.0
     assert r["decision_hit"] is True
     assert r["discrepancy_hit"] is True
+    assert r["action_item_precision"] == 1.0

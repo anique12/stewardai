@@ -27,7 +27,7 @@ def score(summary: dict, expected: dict) -> dict:
                 matched += 1
                 break
     recall = matched / len(exp_items) if exp_items else 1.0
-    precision = matched / len(got_items) if got_items else 0.0
+    precision = matched / len(got_items) if got_items else (1.0 if not exp_items else 0.0)
     decisions_text = " ".join(summary.get("decisions", []))
     decision_hit = any(
         _has_all(decisions_text, kws)
