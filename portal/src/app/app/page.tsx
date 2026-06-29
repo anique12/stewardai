@@ -33,6 +33,28 @@ export default async function AppPage() {
     );
   }
 
+  // Trigger calendar sync inline (fire-and-forget via internal import avoids HTTP round-trip)
+  // Import is dynamic to avoid blocking the page render on sync errors
+  const { buildMeetingUpsert, fetchUpcomingEvents } = await import("@/lib/calendar");
+  const { data: calConn } = await service
+    .from("calendar_connections")
+    .select("google_refresh_token")
+    .eq("user_id", user.id)
+    .single();
+  if (calConn) {
+    fetchUpcomingEvents(calConn.google_refresh_token)
+      .then((events) => {
+        const rows = events.map((e) => buildMeetingUpsert(user.id, e));
+        if (rows.length > 0) {
+          service
+            .from("meetings")
+            .upsert(rows, { onConflict: "user_id,google_event_id", ignoreDuplicates: false })
+            .then(() => {});
+        }
+      })
+      .catch(() => {});
+  }
+
   const now = new Date().toISOString();
   const { data: upcoming } = await service
     .from("meetings")
