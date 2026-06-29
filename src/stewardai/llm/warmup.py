@@ -17,12 +17,17 @@ from stewardai.common.logging import get_logger
 _log = get_logger("llm.warmup")
 
 
-async def warmup_llm(llm) -> None:  # noqa: ANN001 - any LLMBackend (duck-typed .complete)
-    """Establish the LLM's HTTP connection by draining one tiny completion."""
+async def warmup_llm(llm, *, quiet: bool = False) -> None:  # noqa: ANN001 - any LLMBackend
+    """Establish the LLM's HTTP connection by draining one tiny completion.
+
+    ``quiet=True`` suppresses the log line — used by the periodic keepalive so it
+    doesn't spam a line every interval.
+    """
     t0 = time.perf_counter()
     ok = False
     with contextlib.suppress(Exception):
         async for _delta in llm.complete([Message(role="user", content="hi")]):
             ok = True
             break  # first token proves the connection is warm
-    _log.info("llm_warmup_done", ms=round((time.perf_counter() - t0) * 1000), ok=ok)
+    if not quiet:
+        _log.info("llm_warmup_done", ms=round((time.perf_counter() - t0) * 1000), ok=ok)

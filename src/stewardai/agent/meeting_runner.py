@@ -50,6 +50,19 @@ async def _feed_inbound(server: TcpFrameServer, audio_in, on_first_frame=None) -
         audio_in.end_input()
 
 
+async def _keepalive(llm_backend, interval_s: float) -> None:  # noqa: ANN001
+    """Ping the LLM connection every ``interval_s`` so a turn after silence (or the
+    first turn after the admission wait) doesn't pay the ~5-8s cold-connection cost.
+    No-op when interval_s <= 0; best-effort (warmup_llm suppresses errors internally)."""
+    if interval_s <= 0:
+        return
+    from stewardai.llm.warmup import warmup_llm
+
+    while True:
+        await asyncio.sleep(interval_s)
+        await warmup_llm(llm_backend, quiet=True)
+
+
 async def run_meeting(settings: Settings | None = None) -> None:
     """Run the meeting voice agent, wired to the Vexa bot over a single TCP connection.
 
@@ -168,11 +181,12 @@ async def run_meeting(settings: Settings | None = None) -> None:
 
         pump = asyncio.create_task(_pump_paced(audio_out, server))
         feed = asyncio.create_task(_feed_inbound(server, audio_in, on_first_frame=_unmute_once))
+        keepalive = asyncio.create_task(_keepalive(llm_backend, s.llm_keepalive_s))
         _log.info("meeting_agent_started", meeting=s.vexa_meeting_id)
         try:
             await asyncio.Event().wait()
         finally:
-            for t in (pump, feed):
+            for t in (pump, feed, keepalive):
                 t.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await t

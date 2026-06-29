@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     # Backstop so a stalled LLM stream can't silently hang a turn forever (the agent
     # would produce no reply and no error). Surfaces as an error instead.
     llm_timeout_s: float = 20.0
+    # Keepalive: ping the LLM connection every N seconds so a turn after silence (or the
+    # first turn after the admission wait) doesn't pay the ~5-8s cold-connection cost
+    # (measured: ~0.5s warm vs ~5-8s cold). 0 disables. Does NOT fix Gemini's inherent
+    # per-call variance — only the cold-start spikes.
+    llm_keepalive_s: float = 20.0
 
     # Bridge
     bridge_transport: Literal["tcp", "unix"] = "tcp"
