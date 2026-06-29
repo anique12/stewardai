@@ -1,0 +1,15 @@
+[Unit]
+Description=StewardAI Scheduler Worker
+After=network.target
+
+[Service]
+Type=simple
+User=stewardai
+WorkingDirectory=/opt/stewardai
+EnvironmentFile=/opt/stewardai/.env
+ExecStart=/opt/stewardai/venv/bin/python -m standin.scheduler.worker
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
