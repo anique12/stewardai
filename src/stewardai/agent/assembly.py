@@ -58,13 +58,6 @@ _DEFAULT_INSTRUCTIONS = (
     "offer an alternative or ask how to proceed."
 )
 
-_MEETING_DECIDE_SYSTEM = (
-    "You are a meeting assistant, always listening to the live transcript. "
-    "Only respond when directly addressed by your wake word/name or clearly asked something; "
-    "otherwise call stay_silent. When you respond, call speak with a concise spoken reply."
-)
-
-
 def _load_vad(s: Settings):
     """Local Silero VAD via the current inference API.
 
@@ -162,7 +155,7 @@ def build_session(
             stt_backend if stt_backend is not None else make_stt(s))
     _llm_backend = llm_backend if llm_backend is not None else make_llm(s)
     if gated:
-        llm = build_llm_node(_llm_backend, system=_MEETING_DECIDE_SYSTEM, gated=True)
+        llm = build_llm_node(_llm_backend, system=_MEETING_SYSTEM, gated=True)
     else:
         llm = build_llm_node(_llm_backend)
     # TTS: cloud (Cartesia, native plugin — no local CPU) or our local wrapped backend.

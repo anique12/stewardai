@@ -143,7 +143,9 @@ async def run_meeting(settings: Settings | None = None) -> None:
                 with contextlib.suppress(asyncio.CancelledError):
                     await t
             with contextlib.suppress(Exception):
-                summary = await generate_summary(llm_backend, transcript)
+                summary = await asyncio.wait_for(
+                    generate_summary(llm_backend, transcript), timeout=10.0
+                )
                 write_summary(s.vexa_meeting_id or "unknown", summary)
             with contextlib.suppress(Exception):
                 await session.aclose()
