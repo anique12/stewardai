@@ -52,6 +52,7 @@ async def run_meeting(settings: Settings | None = None) -> None:
     from livekit.agents.utils import http_context  # http session for cloud plugins
 
     from stewardai.agent.assembly import build_meeting_agent, build_session
+    from stewardai.agent.summary import generate_summary, write_summary
     from stewardai.bridge.audio_input import _build_push_audio_input
     from stewardai.bridge.audio_output import QueueAudioOutput
     from stewardai.bridge.speaker_events import SpeakerSubscriber, SpeakerTracker
@@ -141,6 +142,9 @@ async def run_meeting(settings: Settings | None = None) -> None:
                 t.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await t
+            with contextlib.suppress(Exception):
+                summary = await generate_summary(llm_backend, transcript)
+                write_summary(s.vexa_meeting_id or "unknown", summary)
             with contextlib.suppress(Exception):
                 await session.aclose()
             with contextlib.suppress(Exception):
