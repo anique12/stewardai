@@ -30,7 +30,8 @@ async def generate_summary(llm, transcript: list[str]) -> dict:  # noqa: ANN001
     raw = "".join(chunks).strip()
     if raw.startswith("```"):  # strip markdown fences if the model adds them
         raw = raw.strip("`")
-        raw = raw[raw.find("{"):]
+        idx = raw.find("{")
+        raw = raw[idx:] if idx != -1 else raw
     try:
         return json.loads(raw)
     except (ValueError, json.JSONDecodeError) as exc:

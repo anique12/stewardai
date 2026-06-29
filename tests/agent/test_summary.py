@@ -16,11 +16,26 @@ class _FakeLLM:
         })
 
 
+class _BadLLM:
+    name = "bad"
+    async def complete(self, messages, *, system=None, temperature=0.4):
+        yield "not json at all"
+
+
 @pytest.mark.asyncio
 async def test_generate_summary_parses_json():
     out = await generate_summary(_FakeLLM(), ["[Anique]: ship friday", "[Sarah]: I thought monday"])
     assert out["action_items"][0]["owner"] == "Sarah"
     assert "Monday" in out["decisions"][0]
+
+
+@pytest.mark.asyncio
+async def test_generate_summary_degrades_on_bad_json():
+    out = await generate_summary(_BadLLM(), ["[Anique]: hi"])
+    assert out["tldr"] == "not json at all"
+    assert out["decisions"] == []
+    assert out["action_items"] == []
+    assert out["discrepancies"] == []
 
 
 def test_write_summary_creates_files(tmp_path):
