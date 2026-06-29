@@ -147,7 +147,8 @@ async def run_meeting(settings: Settings | None = None) -> None:
                 await control.mic_off()
             with contextlib.suppress(Exception):
                 await control.aclose()
-            await speaker_sub.aclose()
+            with contextlib.suppress(Exception):
+                await speaker_sub.aclose()
             with contextlib.suppress(Exception):
                 await server.aclose()
 
