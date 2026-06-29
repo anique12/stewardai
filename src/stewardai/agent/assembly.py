@@ -105,6 +105,19 @@ def _load_deepgram_stt(s: Settings):
     return deepgram.STT(**kwargs)
 
 
+def _load_deepgram_tts(s: Settings):
+    """Cloud TTS via Deepgram Aura (native LiveKit plugin): SAME Deepgram account/key
+    as STT, so speech-to-text and text-to-speech bill against one Deepgram balance.
+    16 kHz to match the Vexa bot's playback rate."""
+    from livekit.plugins import deepgram  # type: ignore  # lazy
+
+    kwargs: dict = {"model": s.deepgram_tts_model, "sample_rate": SAMPLE_RATE}
+    if s.deepgram_api_key:
+        kwargs["api_key"] = s.deepgram_api_key
+    _log.info("tts_cloud_deepgram_aura", model=s.deepgram_tts_model)
+    return deepgram.TTS(**kwargs)
+
+
 def _load_cartesia_tts(s: Settings):
     """Cloud TTS via Cartesia (native LiveKit plugin): runs on YOUR Cartesia
     account (CARTESIA_API_KEY) — no local CPU. Forced to 16 kHz to match the Vexa
@@ -158,9 +171,11 @@ def build_session(
         llm = build_llm_node(_llm_backend, system=_MEETING_SYSTEM, gated=True)
     else:
         llm = build_llm_node(_llm_backend)
-    # TTS: cloud (Cartesia, native plugin — no local CPU) or our local wrapped backend.
+    # TTS: cloud (Cartesia or Deepgram Aura, native plugins — no local CPU) or local.
     if s.tts_backend == "cartesia":
         tts = _load_cartesia_tts(s)
+    elif s.tts_backend == "deepgram":
+        tts = _load_deepgram_tts(s)
     else:
         tts = build_tts_node(
             tts_backend if tts_backend is not None else make_tts(s),

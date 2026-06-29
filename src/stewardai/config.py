@@ -128,6 +128,10 @@ class Settings(BaseSettings):
     # gated LLM decide logic is unchanged. Keys live in .env (like GEMINI_API_KEY).
     deepgram_api_key: str | None = None
     deepgram_model: str = "nova-3"
+    # Deepgram Aura TTS (TTS_BACKEND=deepgram) — same Deepgram account/key as STT, so
+    # STT + TTS bill against ONE Deepgram balance. Pick a voice via DEEPGRAM_TTS_MODEL
+    # (e.g. aura-2-andromeda-en, aura-asteria-en, aura-orion-en).
+    deepgram_tts_model: str = "aura-2-andromeda-en"
     cartesia_api_key: str | None = None
     cartesia_model: str = "sonic-3"
     cartesia_voice: str | None = None  # None -> Cartesia's default voice
