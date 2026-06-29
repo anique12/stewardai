@@ -248,15 +248,23 @@ _MEETING_SYSTEM = (
 )
 
 
-def build_meeting_agent(settings=None, *, tracker=None, transcript=None, on_summarize=None):  # noqa: ANN001
+def build_meeting_agent(  # noqa: ANN001
+    settings=None, *, tracker=None, transcript=None, on_summarize=None, transcript_path=None
+):
     """Agent that labels each finalized user turn with the active speaker and
     records it to ``transcript`` (a list[str]) for later summarization.
 
     When a turn explicitly asks Steward to summarize, fires ``on_summarize()`` (the
     runner writes the artifact from the transcript-so-far). This command trigger is
     the reliable one — shutdown-time generation does not survive signal/async
-    cancellation."""
+    cancellation.
+
+    When ``transcript_path`` is set, each labeled turn is ALSO appended to that file
+    as it arrives, so the full raw transcript is persisted turn-by-turn and survives
+    a stop/crash (the summary alone is not the transcript)."""
     from livekit.agents import Agent  # type: ignore
+
+    from stewardai.agent.summary import append_transcript_line
 
     class MeetingAgent(Agent):  # type: ignore[misc, valid-type]
         def __init__(self) -> None:
@@ -264,6 +272,7 @@ def build_meeting_agent(settings=None, *, tracker=None, transcript=None, on_summ
             self._tracker = tracker
             self._transcript = transcript if transcript is not None else []
             self._on_summarize = on_summarize
+            self._transcript_path = transcript_path
 
         async def on_user_turn_completed(self, turn_ctx, new_message) -> None:  # noqa: ANN001
             # Prepend the active speaker's name so the decide LLM sees "[Name]: ..."
@@ -273,6 +282,10 @@ def build_meeting_agent(settings=None, *, tracker=None, transcript=None, on_summ
                 with contextlib.suppress(Exception):
                     new_message.content = [labeled]
                 self._transcript.append(labeled)
+                # Persist each turn immediately (crash-safe full transcript on disk).
+                if self._transcript_path:
+                    with contextlib.suppress(Exception):
+                        append_transcript_line(self._transcript_path, labeled)
                 # Explicit "summarize" request -> write the artifact now (transcript is
                 # complete through this turn). v1 heuristic: substring match.
                 if self._on_summarize is not None and "summariz" in raw.lower():

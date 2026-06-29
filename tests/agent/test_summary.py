@@ -2,7 +2,14 @@ import json
 
 import pytest
 
-from stewardai.agent.summary import generate_summary, write_summary
+from stewardai.agent.summary import append_transcript_line, generate_summary, write_summary
+
+
+def test_append_transcript_line_persists_each_line(tmp_path):
+    p = str(tmp_path / "sub" / "meeting-x-transcript.txt")
+    append_transcript_line(p, "[Sarah]: ship friday")
+    append_transcript_line(p, "[Marcus]: error states\n")  # trailing newline normalized
+    assert open(p).read() == "[Sarah]: ship friday\n[Marcus]: error states\n"
 
 
 class _FakeLLM:

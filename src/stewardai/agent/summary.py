@@ -39,6 +39,18 @@ async def generate_summary(llm, transcript: list[str]) -> dict:  # noqa: ANN001
         return {"tldr": raw[:500], "decisions": [], "action_items": [], "discrepancies": []}
 
 
+def append_transcript_line(path: str, line: str) -> None:
+    """Append one labeled transcript line to ``path`` (created if needed).
+
+    Crash-safe persistence: the full transcript lands on disk turn-by-turn, so it
+    survives even if the agent stops before any summary is generated. Best-effort
+    at the call site — callers wrap this in ``contextlib.suppress``.
+    """
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "a") as f:
+        f.write(line.rstrip("\n") + "\n")
+
+
 def write_summary(meeting_id: str, summary: dict, out_dir: str = "evals/out") -> tuple[str, str]:
     os.makedirs(out_dir, exist_ok=True)
     js = os.path.join(out_dir, f"meeting-{meeting_id}-summary.json")

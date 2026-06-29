@@ -93,13 +93,16 @@ async def run_meeting(settings: Settings | None = None) -> None:
             write_summary(s.vexa_meeting_id or "unknown", summary)
             _log.info("summary_written", trigger=trigger, meeting=s.vexa_meeting_id)
 
-    # Reliable trigger: write the artifact when a turn asks Steward to summarize
+    # Persist the raw transcript turn-by-turn (crash-safe; the summary is not the
+    # transcript). Reliable summary trigger: when a turn asks Steward to summarize
     # (shutdown-time generation does not survive signal/async cancellation).
+    transcript_path = f"evals/out/meeting-{s.vexa_meeting_id or 'unknown'}-transcript.txt"
     agent = build_meeting_agent(
         s,
         tracker=tracker,
         transcript=transcript,
         on_summarize=lambda: loop.create_task(_write_summary("command")),
+        transcript_path=transcript_path,
     )
     audio_in = _build_push_audio_input()()
     audio_out = QueueAudioOutput(label="vexa")
