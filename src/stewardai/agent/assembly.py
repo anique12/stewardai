@@ -201,7 +201,8 @@ def build_session(
         "turn_handling": turn_handling,
     }
     # Only pass when enabled, so we keep LiveKit's own default (NOT_GIVEN) otherwise.
-    if s.preemptive_generation:
+    # decide() needs the committed turn, not partials -> force preemptive off when gated.
+    if s.preemptive_generation and not gated:
         kwargs["preemptive_generation"] = True
 
     session = AgentSession(**kwargs)

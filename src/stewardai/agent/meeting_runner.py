@@ -51,25 +51,26 @@ async def run_meeting(settings: Settings | None = None) -> None:
     from livekit.agents import metrics as lk_metrics  # per-turn timing breakdown
     from livekit.agents.utils import http_context  # http session for cloud plugins
 
-    from stewardai.agent.assembly import build_agent, build_session
+    from stewardai.agent.assembly import build_meeting_agent, build_session
     from stewardai.bridge.audio_input import _build_push_audio_input
     from stewardai.bridge.audio_output import QueueAudioOutput
+    from stewardai.bridge.speaker_events import SpeakerSubscriber, SpeakerTracker
     from stewardai.factory import make_llm
     from stewardai.llm.warmup import warmup_llm
 
     server = TcpFrameServer(s.bridge_tcp_host, s.bridge_tcp_port)
     await server.start()
     control = RedisControl(s.redis_url, s.vexa_meeting_id or "unknown")
+    tracker = SpeakerTracker()
+    transcript: list[str] = []
     # Build the LLM backend explicitly so we can warm its connection before the first
     # turn (the first Gemini call is ~5.8s cold vs ~0.56s warm — see llm.warmup).
     llm_backend = make_llm(s)
-    # gated=False: normal voice-agent behavior (responds to each turn with the
-    # _DEFAULT_INSTRUCTIONS persona), NOT the wake-gated "only speak when addressed"
-    # decide flow.
+    # decide() needs the committed turn, not partials -> force preemptive off when gated.
     session = build_session(
-        s, stt_backend=None, llm_backend=llm_backend, tts_backend=None, gated=False
+        s, stt_backend=None, llm_backend=llm_backend, tts_backend=None, gated=True
     )
-    agent = build_agent(s)
+    agent = build_meeting_agent(s, tracker=tracker, transcript=transcript)
     audio_in = _build_push_audio_input()()
     audio_out = QueueAudioOutput(label="vexa")
     session.input.audio = audio_in
@@ -122,6 +123,9 @@ async def run_meeting(settings: Settings | None = None) -> None:
     # the local backends (they don't use it).
     async with http_context.open():
         await session.start(agent=agent)
+        speaker_sub = SpeakerSubscriber(s.redis_url, s.vexa_meeting_id or "unknown", tracker)
+        with contextlib.suppress(Exception):
+            await speaker_sub.start()
         # Unmute the bot once and leave it on for the session (the bot subscribes to its
         # Redis command channel at startup, so this reaches it; it already connected the
         # audio bridge by now — client_connected precedes session.start completing).
@@ -143,6 +147,7 @@ async def run_meeting(settings: Settings | None = None) -> None:
                 await control.mic_off()
             with contextlib.suppress(Exception):
                 await control.aclose()
+            await speaker_sub.aclose()
             with contextlib.suppress(Exception):
                 await server.aclose()
 
