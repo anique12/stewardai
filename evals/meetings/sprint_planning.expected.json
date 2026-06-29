@@ -1,0 +1,10 @@
+{
+  "decisions_keywords": [["launch", "monday"]],
+  "action_items": [
+    {"owner": "Sarah", "keywords": ["payments", "migration"]},
+    {"owner": "Priya", "keywords": ["mockups"]},
+    {"owner": "Marcus", "keywords": ["error", "states"]},
+    {"owner": "Priya", "keywords": ["announcement"]}
+  ],
+  "discrepancy_keywords": [["friday", "monday"]]
+}
