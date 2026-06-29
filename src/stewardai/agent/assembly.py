@@ -232,6 +232,51 @@ def make_tts_name(node) -> str:  # noqa: ANN001
     return getattr(getattr(node, "_inner", None), "name", "unknown")
 
 
+def label_text(tracker, text: str) -> str:  # noqa: ANN001 - SpeakerTracker (duck-typed)
+    name = tracker.current_speaker() if tracker is not None else None
+    return f"[{name}]: {text}" if name else f"[Speaker]: {text}"
+
+
+_MEETING_SYSTEM = (
+    "You are Steward, an assistant participating in a live multi-person meeting. "
+    "You receive a running transcript where each line is prefixed with the "
+    "speaker's name in brackets, e.g. '[Anique]: ...'. On each turn decide whether "
+    "to speak.\n"
+    "- Call speak ONLY when (a) someone directly addresses you by name (\"Steward\") "
+    "or clearly asks you something, OR (b) you notice a MATERIAL discrepancy: "
+    "something just said contradicts a decision or fact stated earlier in THIS "
+    "meeting. When flagging a discrepancy, name both sides (e.g. \"Earlier Anique "
+    "said Friday, but Sarah just said Monday — which is it?\"). Keep it to one or "
+    "two spoken sentences.\n"
+    "- Otherwise call stay_silent. Do NOT chime in on normal discussion, agreement, "
+    "small talk, or minor wording differences. Silence is the default.\n"
+    "- Never read the bracketed name prefixes aloud; they are only for your context."
+)
+
+
+def build_meeting_agent(settings=None, *, tracker=None, transcript=None):  # noqa: ANN001
+    """Agent that labels each finalized user turn with the active speaker and
+    records it to ``transcript`` (a list[str]) for later summarization."""
+    from livekit.agents import Agent  # type: ignore
+
+    class MeetingAgent(Agent):  # type: ignore[misc, valid-type]
+        def __init__(self) -> None:
+            super().__init__(instructions=_MEETING_SYSTEM)
+            self._tracker = tracker
+            self._transcript = transcript if transcript is not None else []
+
+        async def on_user_turn_completed(self, turn_ctx, new_message) -> None:  # noqa: ANN001
+            # Prepend the active speaker's name so the decide LLM sees "[Name]: ..."
+            raw = getattr(new_message, "text_content", None) or ""
+            if raw:
+                labeled = label_text(self._tracker, raw)
+                with contextlib.suppress(Exception):
+                    new_message.content = [labeled]
+                self._transcript.append(labeled)
+
+    return MeetingAgent()
+
+
 def build_agent(settings: Settings | None = None):
     """Build the ``Agent`` persona handed to ``session.start`` (lazy livekit)."""
     from livekit.agents import Agent  # type: ignore
