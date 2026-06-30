@@ -60,6 +60,20 @@ async def run_pending_actions_once(
         # Execute
         try:
             result = service.execute(user_id, slug, args)
+        except Exception as exc:
+            _log.warning("action_worker_failed", row_id=row_id, slug=slug, error=str(exc))
+            with contextlib.suppress(Exception):
+                await (
+                    client.table("agent_actions")
+                    .update({"state": "failed", "error": str(exc)})
+                    .eq("id", row_id)
+                    .execute()
+                )
+            continue
+
+        # Composio reports logical failures (e.g. bad args) via `successful: false`
+        # rather than raising — treat those as failed, not done.
+        if result.get("successful"):
             await (
                 client.table("agent_actions")
                 .update({"state": "done", "result": result})
@@ -68,12 +82,13 @@ async def run_pending_actions_once(
             )
             _log.info("action_worker_done", row_id=row_id, slug=slug)
             count += 1
-        except Exception as exc:
-            _log.warning("action_worker_failed", row_id=row_id, slug=slug, error=str(exc))
+        else:
+            err = str(result.get("error") or "tool reported failure")
+            _log.warning("action_worker_unsuccessful", row_id=row_id, slug=slug, error=err[:200])
             with contextlib.suppress(Exception):
                 await (
                     client.table("agent_actions")
-                    .update({"state": "failed", "error": str(exc)})
+                    .update({"state": "failed", "error": err, "result": result})
                     .eq("id", row_id)
                     .execute()
                 )

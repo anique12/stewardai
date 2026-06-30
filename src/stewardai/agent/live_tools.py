@@ -192,6 +192,11 @@ async def _execute_and_log(
     """
     try:
         result = composio_service.execute(user_id, slug, kwargs)
+        # Composio reports logical failures (bad args, API rejection) via
+        # `successful: false` rather than raising — persist state accordingly,
+        # otherwise a rejected call gets mislabeled as done.
+        ok = bool(result.get("successful"))
+        err = None if ok else str(result.get("error") or "tool reported failure")
         await writer.insert(
             source="directed",
             toolkit=_slug_to_toolkit(slug),
@@ -199,14 +204,13 @@ async def _execute_and_log(
             args=kwargs,
             risk=risk,
             title=_slug_to_human(slug),
-            state="done",
+            state="done" if ok else "failed",
             result=result,
+            error=err,
         )
-        _log.info("live_tool_executed", slug=slug, meeting_id=meeting_id, risk=risk)
-        # Try to give a useful spoken summary
-        if result.get("successful"):
+        _log.info("live_tool_executed", slug=slug, meeting_id=meeting_id, risk=risk, successful=ok)
+        if ok:
             return f"Done — I've completed: {_slug_to_human(slug)}."
-        err = result.get("error") or "unknown error"
         return f"I tried {_slug_to_human(slug)} but got an error: {err}."
     except Exception as exc:
         _log.exception(

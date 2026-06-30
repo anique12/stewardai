@@ -122,3 +122,24 @@ async def test_running_transition_is_race_guarded():
     assert call("state", "approved") in eq_calls, (
         f"Expected eq('state', 'approved') race-guard in update chain eq calls: {eq_calls}"
     )
+
+
+async def test_approved_row_becomes_failed_on_unsuccessful_result():
+    """Composio reports bad-args / API rejections via successful=False WITHOUT
+    raising; the worker must mark such rows failed, not done."""
+    row = {
+        "id": "r1",
+        "user_id": "u1",
+        "action_slug": "GMAIL_FETCH_EMAILS",
+        "args": {},
+        "state": "approved",
+    }
+    client, _ = _mock_client([row])
+    svc = _make_service(execute_result={"successful": False, "error": "bad args", "data": {}})
+    count = await run_pending_actions_once(client, svc)
+    assert count == 0  # not counted as done
+    update_payloads = [c.args[0] for c in client.table.return_value.update.call_args_list]
+    assert any(
+        p.get("state") == "failed" and p.get("error") == "bad args"
+        for p in update_payloads
+    ), f"Expected a failed payload with error='bad args' in {update_payloads}"

@@ -96,3 +96,18 @@ async def test_low_risk_tool_failure_writes_failed_row():
     call_kwargs = writer.insert.call_args.kwargs
     assert call_kwargs["state"] == "failed"
     assert "boom" in call_kwargs["error"]
+
+
+async def test_low_risk_tool_unsuccessful_writes_failed_row():
+    """execute returns successful=False (no raise) -> row is failed and the
+    spoken reply reports the error, not 'Done'."""
+    svc = _make_service({"GMAIL_FETCH_EMAILS": "low"})
+    svc.execute.return_value = {"successful": False, "error": "bad args", "data": {}}
+    writer = _make_writer()
+    tools = build_live_tool_functions("u1", "m1", svc, writer)
+    result = await tools[0]._func()
+    assert isinstance(result, str) and len(result) > 0
+    svc.execute.assert_called_once()
+    call_kwargs = writer.insert.call_args.kwargs
+    assert call_kwargs["state"] == "failed"
+    assert "bad args" in (call_kwargs.get("error") or "")
