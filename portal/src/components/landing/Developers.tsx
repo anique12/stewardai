@@ -197,7 +197,7 @@ function ApiCard({
 
       <dl className="mt-4 grid grid-cols-3 gap-3">
         {specs.map(([k, v]) => (
-          <div key={k} className="flex h-full flex-col rounded-lg border border-border bg-background/40 p-3">
+          <div key={k} className="flex h-full min-h-[4.75rem] flex-col rounded-lg border border-border bg-background/40 p-3">
             <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">{k}</dt>
             <dd className="mt-1 text-xs font-medium text-foreground">{v}</dd>
           </div>
