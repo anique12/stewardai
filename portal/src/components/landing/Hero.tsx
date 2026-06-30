@@ -31,7 +31,8 @@ export function Hero() {
           </h1>
 
           <p className="reveal reveal-3 mx-auto mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-muted-foreground">
-            Your personal agent — and the real-time voice stack to build your own.
+            The meeting agent that speaks up, not just listens — and the real-time
+            voice stack to build your own.
           </p>
 
           <div className="reveal reveal-3 mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">

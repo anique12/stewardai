@@ -10,6 +10,7 @@ const PRODUCTS = [
     one: "Your always-on personal AI agent.",
     lines: [
       "Joins your meetings, transcribes by speaker, and writes the summary, decisions, and action items.",
+      "Unlike silent notetakers, it speaks up in the room — answer a question, summarize on request, all out loud.",
       "Remembers everything across calls and nudges you on what's owed.",
     ],
     featured: true,
