@@ -34,9 +34,9 @@ const COLUMNS: { heading: string; links: { label: string; href: string }[] }[] =
   {
     heading: "Legal",
     links: [
-      { label: "Privacy", href: "#" },
-      { label: "Terms", href: "#" },
-      { label: "Security", href: "#" },
+      { label: "Privacy", href: "/privacy" },
+      { label: "Terms", href: "/terms" },
+      { label: "Security", href: "/trust" },
     ],
   },
 ];
