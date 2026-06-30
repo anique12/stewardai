@@ -583,7 +583,7 @@ function RunnerRow({
 
   return (
     <li
-      className={`flex min-h-[3.25rem] flex-col justify-center gap-1 rounded-lg border bg-background/40 px-2.5 py-2 transition-colors duration-300 ${
+      className={`flex min-h-[3.75rem] flex-col justify-center gap-2 rounded-lg border bg-background/40 px-2.5 py-2.5 transition-colors duration-300 ${
         done ? "border-primary/40" : activated ? "border-primary/25" : "border-border"
       }`}
     >
