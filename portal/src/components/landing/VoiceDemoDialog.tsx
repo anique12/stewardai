@@ -47,11 +47,16 @@ export function VoiceDemoDialog({
         {label}
       </button>
 
-      <DialogContent className="max-w-md border-border bg-card sm:rounded-2xl">
+      <DialogContent className="max-w-sm overflow-hidden border-border bg-card sm:rounded-3xl">
         {/* Title kept for screen readers / Radix a11y, hidden visually so the
             orb is the sole focus. */}
         <DialogTitle className="sr-only">Talk to Steward</DialogTitle>
-        <div className="px-2 py-6">
+        {/* Faint radial wash behind the orb to seat it in the panel. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_38%,hsl(var(--primary)/0.10),transparent_62%)]"
+        />
+        <div className="relative px-6 pb-8 pt-10">
           {open ? <VoiceDemo /> : null}
         </div>
       </DialogContent>

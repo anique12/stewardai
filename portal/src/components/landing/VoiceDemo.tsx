@@ -204,23 +204,33 @@ class PCMPlayer {
   }
 }
 
-// Audio-reactive orb: a glowing teal sphere whose scale, glow and surface
-// shimmer are driven in real time by the live audio level (agent playback when
-// speaking, mic RMS otherwise). Rendered to a <canvas> via layered radial
-// gradients off requestAnimationFrame. Listening vs speaking shifts the hue a
-// touch. Respects prefers-reduced-motion with a calm, near-static breathe.
+// Audio-reactive orb. A soft, luminous, multi-tonal sphere rendered to a
+// <canvas> via layered radial gradients off requestAnimationFrame:
+//   - a large, diffuse outer aura that breathes (no hard ring)
+//   - a translucent, glassy core that blends teal -> cyan -> a deeper blue
+//     with an off-centre light and soft inner shading for real depth
+//   - two slowly drifting internal light blooms so the surface shimmers and
+//     feels alive even when quiet
+// Scale + glow + a listen/speak hue shift are driven by the live audio level
+// (agent playback when speaking, mic RMS otherwise), smoothed so the reactive
+// range stays tasteful. `active` dims the whole thing to a calm idle breathe
+// (used for the idle / ended states). Respects prefers-reduced-motion.
 function VoiceOrb({
   micLevelRef,
   playerRef,
   mode,
+  active = true,
 }: {
   micLevelRef: MutableRefObject<number>;
   playerRef: RefObject<PCMPlayer | null>;
   mode: "listening" | "speaking";
+  active?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const modeRef = useRef(mode);
   modeRef.current = mode;
+  const activeRef = useRef(active);
+  activeRef.current = active;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -232,17 +242,20 @@ function VoiceOrb({
       typeof window !== "undefined" &&
       window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
-    // Brand teal, plus a brighter cyan-ish highlight for "speaking".
-    const listen = { h: 173, s: 80 }; // teal
-    const speak = { h: 187, s: 85 }; // shifts toward cyan when the agent talks
+    // Three tonal anchors for the multi-tonal gradient: a bright cyan-teal
+    // light, the brand teal mid, and a deep blue shadow. Listening sits in
+    // teal; speaking warms the whole sphere toward cyan.
+    const LISTEN_H = 168; // teal
+    const SPEAK_H = 190; // cyan-ward when the agent talks
 
     let raf = 0;
     let smooth = 0; // smoothed audio level [0,1]
     let hueMix = 0; // 0 = listening, 1 = speaking (eased)
+    let liveMix = active ? 1 : 0; // 0 = calm idle, 1 = engaged (eased)
     let t = 0;
 
     const resize = () => {
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const rect = canvas.getBoundingClientRect();
       canvas.width = Math.max(1, Math.round(rect.width * dpr));
       canvas.height = Math.max(1, Math.round(rect.height * dpr));
@@ -260,59 +273,115 @@ function VoiceOrb({
       ctx.clearRect(0, 0, w, h);
 
       const speaking = modeRef.current === "speaking";
+      const isActive = activeRef.current;
       const agent = playerRef.current?.level() ?? 0;
       const mic = micLevelRef.current ?? 0;
       // Decay the captured mic peak so quiet settles smoothly.
-      micLevelRef.current = mic * 0.86;
-      const raw = speaking ? Math.max(agent, mic * 0.5) : mic;
-      // Normalise: RMS is small, so amplify and clamp.
-      const target = Math.min(1, raw * 4.5);
-      smooth += (target - smooth) * 0.18;
-      hueMix += ((speaking ? 1 : 0) - hueMix) * 0.06;
+      micLevelRef.current = mic * 0.88;
+      const raw = isActive ? (speaking ? Math.max(agent, mic * 0.5) : mic) : 0;
+      // Normalise: RMS is small, so amplify and clamp, then smooth hard so the
+      // reactive range reads as a gentle swell rather than a jitter.
+      const target = Math.min(1, raw * 4.2);
+      smooth += (target - smooth) * 0.12;
+      hueMix += ((speaking ? 1 : 0) - hueMix) * 0.05;
+      liveMix += ((isActive ? 1 : 0) - liveMix) * 0.05;
 
-      t += reduced ? 0.012 : 0.03;
+      t += reduced ? 0.006 : 0.016;
 
-      // Calm breathing baseline + audio-driven swell.
-      const breathe = reduced ? 0.5 + 0.5 * Math.sin(t) : 0.5 + 0.5 * Math.sin(t);
-      const idle = 0.06 + 0.04 * breathe;
-      const energy = reduced ? idle * 0.6 + smooth * 0.15 : Math.max(idle, smooth);
+      // Slow breathing baseline. Energy is the breathe floor plus the smoothed
+      // audio swell, scaled down toward zero in the calm idle state.
+      const breathe = 0.5 + 0.5 * Math.sin(t * 0.9);
+      const idleFloor = 0.04 + 0.05 * breathe;
+      const swell = reduced ? smooth * 0.25 : smooth;
+      const energy = (idleFloor + swell) * (0.55 + 0.45 * liveMix);
 
-      const hue = listen.h + (speak.h - listen.h) * hueMix;
-      const sat = listen.s + (speak.s - listen.s) * hueMix;
+      const hue = LISTEN_H + (SPEAK_H - LISTEN_H) * hueMix;
 
-      // Geometry: base radius fills most of the canvas; swells with energy.
+      // Geometry. Core swells gently with energy; the aura is always much
+      // larger and softer, and breathes on its own slow cycle.
       const maxR = Math.min(w, h) / 2;
-      const baseR = maxR * 0.42;
-      const coreR = baseR * (1 + energy * 0.28);
-      const auraR = Math.min(maxR, coreR * (1.75 + energy * 0.6));
+      const baseR = maxR * 0.34;
+      const coreR = baseR * (1 + energy * 0.22);
+      const auraBreathe = 0.5 + 0.5 * Math.sin(t * 0.6 + 1.3);
+      const auraR = Math.min(maxR, coreR * (2.0 + auraBreathe * 0.25 + energy * 0.7));
 
-      // 1) Outer aura — soft glowing halo that brightens with energy.
-      const auraAlpha = 0.10 + energy * 0.45;
-      const aura = ctx.createRadialGradient(cx, cy, coreR * 0.6, cx, cy, auraR);
-      aura.addColorStop(0, `hsla(${hue}, ${sat}%, 60%, ${auraAlpha})`);
-      aura.addColorStop(0.5, `hsla(${hue}, ${sat}%, 55%, ${auraAlpha * 0.45})`);
-      aura.addColorStop(1, `hsla(${hue}, ${sat}%, 50%, 0)`);
+      // 1) Outer aura — a large, soft, multi-stop halo. No hard edge; it fades
+      // gradually to transparent so it reads as diffuse light, not a ring.
+      const auraAlpha = (0.07 + energy * 0.34) * (0.4 + 0.6 * liveMix);
+      const aura = ctx.createRadialGradient(cx, cy, coreR * 0.4, cx, cy, auraR);
+      aura.addColorStop(0, `hsla(${hue + 4}, 90%, 64%, ${auraAlpha})`);
+      aura.addColorStop(0.35, `hsla(${hue + 12}, 85%, 56%, ${auraAlpha * 0.5})`);
+      aura.addColorStop(0.7, `hsla(${hue + 24}, 80%, 48%, ${auraAlpha * 0.18})`);
+      aura.addColorStop(1, `hsla(${hue + 30}, 75%, 42%, 0)`);
       ctx.fillStyle = aura;
       ctx.fillRect(0, 0, w, h);
 
-      // 2) Core sphere — radial gradient with an off-centre highlight so it
-      // reads as a lit 3D ball rather than a flat disc.
-      const lx = cx - coreR * 0.32;
-      const ly = cy - coreR * 0.34;
-      const sphere = ctx.createRadialGradient(lx, ly, coreR * 0.1, cx, cy, coreR);
-      sphere.addColorStop(0, `hsla(${hue}, ${sat}%, ${78 + energy * 8}%, 0.98)`);
-      sphere.addColorStop(0.45, `hsla(${hue}, ${sat}%, 58%, 0.96)`);
-      sphere.addColorStop(0.85, `hsla(${hue + 6}, ${sat}%, 38%, 0.95)`);
-      sphere.addColorStop(1, `hsla(${hue + 10}, ${sat}%, 26%, 0.9)`);
+      // Off-centre primary light, drifting slowly for an organic feel.
+      const lx = cx + coreR * (-0.3 + 0.06 * Math.sin(t * 0.7));
+      const ly = cy + coreR * (-0.34 + 0.05 * Math.cos(t * 0.5));
+
+      // 2) Core sphere — a multi-tonal radial gradient that blends a bright
+      // cyan-teal light through the brand teal into a deep blue shadow, with a
+      // slightly translucent body so it feels glassy rather than solid.
+      const sphere = ctx.createRadialGradient(lx, ly, coreR * 0.05, cx, cy, coreR);
+      sphere.addColorStop(0, `hsla(${hue + 8}, 95%, ${82 + energy * 6}%, 0.96)`);
+      sphere.addColorStop(0.4, `hsla(${hue}, 88%, 56%, 0.92)`);
+      sphere.addColorStop(0.75, `hsla(${hue + 20}, 82%, 40%, 0.92)`);
+      sphere.addColorStop(1, `hsla(${hue + 40}, 70%, 24%, 0.85)`);
       ctx.beginPath();
       ctx.arc(cx, cy, coreR, 0, Math.PI * 2);
       ctx.fillStyle = sphere;
       ctx.fill();
 
-      // 3) Specular highlight — a small bright bloom for liveliness.
-      const spec = ctx.createRadialGradient(lx, ly, 0, lx, ly, coreR * 0.7);
-      spec.addColorStop(0, `hsla(${hue}, 100%, 92%, ${0.35 + energy * 0.35})`);
-      spec.addColorStop(1, `hsla(${hue}, 100%, 92%, 0)`);
+      // 3) Drifting internal blooms — two soft, additive light pools that move
+      // slowly across the surface so the gradient shimmers and never reads as a
+      // static disc. Clipped to the sphere.
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, coreR, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.globalCompositeOperation = "lighter";
+
+      const b1x = cx + coreR * 0.45 * Math.sin(t * 0.53);
+      const b1y = cy + coreR * 0.4 * Math.cos(t * 0.41);
+      const bloom1 = ctx.createRadialGradient(b1x, b1y, 0, b1x, b1y, coreR * 0.85);
+      bloom1.addColorStop(0, `hsla(${hue + 14}, 100%, 72%, ${0.12 + energy * 0.18})`);
+      bloom1.addColorStop(1, `hsla(${hue + 14}, 100%, 72%, 0)`);
+      ctx.fillStyle = bloom1;
+      ctx.fillRect(cx - coreR, cy - coreR, coreR * 2, coreR * 2);
+
+      const b2x = cx + coreR * 0.4 * Math.cos(t * 0.37 + 2.0);
+      const b2y = cy + coreR * 0.46 * Math.sin(t * 0.47 + 1.1);
+      const bloom2 = ctx.createRadialGradient(b2x, b2y, 0, b2x, b2y, coreR * 0.9);
+      bloom2.addColorStop(0, `hsla(${hue + 30}, 95%, 50%, ${0.1 + energy * 0.14})`);
+      bloom2.addColorStop(1, `hsla(${hue + 30}, 95%, 50%, 0)`);
+      ctx.fillStyle = bloom2;
+      ctx.fillRect(cx - coreR, cy - coreR, coreR * 2, coreR * 2);
+      ctx.restore();
+
+      // 4) Glassy rim light — a faint bright crescent on the far/lower edge,
+      // the kind of translucent edge-glow that sells a glass sphere.
+      const rim = ctx.createRadialGradient(
+        cx + coreR * 0.18,
+        cy + coreR * 0.24,
+        coreR * 0.7,
+        cx + coreR * 0.18,
+        cy + coreR * 0.24,
+        coreR * 1.02,
+      );
+      rim.addColorStop(0, `hsla(${hue + 10}, 100%, 80%, 0)`);
+      rim.addColorStop(0.86, `hsla(${hue + 10}, 100%, 80%, 0)`);
+      rim.addColorStop(1, `hsla(${hue + 6}, 100%, 85%, ${0.28 + energy * 0.2})`);
+      ctx.beginPath();
+      ctx.arc(cx, cy, coreR, 0, Math.PI * 2);
+      ctx.fillStyle = rim;
+      ctx.fill();
+
+      // 5) Specular highlight — a small soft bloom at the light point.
+      const spec = ctx.createRadialGradient(lx, ly, 0, lx, ly, coreR * 0.55);
+      spec.addColorStop(0, `hsla(${hue + 12}, 100%, 95%, ${0.4 + energy * 0.3})`);
+      spec.addColorStop(0.5, `hsla(${hue + 12}, 100%, 92%, ${0.08 + energy * 0.1})`);
+      spec.addColorStop(1, `hsla(${hue + 12}, 100%, 92%, 0)`);
       ctx.beginPath();
       ctx.arc(cx, cy, coreR, 0, Math.PI * 2);
       ctx.fillStyle = spec;
@@ -326,9 +395,9 @@ function VoiceOrb({
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", resize);
     };
-  }, [micLevelRef, playerRef]);
+  }, [micLevelRef, playerRef, active]);
 
-  return <canvas ref={canvasRef} className="h-56 w-56" aria-hidden />;
+  return <canvas ref={canvasRef} className="h-48 w-48" aria-hidden />;
 }
 
 export function VoiceDemo() {
@@ -453,77 +522,91 @@ export function VoiceDemo() {
     cleanup();
   }
 
-  if (state === "idle") {
-    return (
-      <button
-        onClick={startDemo}
-        className="rounded-md bg-primary px-6 py-3 font-semibold text-primary-foreground hover:opacity-90"
-      >
-        Talk to StewardAI
-      </button>
-    );
-  }
-
-  if (state === "requesting" || state === "connecting") {
-    return <p className="text-muted-foreground animate-pulse">Connecting&hellip;</p>;
-  }
-
-  if (state === "live") {
+  // The orb is the hero in every non-error state. It renders immediately —
+  // calm and dimmed when idle/ended, fully engaged when live — so the modal is
+  // never an empty box. A fixed-height stage keeps the layout from jumping as
+  // the state (and the copy beneath the orb) changes.
+  if (state !== "error") {
+    const connecting = state === "requesting" || state === "connecting";
+    const live = state === "live";
     const speaking = mode === "speaking";
-    // One short, muted caption under the orb — latest reply if the agent is
-    // speaking, otherwise the latest thing we heard. Not a transcript log.
+    // One short, muted caption under the orb while live — latest reply if the
+    // agent is speaking, otherwise the latest thing we heard. Not a log.
     const caption = speaking ? reply : transcript;
+
     return (
       <div className="relative flex flex-col items-center">
-        {/* Countdown — small, tucked into the corner. */}
-        <span className="absolute right-0 top-0 font-mono text-xs tabular-nums text-muted-foreground/70">
+        {/* Countdown — small, tucked into the corner; only while live. */}
+        <span
+          className={`absolute right-0 top-0 font-mono text-xs tabular-nums text-muted-foreground/70 transition-opacity duration-300 ${
+            live ? "opacity-100" : "opacity-0"
+          }`}
+        >
           {timeLeft}s
         </span>
 
-        {/* The orb is the focus. */}
-        <div className="mt-2 grid place-items-center">
-          <VoiceOrb micLevelRef={micLevelRef} playerRef={playerRef} mode={mode} />
-        </div>
-
-        {/* De-emphasised state label. */}
-        <p className="mt-5 text-sm font-medium text-foreground/80">
-          {speaking ? "Steward is speaking" : "Listening…"}
-        </p>
-
-        {/* One subtle caption — short, muted, single line. */}
-        <p className="mt-1 h-5 max-w-[18rem] truncate text-center text-xs text-muted-foreground">
-          {caption}
-        </p>
-
-        {/* Quiet end-session affordance. */}
+        {/* The orb — always present, the centerpiece. Idle/ended render it
+            dimmed and slowly breathing; idle doubles the orb as the start
+            affordance (tap to talk). */}
         <button
-          onClick={endDemo}
-          className="mt-6 text-xs text-muted-foreground/70 transition-colors hover:text-foreground"
+          type="button"
+          onClick={state === "idle" ? startDemo : undefined}
+          disabled={state !== "idle"}
+          aria-label={state === "idle" ? "Tap to talk" : undefined}
+          className={`grid place-items-center rounded-full transition-transform duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-card ${
+            state === "idle" ? "cursor-pointer hover:scale-[1.03]" : "cursor-default"
+          }`}
         >
-          End session
+          <VoiceOrb
+            micLevelRef={micLevelRef}
+            playerRef={playerRef}
+            mode={mode}
+            active={live}
+          />
         </button>
-      </div>
-    );
-  }
 
-  if (state === "ended") {
-    return (
-      <div className="space-y-3 text-center">
-        <p className="text-foreground font-medium">Session ended.</p>
-        <p className="text-muted-foreground">Ready to use StewardAI in your own meetings?</p>
-        <a
-          href="/auth/login"
-          className="inline-block rounded-md bg-primary px-5 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
-        >
-          Get started free
-        </a>
+        {/* Status / label line — one line, fixed height so nothing shifts. */}
+        <p className="mt-4 h-5 text-sm font-medium text-foreground/80">
+          {state === "idle" && "Tap to talk"}
+          {connecting && <span className="animate-pulse text-muted-foreground">Connecting…</span>}
+          {live && (speaking ? "Steward is speaking" : "Listening…")}
+          {state === "ended" && "Session ended"}
+        </p>
+
+        {/* Secondary line — muted caption while live, a prompt otherwise.
+            Fixed height keeps the modal balanced across states. */}
+        <p className="mt-1 h-5 max-w-[18rem] truncate text-center text-xs text-muted-foreground">
+          {live && caption}
+          {state === "idle" && "A quick 75-second conversation."}
+          {state === "ended" && "Ready to use StewardAI in your own meetings?"}
+        </p>
+
+        {/* Action row — fixed height; content swaps by state. */}
+        <div className="mt-6 flex h-9 items-center justify-center">
+          {live && (
+            <button
+              onClick={endDemo}
+              className="text-xs text-muted-foreground/70 transition-colors hover:text-foreground"
+            >
+              End session
+            </button>
+          )}
+          {state === "ended" && (
+            <a
+              href="/auth/login"
+              className="inline-block rounded-md bg-primary px-5 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+            >
+              Get started free
+            </a>
+          )}
+        </div>
       </div>
     );
   }
 
   // error
   return (
-    <div className="space-y-2 text-center">
+    <div className="flex flex-col items-center space-y-2 py-10 text-center">
       <p className="text-muted-foreground">Demo unavailable right now &mdash; try again shortly.</p>
       <button onClick={() => setState("idle")} className="text-sm text-primary hover:underline">
         Retry
