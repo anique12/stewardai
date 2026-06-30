@@ -35,6 +35,8 @@ from stewardai.factory import make_llm, make_stt, make_tts
 from stewardai.llm.warmup import warmup_llm
 from stewardai.turn.endpointer import SilenceEndpointer
 
+from .demo_auth import verify_demo_token
+
 STATIC_DIR = Path(__file__).parent / "static"
 
 log = get_logger("web")
@@ -219,6 +221,17 @@ async def ws_pipeline(ws: WebSocket) -> None:
     bridge audio in/out and forward transcript/reply text for display.
     """
     await ws.accept()
+
+    # Public demo gate: when a secret is configured, require a valid signed token and
+    # cap the session. Unset = local dev, no gate. Checked before the heavy livekit
+    # import so an unauthorized/expired token is rejected cheaply.
+    demo_secret = app.state.settings.demo_token_secret
+    if demo_secret and not verify_demo_token(ws.query_params.get("token", ""), demo_secret):
+        await _safe_send(ws, {"type": "error", "text": "invalid or expired demo token"})
+        with suppress(Exception):
+            await ws.close(code=1008)  # policy violation
+        return
+
     try:
         from livekit.agents import metrics as lk_metrics
         from livekit.agents.utils import http_context
@@ -237,6 +250,7 @@ async def ws_pipeline(ws: WebSocket) -> None:
     audio_in = None
     audio_out = None
     out_task: asyncio.Task | None = None
+    cap_task: asyncio.Task | None = None
     # Cloud STT/TTS plugins (deepgram/cartesia) need a LiveKit http session, which only
     # exists inside a LiveKit job; roomless we open one for this connection's lifetime
     # (entered manually so the handler body below isn't re-indented). Harmless for the
@@ -317,6 +331,18 @@ async def ws_pipeline(ws: WebSocket) -> None:
         _emit({"type": "ready"})
         out_task = asyncio.create_task(_pump_output())
 
+        # Demo session cap: when gated, end the session gracefully after the cap so a
+        # tunnelled public endpoint can't be held open indefinitely (cost/abuse).
+        cap_s = app.state.settings.demo_session_cap_s
+        if demo_secret and cap_s > 0:
+            async def _enforce_cap() -> None:
+                await asyncio.sleep(cap_s)
+                await _safe_send(ws, {"type": "ended", "reason": "time_limit"})
+                with suppress(Exception):
+                    await ws.close(code=1000)
+
+            cap_task = asyncio.create_task(_enforce_cap())
+
         while True:
             pcm = await ws.receive_bytes()
             audio_in.push(pcm)
@@ -326,6 +352,10 @@ async def ws_pipeline(ws: WebSocket) -> None:
         log.warning("pipeline_agent_error", error=str(exc))
         await _safe_send(ws, {"type": "error", "text": str(exc)})
     finally:
+        if cap_task is not None:
+            cap_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await cap_task
         if out_task is not None:
             out_task.cancel()
             with suppress(asyncio.CancelledError):

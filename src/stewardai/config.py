@@ -97,6 +97,13 @@ class Settings(BaseSettings):
     # TTS
     tts_default_voice: str = "stub"
 
+    # Public demo gate (landing "Talk to Steward"). When demo_token_secret is set, the
+    # /ws/pipeline endpoint requires a valid signed token (HS256 JWT issued by the portal
+    # /api/demo-token route; key = bytes.fromhex(secret)) and caps each session at
+    # demo_session_cap_s. Unset (default) = no gate, no cap — local dev as before.
+    demo_token_secret: str | None = None
+    demo_session_cap_s: float = 75.0
+
     # Whisper STT (faster-whisper / CTranslate2). Batch model, multilingual.
     # large-v3 (NOT turbo): more accurate and full 99-language support. turbo trades
     # accuracy for speed and sits a notch below large-v3 on WER — for meetings we
