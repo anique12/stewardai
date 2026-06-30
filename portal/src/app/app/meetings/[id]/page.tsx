@@ -1,4 +1,5 @@
 import { ActionItemsPanel } from "@/components/meetings/ActionItemsPanel";
+import { AgentActionsPanel } from "@/components/meetings/AgentActionsPanel";
 import { StatusBadge } from "@/components/meetings/StatusBadge";
 import { SummaryPanel } from "@/components/meetings/SummaryPanel";
 import { TranscriptPanel } from "@/components/meetings/TranscriptPanel";
@@ -25,10 +26,11 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
 
   if (!meeting) notFound();
 
-  const [{ data: segments }, { data: summary }, { data: actionItems }] = await Promise.all([
+  const [{ data: segments }, { data: summary }, { data: actionItems }, { data: agentActions }] = await Promise.all([
     service.from("transcript_segments").select("*").eq("meeting_id", params.id).order("seq"),
     service.from("summaries").select("*").eq("meeting_id", params.id).single(),
     service.from("action_items").select("*").eq("meeting_id", params.id).order("created_at"),
+    service.from("agent_actions").select("*").eq("meeting_id", params.id).eq("user_id", user.id).order("created_at"),
   ]);
 
   const start = new Date(meeting.start_time);
@@ -54,6 +56,12 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
           <TabsTrigger value="transcript">Transcript</TabsTrigger>
           <TabsTrigger value="summary">Summary</TabsTrigger>
           <TabsTrigger value="actions">Action Items</TabsTrigger>
+          <TabsTrigger value="steward">
+            Steward&apos;s Actions
+            {(agentActions ?? []).some((a) => a.state === "proposed") && (
+              <span className="ml-1.5 inline-flex h-2 w-2 rounded-full bg-amber-400" />
+            )}
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="transcript" className="mt-4">
           <TranscriptPanel segments={segments ?? []} />
@@ -63,6 +71,9 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
         </TabsContent>
         <TabsContent value="actions" className="mt-4">
           <ActionItemsPanel items={actionItems ?? []} />
+        </TabsContent>
+        <TabsContent value="steward" className="mt-4">
+          <AgentActionsPanel actions={agentActions ?? []} meetingId={params.id} />
         </TabsContent>
       </Tabs>
     </div>
