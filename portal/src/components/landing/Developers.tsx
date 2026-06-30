@@ -113,7 +113,7 @@ export function Developers() {
           lead="Production-grade speech-to-text and text-to-speech behind a clean API. Streaming-first, multilingual, and priced per use — drop them into your own product."
         />
 
-        <div className="mt-12 grid gap-8 lg:grid-cols-2">
+        <div className="mt-12 grid items-stretch gap-8 lg:grid-cols-2">
           <ApiCard
             id="stt"
             name="Speech-to-Text"
@@ -159,7 +159,7 @@ function ApiCard({
   const current = samples.find((s) => s.lang === active) ?? samples[0];
 
   return (
-    <div className="flex flex-col">
+    <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
           <h3 className="text-lg font-semibold text-foreground">{name}</h3>
@@ -167,8 +167,8 @@ function ApiCard({
         </div>
       </div>
 
-      <Tabs value={active} onValueChange={setActive} className="mt-4">
-        <div className="overflow-hidden rounded-xl border border-border bg-[#0a0e14]">
+      <Tabs value={active} onValueChange={setActive} className="mt-4 flex flex-1 flex-col">
+        <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-border bg-[#0a0e14]">
           <div className="flex items-center justify-between border-b border-border bg-background/40 px-2">
             <TabsList className="h-auto gap-0.5 bg-transparent p-1.5">
               {samples.map((s) => (
@@ -184,8 +184,10 @@ function ApiCard({
             <CopyButton text={current.code} />
           </div>
           {samples.map((s) => (
-            <TabsContent key={s.lang} value={s.lang} className="mt-0">
-              <pre className="max-h-[22rem] overflow-auto p-4 text-[12.5px] leading-relaxed">
+            <TabsContent key={s.lang} value={s.lang} className="mt-0 flex-1 data-[state=active]:flex">
+              {/* Stable min-height fits the tallest tab so switching cURL/Python/JS
+                  does not change the panel height (no reflow/jump). */}
+              <pre className="h-full min-h-[20rem] w-full overflow-auto p-4 text-[12.5px] leading-relaxed">
                 <code className="font-mono text-foreground/90">{highlight(s.code)}</code>
               </pre>
             </TabsContent>
@@ -195,7 +197,7 @@ function ApiCard({
 
       <dl className="mt-4 grid grid-cols-3 gap-3">
         {specs.map(([k, v]) => (
-          <div key={k} className="rounded-lg border border-border bg-background/40 p-3">
+          <div key={k} className="flex h-full flex-col rounded-lg border border-border bg-background/40 p-3">
             <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">{k}</dt>
             <dd className="mt-1 text-xs font-medium text-foreground">{v}</dd>
           </div>

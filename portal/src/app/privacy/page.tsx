@@ -52,6 +52,11 @@ export default function PrivacyPage() {
               logs, device/browser information, IP addresses, and in-product usage events to operate and improve
               the service.
             </p>
+            <p className="mb-4 leading-7 text-muted-foreground">
+              (e) <strong className="text-foreground">Cookies</strong> — We use strictly necessary cookies to keep
+              you signed in and to secure your session. For details on the cookies we use and how to manage them,
+              see our <a href="/cookies" className="text-primary underline-offset-4 hover:underline">Cookie Policy</a>.
+            </p>
 
             <h2 className="mt-12 mb-4 text-xl font-semibold text-foreground">3. How We Use Your Information</h2>
             <p className="mb-4 leading-7 text-muted-foreground">

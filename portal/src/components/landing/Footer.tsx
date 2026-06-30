@@ -36,6 +36,7 @@ const COLUMNS: { heading: string; links: { label: string; href: string }[] }[] =
     links: [
       { label: "Privacy", href: "/privacy" },
       { label: "Terms", href: "/terms" },
+      { label: "Cookie Policy", href: "/cookies" },
       { label: "Security", href: "/trust" },
     ],
   },
