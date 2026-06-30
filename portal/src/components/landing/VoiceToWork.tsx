@@ -275,7 +275,10 @@ function Stage({
   phase: Phase;
   reduced?: boolean;
 }) {
-  const voiceActive = phase === "voice";
+  // Stay in "listening" mode through BOTH the voice capture and the transcript
+  // streaming ("typing") — the mic is still live while we transcribe. The
+  // waveform only calms once we move to the work stage.
+  const capturing = phase === "voice" || phase === "typing";
   const transcriptShown = reduced || phase !== "voice";
   const workShown = reduced || phase === "work" || phase === "hold";
   const transcriptFull = reduced || phase === "work" || phase === "hold";
@@ -321,10 +324,10 @@ function Stage({
           forces all three columns to share the tallest column's height. */}
       <div className="relative grid items-stretch gap-px bg-border sm:grid-cols-[0.95fr_1.1fr_1.2fr]">
         {/* Stage A — Voice */}
-        <StageCell label="Voice" active={voiceActive || reduced}>
+        <StageCell label="Voice" active={capturing || reduced}>
           <VoicePanel
             snippet={snippet}
-            active={voiceActive}
+            active={capturing}
             reduced={reduced}
             activeSpeaker={activeSpeaker}
           />
