@@ -46,6 +46,17 @@ export default function SettingsPage() {
       <h1 className="text-2xl font-bold text-foreground">Settings</h1>
 
       <section className="rounded-lg border border-border bg-card p-6 space-y-4">
+        <h2 className="font-semibold text-foreground">Connected Apps</h2>
+        <p className="text-sm text-muted-foreground">
+          Connect Gmail, Google Calendar, Notion, and Slack so your assistant can act on your behalf.
+        </p>
+        <a href="/app/settings/connections"
+          className="inline-block rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+          Manage Connected Apps
+        </a>
+      </section>
+
+      <section className="rounded-lg border border-border bg-card p-6 space-y-4">
         <h2 className="font-semibold text-foreground">Google Calendar</h2>
         <p className="text-sm text-muted-foreground">
           {hasCalendar === null ? "Loading…" : hasCalendar ? "Connected." : "Not connected."}
