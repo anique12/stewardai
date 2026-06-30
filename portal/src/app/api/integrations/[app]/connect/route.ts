@@ -1,10 +1,12 @@
 import { createServerClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
-import { Composio } from "composio-core";
+import {
+  getComposio,
+  resolveManagedAuthConfigId,
+  SUPPORTED_TOOLKITS,
+  type SupportedToolkit,
+} from "@/lib/composio";
 import { NextRequest, NextResponse } from "next/server";
-
-const ALLOWED_APPS = ["gmail", "googlecalendar", "notion", "slack"] as const;
-type AllowedApp = (typeof ALLOWED_APPS)[number];
 
 export async function POST(
   request: NextRequest,
@@ -18,43 +20,56 @@ export async function POST(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const app = params.app as AllowedApp;
-  if (!ALLOWED_APPS.includes(app)) {
+  const app = params.app as SupportedToolkit;
+  if (!SUPPORTED_TOOLKITS.includes(app)) {
     return NextResponse.json({ error: "Unknown app" }, { status: 400 });
   }
 
-  // Parse optional redirect URL from request body
+  // Parse optional redirect URL from request body — Composio sends the user
+  // back here after the OAuth flow completes.
   let redirectUri: string | undefined;
   try {
     const body = await request.json().catch(() => ({}));
-    redirectUri = body.redirectUri;
+    redirectUri = body?.redirectUri;
   } catch {
-    // ignore
+    // ignore — redirectUri is optional
   }
 
-  const composio = new Composio({ apiKey: process.env.COMPOSIO_API_KEY });
-  const entity = composio.getEntity(user.id);
+  let redirectUrl: string | null = null;
+  let connectedAccountId: string | null = null;
+  try {
+    const composio = getComposio();
+    // Managed OAuth: reuse/create a Composio-managed auth config, then link the
+    // user (entity = Supabase user.id) so we can pass the post-OAuth callback.
+    const authConfigId = await resolveManagedAuthConfigId(composio, app);
+    const connectionRequest = await composio.connectedAccounts.link(
+      user.id,
+      authConfigId,
+      { callbackUrl: redirectUri, allowMultiple: true }
+    );
+    redirectUrl = connectionRequest.redirectUrl ?? null;
+    connectedAccountId = connectionRequest.id ?? null;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[integrations] connect failed for ${app}:`, message);
+    return NextResponse.json(
+      { error: "Failed to initiate connection", detail: message },
+      { status: 502 }
+    );
+  }
 
-  const connectionRequest = await entity.initiateConnection({
-    appName: app,
-    redirectUri,
-  });
-
-  // Upsert a pending row so the UI can show the right status immediately
+  // Upsert a pending row so the UI can show the right status immediately.
   const service = createServiceClient();
   await service.from("connected_apps").upsert(
     {
       user_id: user.id,
       app,
       status: "pending",
-      connected_account_id: connectionRequest.connectedAccountId || null,
+      connected_account_id: connectedAccountId,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "user_id,app" }
   );
 
-  return NextResponse.json({
-    redirectUrl: connectionRequest.redirectUrl,
-    connectedAccountId: connectionRequest.connectedAccountId,
-  });
+  return NextResponse.json({ redirectUrl, connectedAccountId });
 }

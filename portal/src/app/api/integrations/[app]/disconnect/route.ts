@@ -1,10 +1,11 @@
 import { createServerClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
-import { Composio } from "composio-core";
+import {
+  getComposio,
+  SUPPORTED_TOOLKITS,
+  type SupportedToolkit,
+} from "@/lib/composio";
 import { NextRequest, NextResponse } from "next/server";
-
-const ALLOWED_APPS = ["gmail", "googlecalendar", "notion", "slack"] as const;
-type AllowedApp = (typeof ALLOWED_APPS)[number];
 
 export async function POST(
   _request: NextRequest,
@@ -18,12 +19,13 @@ export async function POST(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const app = params.app as AllowedApp;
-  if (!ALLOWED_APPS.includes(app)) {
+  const app = params.app as SupportedToolkit;
+  if (!SUPPORTED_TOOLKITS.includes(app)) {
     return NextResponse.json({ error: "Unknown app" }, { status: 400 });
   }
 
   const service = createServiceClient();
+  // Enforce row ownership: only read this user's row.
   const { data: row } = await service
     .from("connected_apps")
     .select("connected_account_id")
@@ -31,19 +33,19 @@ export async function POST(
     .eq("app", app)
     .single();
 
-  // Delete the Composio connected account if we have its ID
+  // Delete the Composio connected account if we have its id.
   if (row?.connected_account_id) {
     try {
-      const composio = new Composio({ apiKey: process.env.COMPOSIO_API_KEY });
-      await composio.connectedAccounts.delete({
-        connectedAccountId: row.connected_account_id,
-      });
-    } catch {
-      // Best-effort: proceed even if Composio delete fails (e.g. already deleted)
+      const composio = getComposio();
+      await composio.connectedAccounts.delete(row.connected_account_id);
+    } catch (err) {
+      // Best-effort: proceed even if Composio delete fails (e.g. already gone).
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[integrations] disconnect delete failed for ${app}:`, message);
     }
   }
 
-  // Mark as disconnected in our table
+  // Mark as disconnected in our table.
   await service.from("connected_apps").upsert(
     {
       user_id: user.id,
