@@ -45,6 +45,22 @@ function downsample(input: Float32Array, srcRate: number): Float32Array {
   return out;
 }
 
+// Linear-interpolation resample Float32 from srcRate → dstRate (any direction).
+function resample(input: Float32Array, srcRate: number, dstRate: number): Float32Array {
+  if (srcRate === dstRate || input.length === 0) return input;
+  const ratio = srcRate / dstRate;
+  const outLen = Math.max(1, Math.round(input.length / ratio));
+  const out = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    const srcPos = i * ratio;
+    const i0 = Math.floor(srcPos);
+    const i1 = Math.min(i0 + 1, input.length - 1);
+    const frac = srcPos - i0;
+    out[i] = input[i0] * (1 - frac) + input[i1] * frac;
+  }
+  return out;
+}
+
 // Float32 [-1, 1] → Int16 s16le ArrayBuffer.
 function floatToS16LE(float32: Float32Array): ArrayBuffer {
   const out = new Int16Array(float32.length);
@@ -60,24 +76,24 @@ interface MicHandle {
   stop(): Promise<void>;
 }
 
-// Start streaming 20 ms s16le/16 kHz frames to onFrame. onLevel (optional)
-// receives the RMS level [0,1] of each captured block to drive the visualizer.
+// Resolve the AudioContext constructor with the WebKit fallback (iOS).
+function getAudioContextClass(): typeof AudioContext {
+  const AudioContextClass =
+    window.AudioContext ??
+    (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  return AudioContextClass!;
+}
+
+// Wire up the capture graph on an already-acquired MediaStream + AudioContext.
+// The stream/context must have been obtained inside the user gesture (see
+// startDemo) so iOS/WebKit doesn't reject them. Streams 20 ms s16le/16 kHz
+// frames to onFrame; onLevel (optional) receives each block's RMS level [0,1].
 async function startMic(
+  stream: MediaStream,
+  ctx: AudioContext,
   onFrame: (buf: ArrayBuffer) => void,
   onLevel?: (level: number) => void,
 ): Promise<MicHandle> {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      channelCount: 1,
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
-    },
-  });
-  const AudioContextClass =
-    window.AudioContext ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  const ctx = new AudioContextClass!();
-  await ctx.resume();
   const source = ctx.createMediaStreamSource(stream);
   const srcRate = ctx.sampleRate;
 
@@ -146,10 +162,12 @@ class PCMPlayer {
   private analyser: AnalyserNode;
   private buf: Uint8Array<ArrayBuffer>;
 
-  constructor(rate = TARGET_RATE) {
-    const AudioContextClass =
-      window.AudioContext ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    this.ctx = new AudioContextClass!({ sampleRate: rate });
+  constructor() {
+    // Don't force a 16 kHz sampleRate — iOS/WebKit ignores or rejects it.
+    // Create the context at the device's native rate and resample the 16 kHz
+    // wire format up to it in push().
+    const AudioContextClass = getAudioContextClass();
+    this.ctx = new AudioContextClass();
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = 256;
     this.analyser.smoothingTimeConstant = 0.6;
@@ -164,9 +182,13 @@ class PCMPlayer {
   push(arrayBuffer: ArrayBuffer) {
     const i16 = new Int16Array(arrayBuffer);
     if (i16.length === 0) return;
-    const f32 = new Float32Array(i16.length);
-    for (let i = 0; i < i16.length; i++) f32[i] = i16[i] / 0x8000;
-    const buf = this.ctx.createBuffer(1, f32.length, this.ctx.sampleRate);
+    const raw = new Float32Array(i16.length);
+    for (let i = 0; i < i16.length; i++) raw[i] = i16[i] / 0x8000;
+    // Wire format is 16 kHz; the context runs at its native rate (often 44.1/48
+    // kHz on iOS). Resample up so playback isn't pitch-shifted/sped up.
+    const dstRate = this.ctx.sampleRate;
+    const f32 = dstRate === TARGET_RATE ? raw : resample(raw, TARGET_RATE, dstRate);
+    const buf = this.ctx.createBuffer(1, f32.length, dstRate);
     buf.getChannelData(0).set(f32);
     const node = this.ctx.createBufferSource();
     node.buffer = buf;
@@ -338,8 +360,12 @@ function VoiceOrb({
   return <canvas ref={canvasRef} className="h-56 w-56" aria-hidden />;
 }
 
+const MIC_ERROR_MSG = "Microphone access is needed — allow it and try again.";
+const CONNECTION_ERROR_MSG = "Demo unavailable right now — try again shortly.";
+
 export function VoiceDemo() {
   const [state, setState] = useState<DemoState>("idle");
+  const [errorReason, setErrorReason] = useState(CONNECTION_ERROR_MSG);
   const [timeLeft, setTimeLeft] = useState(SESSION_LIMIT_MS / 1000);
   const [transcript, setTranscript] = useState("");
   const [reply, setReply] = useState("");
@@ -352,6 +378,11 @@ export function VoiceDemo() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const sessionActiveRef = useRef(false);
   const micLevelRef = useRef(0);
+  // Mic stream + capture context acquired synchronously in the tap gesture,
+  // before any await, so iOS/WebKit grants the permission prompt. Held here so
+  // cleanup can release them even if the capture graph was never wired up.
+  const streamRef = useRef<MediaStream | null>(null);
+  const captureCtxRef = useRef<AudioContext | null>(null);
 
   function cleanup() {
     sessionActiveRef.current = false;
@@ -361,6 +392,15 @@ export function VoiceDemo() {
     wsRef.current = null;
     micRef.current?.stop().catch(() => { /* ignore */ });
     micRef.current = null;
+    // Release any mic stream / capture context that startMic never adopted
+    // (e.g. failure before the graph was wired). startMic.stop() owns them once
+    // it runs, but it's safe to stop already-stopped tracks / close twice.
+    streamRef.current?.getTracks().forEach((t) => { try { t.stop(); } catch { /* ignore */ } });
+    streamRef.current = null;
+    if (captureCtxRef.current) {
+      captureCtxRef.current.close().catch(() => { /* ignore */ });
+      captureCtxRef.current = null;
+    }
     playerRef.current?.close();
     playerRef.current = null;
   }
@@ -370,16 +410,51 @@ export function VoiceDemo() {
   async function startDemo() {
     if (sessionActiveRef.current) return;
     setState("requesting");
-    try {
-      // Fetch demo token
-      const res = await fetch("/api/demo-token");
-      if (!res.ok) { setState("error"); return; }
-      const { token } = await res.json() as { token: string };
 
-      // Set up PCM player before connecting so it's ready for early audio.
-      const player = new PCMPlayer(TARGET_RATE);
-      await player.resume();
+    // ---- Gesture-time setup (NO await before this block completes). ----
+    // iOS/WebKit only grants getUserMedia and AudioContext.resume() while the
+    // user-gesture "activation" is still live. Any network round-trip first
+    // would consume it, so we acquire the mic and create+resume both audio
+    // contexts synchronously here, then do the async token/WS work afterwards.
+    let stream: MediaStream;
+    let captureCtx: AudioContext;
+    let player: PCMPlayer;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      streamRef.current = stream;
+
+      const AudioContextClass = getAudioContextClass();
+      // Capture context at the device's native rate (don't force 16 kHz — iOS
+      // ignores/rejects it); the capture path resamples to the wire rate.
+      captureCtx = new AudioContextClass();
+      captureCtxRef.current = captureCtx;
+      await captureCtx.resume();
+
+      // Playback context, also unlocked within the gesture.
+      player = new PCMPlayer();
       playerRef.current = player;
+      await player.resume();
+    } catch {
+      // getUserMedia / AudioContext rejection — almost always a permission or
+      // device-availability problem on this gesture.
+      setErrorReason(MIC_ERROR_MSG);
+      setState("error");
+      cleanup();
+      return;
+    }
+
+    try {
+      // Async work now that the audio plumbing is unlocked.
+      const res = await fetch("/api/demo-token");
+      if (!res.ok) { setErrorReason(CONNECTION_ERROR_MSG); setState("error"); cleanup(); return; }
+      const { token } = await res.json() as { token: string };
 
       setState("connecting");
       const wsUrl = `${process.env.NEXT_PUBLIC_DEMO_WS_URL ?? ""}?token=${token}`;
@@ -387,24 +462,28 @@ export function VoiceDemo() {
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;
 
-      ws.onopen = async () => {
-        // Mic capture — start after WS is open so no frames are lost.
-        try {
-          const mic = await startMic(
-            (buf) => {
-              if (ws.readyState === WebSocket.OPEN) ws.send(buf);
-            },
-            (level) => {
-              // Keep the peak; the render loop decays it smoothly.
-              micLevelRef.current = Math.max(micLevelRef.current, level);
-            },
-          );
-          micRef.current = mic;
-        } catch {
-          setState("error");
-          cleanup();
-        }
-      };
+      // Wire the capture graph on the already-acquired stream/context. Frames
+      // are gated on the socket being OPEN — anything captured before the WS
+      // opens is simply dropped.
+      try {
+        const mic = await startMic(
+          stream,
+          captureCtx,
+          (buf) => {
+            if (ws.readyState === WebSocket.OPEN) ws.send(buf);
+          },
+          (level) => {
+            // Keep the peak; the render loop decays it smoothly.
+            micLevelRef.current = Math.max(micLevelRef.current, level);
+          },
+        );
+        micRef.current = mic;
+      } catch {
+        setErrorReason(CONNECTION_ERROR_MSG);
+        setState("error");
+        cleanup();
+        return;
+      }
 
       ws.onmessage = (e) => {
         if (typeof e.data !== "string") {
@@ -437,19 +516,40 @@ export function VoiceDemo() {
           setMode("speaking");
         } else if (msg.type === "clear") {
           playerRef.current?.flush();
+        } else if (msg.type === "ended") {
+          // Graceful server-side end (e.g. the 75s cap) — handled before the
+          // socket closes so it reads as a normal end, not an error.
+          endDemo();
         } else if (msg.type === "error") {
+          setErrorReason(CONNECTION_ERROR_MSG);
           setState("error");
           cleanup();
         }
       };
 
       ws.onclose = () => {
-        setState((prev) => (prev !== "ended" ? "ended" : prev));
+        // Never mask a real setup/transport failure as "Session ended". Only a
+        // socket close while we were "live" is a normal end; if we're still in
+        // requesting/connecting (the open never completed) it's a connection
+        // error, and an existing "error"/"ended" state is left untouched.
+        setState((prev) => {
+          if (prev === "live") return "ended";
+          if (prev === "requesting" || prev === "connecting") {
+            setErrorReason(CONNECTION_ERROR_MSG);
+            return "error";
+          }
+          return prev;
+        });
         cleanup();
       };
 
-      ws.onerror = () => { setState("error"); cleanup(); };
+      ws.onerror = () => {
+        setState((prev) => (prev === "error" || prev === "ended" ? prev : "error"));
+        setErrorReason(CONNECTION_ERROR_MSG);
+        cleanup();
+      };
     } catch {
+      setErrorReason(CONNECTION_ERROR_MSG);
       setState("error");
       cleanup();
     }
@@ -545,8 +645,11 @@ export function VoiceDemo() {
   // error
   return (
     <div className="flex flex-col items-center space-y-2 py-10 text-center">
-      <p className="text-muted-foreground">Demo unavailable right now &mdash; try again shortly.</p>
-      <button onClick={() => setState("idle")} className="text-sm text-primary hover:underline">
+      <p role="alert" className="max-w-[20rem] text-muted-foreground">{errorReason}</p>
+      <button
+        onClick={() => { setErrorReason(CONNECTION_ERROR_MSG); setState("idle"); }}
+        className="text-sm text-primary hover:underline"
+      >
         Retry
       </button>
     </div>
