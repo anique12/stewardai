@@ -2,15 +2,7 @@ import Link from "next/link";
 import { ArrowRight, Check } from "lucide-react";
 import { Container } from "./primitives";
 import { VoiceDemoDialog } from "./VoiceDemoDialog";
-
-// Per-bar peak heights for the hero waveform. A dense row of thin vertical
-// bars whose heights animate on a staggered loop so it ripples like a live
-// voice spectrum. Values are the max scaleY each bar reaches.
-const BARS = [
-  0.45, 0.7, 0.55, 0.9, 0.4, 0.65, 1, 0.5, 0.8, 0.35, 0.6, 0.95, 0.45, 0.75,
-  0.55, 0.85, 0.4, 0.7, 0.5, 0.9, 0.6, 0.45, 0.8, 0.35, 0.65, 1, 0.5, 0.75,
-  0.4, 0.6, 0.85, 0.45, 0.7, 0.55, 0.95, 0.4, 0.65, 0.5, 0.8, 0.45,
-];
+import { VoiceToWork } from "./VoiceToWork";
 
 export function Hero() {
   return (
@@ -34,14 +26,12 @@ export function Hero() {
           </a>
 
           <h1 className="reveal reveal-2 mt-6 text-balance text-4xl font-semibold leading-[1.05] tracking-tight text-foreground sm:text-6xl">
-            Your personal AI agent — and the{" "}
-            <span className="accent-text">voice stack</span> to build your own.
+            AI that listens, understands, and{" "}
+            <span className="accent-text">acts</span>.
           </h1>
 
           <p className="reveal reveal-3 mx-auto mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-muted-foreground">
-            StewardAI is one platform: Steward, a proactive personal agent that sits in your
-            meetings and remembers everything, plus the real-time voice infrastructure —
-            agents, speech-to-text, and text-to-speech — that developers ship on.
+            Your personal agent — and the real-time voice stack to build your own.
           </p>
 
           <div className="reveal reveal-3 mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
@@ -65,73 +55,9 @@ export function Hero() {
           </ul>
         </div>
 
-        {/* Hero visual: a live-pipeline panel */}
+        {/* Hero visual: the "Voice → Work" loop — speech → transcript → work. */}
         <div className="reveal reveal-4 mx-auto mt-16 max-w-4xl">
-          <div className="card-ring overflow-hidden rounded-2xl shadow-2xl shadow-black/40">
-            <div className="flex items-center gap-2 border-b border-border bg-background/60 px-4 py-3">
-              <span className="h-2.5 w-2.5 rounded-full bg-destructive/70" aria-hidden />
-              <span className="h-2.5 w-2.5 rounded-full bg-yellow-500/70" aria-hidden />
-              <span className="h-2.5 w-2.5 rounded-full bg-primary/70" aria-hidden />
-              <span className="ml-2 font-mono text-xs text-muted-foreground">steward · live session</span>
-              <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-primary">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" aria-hidden />
-                streaming
-              </span>
-            </div>
-            <div className="grid gap-px bg-border sm:grid-cols-[1.4fr_1fr]">
-              {/* Transcript */}
-              <div className="bg-card p-5 sm:p-6">
-                <p className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
-                  Transcript
-                </p>
-                <div className="mt-4 space-y-3 text-sm">
-                  <p>
-                    <span className="font-medium text-primary">Priya</span>{" "}
-                    <span className="text-muted-foreground">00:14</span>
-                    <br />
-                    <span className="text-foreground">Can we ship the billing fix before the Q3 review?</span>
-                  </p>
-                  <p>
-                    <span className="font-medium text-primary">Marcus</span>{" "}
-                    <span className="text-muted-foreground">00:21</span>
-                    <br />
-                    <span className="text-foreground">Yes — I&apos;ll own it and have a PR up by Thursday.</span>
-                  </p>
-                </div>
-                {/* Waveform — dense row of thin vertical bars that ripple */}
-                <div className="mt-6 flex h-10 items-center justify-between gap-[3px]" aria-hidden>
-                  {BARS.map((h, i) => (
-                    <span
-                      key={i}
-                      className="waveform-bar w-[2px] flex-1 rounded-full bg-primary/70"
-                      style={{
-                        ["--peak" as string]: h,
-                        animationDelay: `${(i % 8) * 0.09}s`,
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-              {/* Steward output */}
-              <div className="bg-card p-5 sm:p-6">
-                <p className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
-                  Steward
-                </p>
-                <div className="mt-4 space-y-4 text-sm">
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">Decision</p>
-                    <p className="text-foreground">Ship billing fix ahead of Q3 review.</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">Action item</p>
-                    <p className="text-foreground">
-                      <span className="text-primary">@Marcus</span> — billing PR, due Thu.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <VoiceToWork />
         </div>
       </Container>
     </section>
