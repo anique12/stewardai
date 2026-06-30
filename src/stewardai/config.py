@@ -148,6 +148,15 @@ class Settings(BaseSettings):
     cartesia_model: str = "sonic-3"
     cartesia_voice: str | None = None  # None -> Cartesia's default voice
 
+    # Composio integration (third-party app actions: Gmail, Google Calendar, Notion, Slack)
+    # Set COMPOSIO_API_KEY to enable; unset (default None) means the integration is disabled.
+    composio_api_key: str | None = None
+
+    @property
+    def composio_enabled(self) -> bool:
+        """True when a Composio API key is configured."""
+        return bool(self.composio_api_key)
+
     # Logging
     log_level: str = "info"
     log_format: Literal["json", "console"] = "json"

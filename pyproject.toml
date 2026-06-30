@@ -21,6 +21,7 @@ dependencies = [
     "httpx>=0.27",
     "jiwer>=3.0",
     "supabase>=2.7",
+    "composio==0.17.1",
 ]
 
 [project.optional-dependencies]

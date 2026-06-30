@@ -1,0 +1,346 @@
+"""Unit tests for ComposioService.
+
+All tests mock the Composio client — no network calls are made.  The optional
+live smoke test is skipped unless COMPOSIO_API_KEY is set in the environment.
+"""
+
+from __future__ import annotations
+
+import os
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from stewardai.integrations.composio_service import (
+    _ALLOW_LIST,
+    _ALLOWED_SLUGS,
+    _RISK_MAP,
+    TOOLKITS,
+    ComposioService,
+)
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_account(toolkit_slug: str, status: str = "ACTIVE") -> SimpleNamespace:
+    """Build a fake connected-account object resembling what the SDK returns."""
+    return SimpleNamespace(
+        toolkit=SimpleNamespace(slug=toolkit_slug),
+        status=status,
+    )
+
+
+def _make_client(connected_slugs: list[str] | None = None) -> MagicMock:
+    """Return a mock Composio client pre-configured with connected accounts."""
+    connected_slugs = connected_slugs or []
+    items = [_make_account(s) for s in connected_slugs]
+
+    client = MagicMock()
+    client.connected_accounts.list.return_value = SimpleNamespace(items=items)
+    # tools.get returns a list of OpenAI-format dicts by default
+    client.tools.get.return_value = [
+        {"type": "function", "function": {"name": slug, "description": "test", "parameters": {}}}
+        for slug in (
+            slug
+            for tk in connected_slugs
+            for slug, _ in _ALLOW_LIST.get(tk, [])
+        )
+    ]
+    client.tools.execute.return_value = {
+        "data": {"result": "ok"},
+        "error": None,
+        "successful": True,
+    }
+    return client
+
+
+def _service_with_mock(
+    connected_slugs: list[str] | None = None,
+) -> tuple[ComposioService, MagicMock]:
+    """Return a ComposioService whose _composio property is replaced with a mock."""
+    svc = ComposioService(api_key="test-key")
+    mock_client = _make_client(connected_slugs)
+    # Bypass the cached_property by injecting directly into the instance dict
+    svc.__dict__["_composio"] = mock_client
+    return svc, mock_client
+
+
+# ---------------------------------------------------------------------------
+# Allow-list + risk map (no network)
+# ---------------------------------------------------------------------------
+
+
+class TestAllowList:
+    def test_all_four_toolkits_present(self):
+        assert set(_ALLOW_LIST.keys()) == {"gmail", "googlecalendar", "notion", "slack"}
+
+    def test_toolkits_constant_matches_allow_list(self):
+        assert set(TOOLKITS) == set(_ALLOW_LIST.keys())
+
+    def test_each_toolkit_has_at_least_two_actions(self):
+        for tk, actions in _ALLOW_LIST.items():
+            assert len(actions) >= 2, f"{tk} has fewer than 2 actions"
+
+    def test_risk_map_covers_all_allow_list_entries(self):
+        for _tk, actions in _ALLOW_LIST.items():
+            for slug, risk in actions:
+                assert slug in _RISK_MAP, f"{slug} missing from _RISK_MAP"
+                assert risk in ("low", "high"), f"{slug} has unknown risk {risk!r}"
+
+    def test_high_risk_actions(self):
+        high = {s for s, r in _RISK_MAP.items() if r == "high"}
+        # These must be high-risk — outbound / irreversible-to-others
+        assert "GMAIL_SEND_EMAIL" in high
+        assert "SLACK_SENDS_A_MESSAGE_TO_A_SLACK_CHANNEL" in high
+
+    def test_low_risk_actions(self):
+        low = {s for s, r in _RISK_MAP.items() if r == "low"}
+        assert "GMAIL_FETCH_EMAILS" in low
+        assert "GOOGLECALENDAR_LIST_EVENTS" in low
+        assert "NOTION_SEARCH_NOTION_PAGE" in low
+        assert "SLACK_LIST_CHANNELS" in low
+
+    def test_allowed_slugs_frozenset(self):
+        assert isinstance(_ALLOWED_SLUGS, frozenset)
+        assert _ALLOWED_SLUGS == frozenset(_RISK_MAP.keys())
+
+
+# ---------------------------------------------------------------------------
+# ComposioService — no-key guard
+# ---------------------------------------------------------------------------
+
+
+class TestNoKeyGuard:
+    def test_raises_when_no_key_set(self):
+        svc = ComposioService()  # no api_key arg
+        # Patch settings so composio_api_key is None
+        with patch("stewardai.integrations.composio_service.get_settings") as mock_cfg:
+            mock_cfg.return_value = SimpleNamespace(composio_api_key=None)
+            with pytest.raises(RuntimeError, match="COMPOSIO_API_KEY"):
+                # Access _composio to trigger lazy init
+                _ = svc._composio  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# risk_of()
+# ---------------------------------------------------------------------------
+
+
+class TestRiskOf:
+    def test_known_low(self):
+        svc, _ = _service_with_mock()
+        assert svc.risk_of("GMAIL_FETCH_EMAILS") == "low"
+
+    def test_known_high(self):
+        svc, _ = _service_with_mock()
+        assert svc.risk_of("GMAIL_SEND_EMAIL") == "high"
+
+    def test_unknown_slug_raises_key_error(self):
+        svc, _ = _service_with_mock()
+        with pytest.raises(KeyError, match="UNKNOWN_ACTION"):
+            svc.risk_of("UNKNOWN_ACTION")
+
+    def test_all_risk_map_entries_via_risk_of(self):
+        svc, _ = _service_with_mock()
+        for slug in _RISK_MAP:
+            risk = svc.risk_of(slug)
+            assert risk in ("low", "high")
+
+
+# ---------------------------------------------------------------------------
+# list_connected()
+# ---------------------------------------------------------------------------
+
+
+class TestListConnected:
+    def test_returns_only_connected_toolkits(self):
+        svc, mock_client = _service_with_mock(["gmail", "slack"])
+        result = svc.list_connected("user-123")
+        assert sorted(result) == ["gmail", "slack"]
+        mock_client.connected_accounts.list.assert_called_once_with(
+            user_ids=["user-123"],
+            statuses=["ACTIVE"],
+            toolkit_slugs=TOOLKITS,
+        )
+
+    def test_empty_when_nothing_connected(self):
+        svc, _ = _service_with_mock([])
+        assert svc.list_connected("user-abc") == []
+
+    def test_deduplicates_multiple_accounts_same_toolkit(self):
+        svc, mock_client = _service_with_mock([])
+        # Two gmail accounts — should appear once
+        items = [_make_account("gmail"), _make_account("gmail")]
+        mock_client.connected_accounts.list.return_value = SimpleNamespace(items=items)
+        result = svc.list_connected("user-x")
+        assert result.count("gmail") == 1
+
+    def test_ignores_non_toolkit_slugs(self):
+        svc, mock_client = _service_with_mock([])
+        items = [_make_account("github"), _make_account("gmail")]
+        mock_client.connected_accounts.list.return_value = SimpleNamespace(items=items)
+        result = svc.list_connected("user-x")
+        # Only gmail is in TOOLKITS
+        assert result == ["gmail"]
+
+    def test_handles_toolkit_as_string_attribute(self):
+        """Account with toolkit_slug attr instead of .toolkit.slug."""
+        svc, mock_client = _service_with_mock([])
+        acct = SimpleNamespace(toolkit_slug="notion", toolkit=None)
+        mock_client.connected_accounts.list.return_value = SimpleNamespace(items=[acct])
+        result = svc.list_connected("user-y")
+        assert result == ["notion"]
+
+
+# ---------------------------------------------------------------------------
+# get_tools()
+# ---------------------------------------------------------------------------
+
+
+class TestGetTools:
+    def test_returns_list_of_dicts(self):
+        svc, _ = _service_with_mock(["gmail"])
+        tools = svc.get_tools("user-1")
+        assert isinstance(tools, list)
+        for t in tools:
+            assert isinstance(t, dict)
+
+    def test_calls_tools_get_with_allowed_slugs(self):
+        svc, mock_client = _service_with_mock(["gmail"])
+        svc.get_tools("user-1")
+        call_kwargs = mock_client.tools.get.call_args
+        slugs_passed: list[str] = call_kwargs.kwargs.get("tools") or call_kwargs[1].get("tools", [])
+        gmail_slugs = [s for s, _ in _ALLOW_LIST["gmail"]]
+        assert set(slugs_passed) == set(gmail_slugs)
+
+    def test_filters_by_toolkit_arg(self):
+        svc, mock_client = _service_with_mock(["gmail", "slack"])
+        svc.get_tools("user-1", toolkits=["gmail"])
+        call_kwargs = mock_client.tools.get.call_args
+        slugs_passed: list[str] = call_kwargs.kwargs.get("tools") or call_kwargs[1].get("tools", [])
+        gmail_slugs = {s for s, _ in _ALLOW_LIST["gmail"]}
+        slack_slugs = {s for s, _ in _ALLOW_LIST["slack"]}
+        assert set(slugs_passed).issubset(gmail_slugs)
+        assert not set(slugs_passed).intersection(slack_slugs)
+
+    def test_returns_empty_when_nothing_connected(self):
+        svc, _ = _service_with_mock([])
+        assert svc.get_tools("user-2") == []
+
+    def test_returns_empty_for_unconnected_toolkit_filter(self):
+        svc, _ = _service_with_mock(["gmail"])
+        result = svc.get_tools("user-3", toolkits=["notion"])
+        assert result == []
+
+    def test_schema_has_expected_openai_shape(self):
+        svc, mock_client = _service_with_mock(["gmail"])
+        # Return a properly shaped OpenAI dict
+        mock_client.tools.get.return_value = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "GMAIL_FETCH_EMAILS",
+                    "description": "Fetch emails",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ]
+        tools = svc.get_tools("user-1")
+        assert len(tools) == 1
+        tool = tools[0]
+        assert tool["type"] == "function"
+        assert "function" in tool
+        assert "name" in tool["function"]
+
+
+# ---------------------------------------------------------------------------
+# execute()
+# ---------------------------------------------------------------------------
+
+
+class TestExecute:
+    def test_execute_allowed_action(self):
+        svc, mock_client = _service_with_mock(["gmail"])
+        result = svc.execute("user-1", "GMAIL_FETCH_EMAILS", {"max_results": 5})
+        mock_client.tools.execute.assert_called_once_with(
+            slug="GMAIL_FETCH_EMAILS",
+            arguments={"max_results": 5},
+            user_id="user-1",
+            dangerously_skip_version_check=True,
+        )
+        assert result["successful"] is True
+
+    def test_execute_disallowed_action_raises(self):
+        svc, _ = _service_with_mock(["gmail"])
+        with pytest.raises(ValueError, match="allow-list"):
+            svc.execute("user-1", "GMAIL_UNKNOWN_ACTION_XYZ", {})
+
+    def test_execute_returns_dict(self):
+        svc, mock_client = _service_with_mock(["gmail"])
+        mock_client.tools.execute.return_value = {
+            "data": {"emails": []},
+            "error": None,
+            "successful": True,
+        }
+        result = svc.execute("user-1", "GMAIL_FETCH_EMAILS", {})
+        assert isinstance(result, dict)
+
+    def test_execute_pydantic_result_converted(self):
+        """If the SDK returns a Pydantic model, service converts it to dict."""
+        from pydantic import BaseModel
+
+        class FakeResult(BaseModel):
+            data: dict = {}
+            error: str | None = None
+            successful: bool = True
+
+        svc, mock_client = _service_with_mock(["gmail"])
+        mock_client.tools.execute.return_value = FakeResult()
+        result = svc.execute("user-1", "GMAIL_FETCH_EMAILS", {})
+        assert isinstance(result, dict)
+        assert result["successful"] is True
+
+    def test_execute_high_risk_action_still_works(self):
+        """Risk level is informational only — execute() doesn't block high risk."""
+        svc, mock_client = _service_with_mock(["gmail"])
+        result = svc.execute(
+            "user-1", "GMAIL_SEND_EMAIL", {"to": "x@y.com", "subject": "hi", "body": "hello"}
+        )
+        assert mock_client.tools.execute.called
+        assert result["successful"] is True
+
+
+# ---------------------------------------------------------------------------
+# Optional live smoke test (skipped when COMPOSIO_API_KEY not set)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    not os.getenv("COMPOSIO_API_KEY"),
+    reason="COMPOSIO_API_KEY not set — skipping live smoke test",
+)
+def test_live_list_connected_and_toolkits():
+    """Live smoke test: verifies that the SDK can hit the Composio API.
+
+    Creates a real Composio client and calls list_connected() for a
+    sentinel user ID.  The call is expected to succeed (returning an empty
+    list for a user with no connections) without raising.  Also asserts that
+    toolkits.list() returns at least one toolkit so we know the key is valid.
+    """
+    from composio import Composio
+
+    key = os.environ["COMPOSIO_API_KEY"]
+    client = Composio(api_key=key)
+
+    # list_connected for a non-existent user should return empty, not raise
+    svc = ComposioService(api_key=key)
+    connected = svc.list_connected("smoke-test-user-does-not-exist")
+    assert isinstance(connected, list)
+
+    # toolkits.list() should return at least one item
+    response = client.toolkits.list()
+    items = getattr(response, "items", [])
+    assert len(items) > 0, "Expected at least one toolkit from the Composio API"
