@@ -115,12 +115,23 @@
     }
   }
 
-  .equalizer-bar {
-    animation: eq 1.1s ease-in-out infinite;
-    transform-origin: center bottom;
+  /* Hero audio waveform: thin vertical bars whose heights ripple. Each bar is
+     a full-height track scaled vertically; --peak sets how tall it grows. */
+  .waveform-bar {
+    height: 100%;
+    transform: scaleY(0.18);
+    transform-origin: center;
+    animation: waveform 1.25s ease-in-out infinite;
   }
-  @keyframes eq {
-    0%, 100% { transform: scaleY(0.35); }
-    50% { transform: scaleY(1); }
+  @keyframes waveform {
+    0%, 100% { transform: scaleY(0.18); }
+    50% { transform: scaleY(var(--peak, 0.7)); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .waveform-bar {
+      animation: none;
+      transform: scaleY(calc(var(--peak, 0.7) * 0.6));
+    }
   }
 }

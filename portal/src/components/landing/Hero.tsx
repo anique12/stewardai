@@ -3,7 +3,14 @@ import { ArrowRight, Check } from "lucide-react";
 import { Container } from "./primitives";
 import { VoiceDemoDialog } from "./VoiceDemoDialog";
 
-const BARS = [0.4, 0.7, 0.35, 0.9, 0.55, 1, 0.45, 0.8, 0.3, 0.65, 0.5, 0.85, 0.4, 0.75, 0.35];
+// Per-bar peak heights for the hero waveform. A dense row of thin vertical
+// bars whose heights animate on a staggered loop so it ripples like a live
+// voice spectrum. Values are the max scaleY each bar reaches.
+const BARS = [
+  0.45, 0.7, 0.55, 0.9, 0.4, 0.65, 1, 0.5, 0.8, 0.35, 0.6, 0.95, 0.45, 0.75,
+  0.55, 0.85, 0.4, 0.7, 0.5, 0.9, 0.6, 0.45, 0.8, 0.35, 0.65, 1, 0.5, 0.75,
+  0.4, 0.6, 0.85, 0.45, 0.7, 0.55, 0.95, 0.4, 0.65, 0.5, 0.8, 0.45,
+];
 
 export function Hero() {
   return (
@@ -91,13 +98,16 @@ export function Hero() {
                     <span className="text-foreground">Yes — I&apos;ll own it and have a PR up by Thursday.</span>
                   </p>
                 </div>
-                {/* Waveform */}
-                <div className="mt-6 flex h-10 items-end gap-1" aria-hidden>
+                {/* Waveform — dense row of thin vertical bars that ripple */}
+                <div className="mt-6 flex h-10 items-center justify-between gap-[3px]" aria-hidden>
                   {BARS.map((h, i) => (
                     <span
                       key={i}
-                      className="equalizer-bar w-full rounded-full bg-primary/70"
-                      style={{ height: `${h * 100}%`, animationDelay: `${i * 0.07}s` }}
+                      className="waveform-bar w-[2px] flex-1 rounded-full bg-primary/70"
+                      style={{
+                        ["--peak" as string]: h,
+                        animationDelay: `${(i % 8) * 0.09}s`,
+                      }}
                     />
                   ))}
                 </div>
