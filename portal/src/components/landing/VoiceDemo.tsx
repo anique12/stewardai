@@ -204,29 +204,19 @@ class PCMPlayer {
   }
 }
 
-// Audio-reactive voice orb, rendered as a glowing, flowing RING (LiveKit-style
-// audio visualizer) on a <canvas> off requestAnimationFrame. It is hollow — the
-// dark page/modal background shows through the center.
+// Audio-reactive voice orb — the proven three-ring visualizer ported verbatim
+// from the backend /pipeline page (web/static/pipeline.html `drawOrb`). Three
+// undulating closed rings (teal / blue / violet) are stroked with additive
+// ("lighter") blending and a soft shadow glow, so the light adds up into a
+// hollow, flowing orb; the dark modal background shows through the center.
 //
-// How it's drawn:
-//   - The ring's edge is an organic, wavy closed curve: its radius varies
-//     around the circumference as the sum of a few low-frequency sine terms at
-//     different phases/speeds, so it undulates like liquid rather than a perfect
-//     circle. The waviness slowly rotates over time.
-//   - Color flows around the band via a createConicGradient centered on the orb
-//     (teal -> cyan -> blue -> a touch of violet, teal-forward), and the
-//     gradient slowly rotates so the hue sweeps around the ring.
-//   - Luminosity comes from layering strokes of the same wavy path: a wide,
-//     heavily shadowBlur'd pass for the outer/inner glow plus a narrow, bright
-//     core pass, all drawn with globalCompositeOperation = "lighter" so the
-//     light adds up.
-//
-// Audio drives it: louder input -> larger wobble amplitude + slightly larger
-// radius + brighter glow + a touch faster rotation. Quiet/idle is a calm, slow
-// breathing undulation. The live level (agent playback when speaking, mic RMS
-// otherwise) is eased so there's no jitter. `active` dims/calms the whole ring
-// for idle/connecting/ended. Speaking nudges the palette warmer/brighter and
-// reverses the gradient drift. Respects prefers-reduced-motion.
+// Each ring's radius at angle `a` is the base radius plus two sine terms at
+// wave-counts 3 and 5, animated by a shared clock `animT` at the layer's speed
+// and phase offset. Louder audio raises the wobble amplitude `amp`; `active`
+// dims the whole orb when idle. The live level (agent playback when speaking,
+// mic RMS otherwise) is eased with a 0.06 factor and `animT` advances 0.015/frame
+// — exactly matching the source constants. Respects prefers-reduced-motion by
+// slowing the clock and damping the audio swell, keeping the same three rings.
 function VoiceOrb({
   micLevelRef,
   playerRef,
@@ -247,158 +237,97 @@ function VoiceOrb({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    const g = canvas.getContext("2d");
+    if (!g) return;
 
     const reduced =
       typeof window !== "undefined" &&
       window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
-    // Conic gradient color stops: teal-forward, shimmering through cyan -> blue
-    // with a hint of violet, then back to teal so it wraps seamlessly. `warm`
-    // (0..1) nudges the whole sweep brighter/lighter when the agent speaks.
-    const gradientStops = (warm: number) => {
-      const L = (base: number) => `${Math.round(base + warm * 8)}%`;
-      return [
-        [0.0, `hsl(168, 80%, ${L(58)})`], // teal
-        [0.22, `hsl(184, 85%, ${L(60)})`], // cyan
-        [0.46, `hsl(205, 82%, ${L(58)})`], // blue
-        [0.64, `hsl(255, 70%, ${L(64)})`], // hint of violet/indigo
-        [0.82, `hsl(190, 84%, ${L(60)})`], // back through cyan
-        [1.0, `hsl(168, 80%, ${L(58)})`], // teal (seamless wrap)
-      ] as const;
-    };
+    // The three additive rings — ported verbatim from pipeline.html.
+    const LAYERS = [
+      { color: "#22d3ee", off: 0, speed: 0.8 },
+      { color: "#3b82f6", off: 2.1, speed: -1.0 },
+      { color: "#a855f7", off: 4.2, speed: 0.6 },
+    ] as const;
 
     let raf = 0;
-    let smooth = 0; // smoothed audio level [0,1]
-    let warmMix = 0; // 0 = listening, 1 = speaking (eased)
-    let liveMix = active ? 1 : 0; // 0 = calm idle, 1 = engaged (eased)
-    let t = 0; // animation clock
-    let spin = 0; // accumulated gradient rotation (drifts, audio-reactive)
+    let animT = 0; // animation clock (advances 0.015/frame, as in source)
+    let smoothLevel = 0; // eased audio level [0,1] (0.06 smoothing, as in source)
+
+    // Drawing dimensions in CSS-pixel space. DPR is applied via ctx transform so
+    // `base = min(w,h)*0.26` stays in the source's coordinate space while the
+    // backing store is scaled for crisp retina rendering.
+    let w = 0;
+    let h = 0;
 
     const resize = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const rect = canvas.getBoundingClientRect();
-      canvas.width = Math.max(1, Math.round(rect.width * dpr));
-      canvas.height = Math.max(1, Math.round(rect.height * dpr));
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      w = rect.width;
+      h = rect.height;
+      canvas.width = Math.max(1, Math.round(w * dpr));
+      canvas.height = Math.max(1, Math.round(h * dpr));
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
     resize();
     window.addEventListener("resize", resize);
 
-    // Build the wavy closed path for the ring's centre-line. The radius at each
-    // angle is the base radius plus a few low-frequency sine terms (different
-    // wave counts, phases, speeds) scaled by the wobble amplitude.
-    const traceRing = (
-      cx: number,
-      cy: number,
-      baseR: number,
-      amp: number,
-    ) => {
-      const STEPS = 120;
-      ctx.beginPath();
-      for (let i = 0; i <= STEPS; i++) {
-        const a = (i / STEPS) * Math.PI * 2;
-        const wobble =
-          Math.sin(a * 3 + t * 0.9) * 0.6 +
-          Math.sin(a * 5 - t * 0.6 + 1.7) * 0.3 +
-          Math.sin(a * 2 + t * 0.4 + 3.1) * 0.5;
-        const r = baseR * (1 + amp * wobble);
-        const x = cx + Math.cos(a) * r;
-        const y = cy + Math.sin(a) * r;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.closePath();
-    };
-
-    const render = () => {
-      const rect = canvas.getBoundingClientRect();
-      const w = rect.width;
-      const h = rect.height;
+    // Faithful reproduction of drawOrb(level) — three undulating rings, additive
+    // glow. `level` is the smoothed 0..1 audio level. Coordinates are CSS pixels.
+    const drawOrb = (level: number) => {
       const cx = w / 2;
       const cy = h / 2;
-      ctx.clearRect(0, 0, w, h);
-
+      const active = activeRef.current;
       const speaking = modeRef.current === "speaking";
-      const isActive = activeRef.current;
+      g.clearRect(0, 0, w, h);
+      const base = Math.min(w, h) * 0.26;
+      const amp = base * 0.09 + level * base * 0.32;
+      g.globalCompositeOperation = "lighter";
+      for (const L of LAYERS) {
+        g.beginPath();
+        for (let a = 0; a <= Math.PI * 2 + 0.02; a += 0.04) {
+          const r =
+            base +
+            Math.sin(a * 3 + animT * L.speed + L.off) * amp +
+            Math.sin(a * 5 - animT * L.speed * 0.7 + L.off) * amp * 0.5;
+          const x = cx + Math.cos(a) * r;
+          const y = cy + Math.sin(a) * r;
+          if (a === 0) g.moveTo(x, y);
+          else g.lineTo(x, y);
+        }
+        g.closePath();
+        g.strokeStyle = L.color;
+        g.lineWidth = 3;
+        g.shadowColor = L.color;
+        g.shadowBlur = 22;
+        // dimmer when idle; a touch brighter when the agent is speaking
+        g.globalAlpha = active ? (speaking ? 0.85 : 0.78) : 0.4;
+        g.stroke();
+      }
+      g.globalAlpha = 1;
+      g.shadowBlur = 0;
+      g.globalCompositeOperation = "source-over";
+    };
+
+    const loop = () => {
+      // Reduced motion: nearly-freeze the clock and damp the audio contribution,
+      // keeping the same three-ring visual.
+      animT += reduced ? 0.003 : 0.015;
+      const active = activeRef.current;
+      const speaking = modeRef.current === "speaking";
       const agent = playerRef.current?.level() ?? 0;
       const mic = micLevelRef.current ?? 0;
-      // Decay the captured mic peak so quiet settles smoothly.
-      micLevelRef.current = mic * 0.88;
-      const raw = isActive ? (speaking ? Math.max(agent, mic * 0.5) : mic) : 0;
-      // RMS is small; amplify, clamp, then ease hard so the ring swells gently.
-      const target = Math.min(1, raw * 4.2);
-      smooth += (target - smooth) * 0.12;
-      warmMix += ((speaking ? 1 : 0) - warmMix) * 0.05;
-      liveMix += ((isActive ? 1 : 0) - liveMix) * 0.05;
-
-      t += reduced ? 0.004 : 0.012;
-
-      // Energy = a slow breathing floor + the smoothed audio swell, damped down
-      // in the calm idle state (and further when reduced-motion is set).
-      const breathe = 0.5 + 0.5 * Math.sin(t * 0.8);
-      const idleFloor = 0.06 + 0.05 * breathe;
-      const swell = (reduced ? smooth * 0.25 : smooth) * (reduced ? 0.5 : 1);
-      const energy = (idleFloor + swell) * (0.45 + 0.55 * liveMix);
-
-      // Gradient drift: always rotating slowly; faster with energy. Speaking
-      // reverses the direction so listen/speak feel subtly different.
-      const dir = warmMix > 0.5 ? -1 : 1;
-      spin += dir * (reduced ? 0.001 : 0.0035 + energy * 0.012);
-
-      // Geometry. The ring radius grows a little with energy; wobble amplitude
-      // grows more, so loud input makes the edge visibly more liquid. Leave room
-      // for the outer glow inside the canvas.
-      const maxR = Math.min(w, h) / 2;
-      const baseR = maxR * (0.5 + energy * 0.06);
-      const amp = (0.04 + energy * 0.13) * (0.4 + 0.6 * liveMix);
-
-      // Flowing conic gradient centered on the orb; rotated by `spin`.
-      const grad = ctx.createConicGradient(spin, cx, cy);
-      for (const [stop, color] of gradientStops(warmMix)) {
-        grad.addColorStop(stop, color);
-      }
-
-      ctx.save();
-      ctx.globalCompositeOperation = "lighter";
-      ctx.lineJoin = "round";
-      ctx.lineCap = "round";
-
-      const glow = 0.55 + 0.45 * liveMix; // overall luminance, dimmer when idle
-      const bandW = maxR * (0.05 + energy * 0.03); // base band thickness
-
-      // 1) Wide, heavily-blurred glow pass — soft light bleeding in/out.
-      traceRing(cx, cy, baseR, amp);
-      ctx.strokeStyle = grad;
-      ctx.shadowColor = `hsla(186, 90%, 62%, ${(0.5 + energy * 0.4) * glow})`;
-      ctx.shadowBlur = (22 + energy * 40) * (0.6 + 0.4 * liveMix);
-      ctx.globalAlpha = (0.28 + energy * 0.25) * glow;
-      ctx.lineWidth = bandW * 2.6;
-      ctx.stroke();
-
-      // 2) Mid pass — fills the band with the flowing color, moderate glow.
-      traceRing(cx, cy, baseR, amp);
-      ctx.strokeStyle = grad;
-      ctx.shadowBlur = (10 + energy * 16) * (0.6 + 0.4 * liveMix);
-      ctx.globalAlpha = (0.55 + energy * 0.25) * glow;
-      ctx.lineWidth = bandW * 1.3;
-      ctx.stroke();
-
-      // 3) Narrow bright core — a crisp luminous line along the band.
-      traceRing(cx, cy, baseR, amp);
-      ctx.strokeStyle = `hsla(190, 100%, ${82 + warmMix * 8}%, ${(0.6 + energy * 0.35) * glow})`;
-      ctx.shadowColor = `hsla(186, 100%, 75%, ${0.6 * glow})`;
-      ctx.shadowBlur = 6 + energy * 8;
-      ctx.globalAlpha = (0.7 + energy * 0.3) * glow;
-      ctx.lineWidth = Math.max(1, bandW * 0.4);
-      ctx.stroke();
-
-      ctx.restore();
-
-      raf = requestAnimationFrame(render);
+      // Decay the captured mic peak so quiet settles smoothly (source: micLevel *= 0.9).
+      micLevelRef.current = mic * 0.9;
+      const live = speaking ? Math.max(agent, mic) : Math.max(mic, agent);
+      let target = active ? live : 0;
+      if (reduced) target *= 0.35; // damp swell amplitude under reduced motion
+      smoothLevel += (target - smoothLevel) * 0.06;
+      drawOrb(smoothLevel);
+      raf = requestAnimationFrame(loop);
     };
-    raf = requestAnimationFrame(render);
+    raf = requestAnimationFrame(loop);
 
     return () => {
       cancelAnimationFrame(raf);
