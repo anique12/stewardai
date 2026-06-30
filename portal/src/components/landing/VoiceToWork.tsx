@@ -35,7 +35,6 @@ type Turn = { speaker: string; line: string };
 // A meeting scenario: a short multi-speaker transcript snippet → a summary
 // header → 3 integrations the agent runs in parallel (staggered completion).
 type Snippet = {
-  speaker: string; // primary "active speaker" for the live capture label
   turns: Turn[]; // multi-speaker transcript, streamed in order
   summary: string; // header, e.g. "Sync with Priya — 3 follow-ups"
   rows: [IntegrationRow, IntegrationRow, IntegrationRow];
@@ -43,7 +42,6 @@ type Snippet = {
 
 const SNIPPETS: Snippet[] = [
   {
-    speaker: "Anique",
     turns: [
       { speaker: "Anique", line: "Good sync — let's lock the next steps." },
       { speaker: "Priya", line: "Sounds good. Friday afternoon works for me." },
@@ -77,7 +75,6 @@ const SNIPPETS: Snippet[] = [
     ],
   },
   {
-    speaker: "Dev",
     turns: [
       { speaker: "Dev", line: "Heads up — the launch is slipping a week." },
       { speaker: "Maya", line: "Okay. Design needs to know before they ship copy." },
@@ -120,6 +117,37 @@ const INTEGRATION_META: Record<
   gmail: { Icon: GmailIcon },
   notion: { Icon: NotionIcon },
 };
+
+// Per-speaker accent palette. Speakers are differentiated by ORDER of first
+// appearance: the first speaker gets the brand accent, the second the sky tone.
+// The Voice panel and the Transcript both resolve color through this so they
+// always agree visually.
+type SpeakerStyle = { text: string; ring: string; chipBg: string; bar: string };
+const SPEAKER_STYLES: SpeakerStyle[] = [
+  {
+    text: "text-primary",
+    ring: "ring-primary",
+    chipBg: "bg-primary/15 text-primary",
+    bar: "bg-primary/70",
+  },
+  {
+    text: "text-sky-400",
+    ring: "ring-sky-400",
+    chipBg: "bg-sky-400/15 text-sky-400",
+    bar: "bg-sky-400/70",
+  },
+];
+
+// The ordered, de-duplicated list of speakers in a snippet (first-appearance
+// order), each paired with its style. Two per scenario in practice.
+function speakersOf(snippet: Snippet): { name: string; style: SpeakerStyle }[] {
+  const seen: string[] = [];
+  for (const t of snippet.turns) if (!seen.includes(t.speaker)) seen.push(t.speaker);
+  return seen.map((name, i) => ({
+    name,
+    style: SPEAKER_STYLES[i % SPEAKER_STYLES.length],
+  }));
+}
 
 // ---------------------------------------------------------------------------
 // Timeline state machine
@@ -252,6 +280,26 @@ function Stage({
   const workShown = reduced || phase === "work" || phase === "hold";
   const transcriptFull = reduced || phase === "work" || phase === "hold";
 
+  // Single source of truth for turn streaming. Both the Voice panel (active
+  // speaker / highlight) and the Transcript panel read from this, so the
+  // highlighted speaker can never desync from the streaming transcript line.
+  const stream = useStreamedTurns(
+    snippet.turns,
+    phase === "typing",
+    transcriptFull,
+  );
+
+  // The turn currently being spoken/streamed. During "typing" it's the
+  // in-flight turn; once full (work/hold/reduced) it rests on the LAST turn,
+  // matching the transcript's resting state. Before any turn is shown (the
+  // brief "voice" warm-up) it's the first turn — the conversation's opener.
+  const activeTurnIdx = transcriptFull
+    ? snippet.turns.length - 1
+    : stream.partial.length > 0
+      ? stream.visible
+      : Math.max(0, stream.visible - 1);
+  const activeSpeaker = snippet.turns[activeTurnIdx]?.speaker;
+
   return (
     <div className="card-ring overflow-hidden rounded-2xl shadow-2xl shadow-black/40">
       {/* Window chrome — matches the live-session panel elsewhere on the page. */}
@@ -278,6 +326,7 @@ function Stage({
             snippet={snippet}
             active={voiceActive}
             reduced={reduced}
+            activeSpeaker={activeSpeaker}
           />
           <Flow />
         </StageCell>
@@ -287,7 +336,7 @@ function Stage({
           <TranscriptPanel
             snippet={snippet}
             shown={transcriptShown}
-            typing={phase === "typing"}
+            stream={stream}
             full={transcriptFull}
           />
           <Flow />
@@ -312,19 +361,27 @@ function Stage({
   );
 }
 
-// Live capture panel: a fuller animated waveform, a "● Listening" pulse, an
-// active-speaker label and a ticking elapsed timer — reads as a real capture.
+// Live capture panel: a fuller animated waveform, a "● Listening" pulse, a
+// ticking elapsed timer, and a multi-speaker participants list whose highlight
+// tracks WHO is currently speaking. `activeSpeaker` is derived from the same
+// streamed-turn state that drives the transcript, so the two never desync.
 function VoicePanel({
   snippet,
   active,
   reduced,
+  activeSpeaker,
 }: {
   snippet: Snippet;
   active: boolean;
   reduced: boolean;
+  activeSpeaker?: string;
 }) {
   const live = active || reduced;
   const elapsed = useElapsed(active, reduced);
+  const speakers = speakersOf(snippet);
+  const current =
+    speakers.find((s) => s.name === activeSpeaker) ?? speakers[0];
+  const currentStyle = current?.style ?? SPEAKER_STYLES[0];
 
   return (
     <div className="flex h-full flex-col">
@@ -333,7 +390,7 @@ function VoicePanel({
         <span className="inline-flex items-center gap-1.5 text-xs">
           <span
             className={`h-1.5 w-1.5 rounded-full bg-destructive ${
-              live ? "animate-pulse" : "opacity-50"
+              live && !reduced ? "animate-pulse" : live ? "" : "opacity-50"
             }`}
             aria-hidden
           />
@@ -346,19 +403,21 @@ function VoicePanel({
         </span>
       </div>
 
-      {/* Tall, full-width waveform fills the column body. */}
+      {/* Tall, full-width waveform fills the column body — tinted to whoever is
+          currently speaking so it reads as that speaker's voice. */}
       <div className="flex flex-1 items-center" aria-hidden>
-        <div className="flex h-24 w-full items-center justify-between gap-[2px]">
+        <div className="flex h-20 w-full items-center justify-between gap-[2px]">
           {BARS.map((h, i) => (
             <span
               key={i}
-              className="waveform-bar w-[2px] flex-1 rounded-full bg-primary/70"
+              className={`waveform-bar w-[2px] flex-1 rounded-full transition-colors duration-300 ${currentStyle.bar}`}
               style={{
                 ["--peak" as string]: h,
                 animationDelay: `${(i % 8) * 0.09}s`,
                 // Idle between speaking phases so the active pulse reads as
-                // live speech rather than a constant loop.
-                animationPlayState: live ? "running" : "paused",
+                // live speech rather than a constant loop; fully static under
+                // reduced motion.
+                animationPlayState: live && !reduced ? "running" : "paused",
                 opacity: live ? 1 : 0.35,
               }}
             />
@@ -366,15 +425,42 @@ function VoicePanel({
         </div>
       </div>
 
-      {/* Active-speaker chip. */}
-      <div className="flex items-center gap-2">
-        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
-          {snippet.speaker.slice(0, 1)}
-        </span>
-        <span className="min-w-0 truncate text-xs text-muted-foreground">
-          <span className="text-foreground">{snippet.speaker}</span> speaking
-        </span>
-      </div>
+      {/* Participants: the two speakers in this scenario. The one currently
+          speaking gets an accent ring + a small pulse and brighter label; the
+          other is dimmed. The highlight moves as the active turn changes.
+          Fixed footprint (reserves room for both rows) so column height holds. */}
+      <ul className="flex flex-col gap-1.5">
+        {speakers.map(({ name, style }) => {
+          const isActive = name === current?.name;
+          return (
+            <li key={name} className="flex min-w-0 items-center gap-2">
+              <span
+                className={`relative grid h-6 w-6 shrink-0 place-items-center rounded-full text-[10px] font-semibold transition-all duration-300 ${
+                  style.chipBg
+                } ${isActive ? `ring-2 ${style.ring}` : "opacity-50"}`}
+              >
+                {name.slice(0, 1)}
+                {isActive && live && !reduced && (
+                  <span
+                    className={`absolute inset-0 animate-ping rounded-full ring-2 ${style.ring} opacity-40`}
+                    aria-hidden
+                  />
+                )}
+              </span>
+              <span
+                className={`min-w-0 truncate text-xs transition-colors duration-300 ${
+                  isActive ? "text-foreground" : "text-muted-foreground/60"
+                }`}
+              >
+                <span className={isActive ? style.text : ""}>{name}</span>
+                {isActive && (
+                  <span className="text-muted-foreground"> speaking</span>
+                )}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
@@ -384,17 +470,20 @@ function VoicePanel({
 function TranscriptPanel({
   snippet,
   shown,
-  typing,
+  stream,
   full,
 }: {
   snippet: Snippet;
   shown: boolean;
-  typing: boolean;
+  stream: { visible: number; partial: string };
   full: boolean;
 }) {
-  const { visible, partial } = useStreamedTurns(snippet.turns, typing, full);
-  // Primary speaker (first turn) gets the brand accent; the other is neutral.
-  const primary = snippet.turns[0]?.speaker;
+  const { visible, partial } = stream;
+  // Resolve each speaker's accent the same way the Voice panel does, so the
+  // two columns agree on which color belongs to which speaker.
+  const colorOf = (name: string): string =>
+    speakersOf(snippet).find((s) => s.name === name)?.style.text ??
+    SPEAKER_STYLES[0].text;
 
   return (
     <div
@@ -406,7 +495,6 @@ function TranscriptPanel({
         const isVisible = full || i < visible || (i === visible && partial.length > 0);
         const isPartial = !full && i === visible;
         const text = isPartial ? partial : turn.line;
-        const isPrimary = turn.speaker === primary;
         return (
           <p
             key={i}
@@ -414,11 +502,7 @@ function TranscriptPanel({
               isVisible ? "opacity-100" : "opacity-0"
             }`}
           >
-            <span
-              className={`mr-1.5 font-medium ${
-                isPrimary ? "text-primary" : "text-sky-400"
-              }`}
-            >
+            <span className={`mr-1.5 font-medium ${colorOf(turn.speaker)}`}>
               {turn.speaker}
             </span>
             <span className="text-foreground/90">
