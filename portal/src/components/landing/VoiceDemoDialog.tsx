@@ -5,8 +5,6 @@ import { Mic } from "lucide-react";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { VoiceDemo } from "./VoiceDemo";
@@ -50,24 +48,12 @@ export function VoiceDemoDialog({
       </button>
 
       <DialogContent className="max-w-md border-border bg-card sm:rounded-2xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-foreground">
-            <span className="grid h-8 w-8 place-items-center rounded-lg bg-primary/15 text-primary">
-              <Mic className="h-4 w-4" aria-hidden />
-            </span>
-            Talk to Steward
-          </DialogTitle>
-          <DialogDescription>
-            A live, in-browser voice agent — built on the same real-time pipeline
-            you can ship. Mic required, ~60-second session.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="rounded-xl border border-border bg-background/60 p-6">
+        {/* Title kept for screen readers / Radix a11y, hidden visually so the
+            orb is the sole focus. */}
+        <DialogTitle className="sr-only">Talk to Steward</DialogTitle>
+        <div className="px-2 py-6">
           {open ? <VoiceDemo /> : null}
         </div>
-        <p className="text-center text-xs text-muted-foreground">
-          Sub-second turn-taking · barge-in · streaming STT &amp; TTS
-        </p>
       </DialogContent>
     </Dialog>
   );

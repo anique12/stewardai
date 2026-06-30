@@ -204,13 +204,12 @@ class PCMPlayer {
   }
 }
 
-// Audio-reactive waveform: a row of thin vertical bars whose heights track the
-// live audio level (agent playback when speaking, mic otherwise). Driven by
-// requestAnimationFrame off the AnalyserNode / mic RMS so it reacts in real
-// time. Respects prefers-reduced-motion by rendering a calm static baseline.
-const BAR_COUNT = 28;
-
-function LiveWaveform({
+// Audio-reactive orb: a glowing teal sphere whose scale, glow and surface
+// shimmer are driven in real time by the live audio level (agent playback when
+// speaking, mic RMS otherwise). Rendered to a <canvas> via layered radial
+// gradients off requestAnimationFrame. Listening vs speaking shifts the hue a
+// touch. Respects prefers-reduced-motion with a calm, near-static breathe.
+function VoiceOrb({
   micLevelRef,
   playerRef,
   mode,
@@ -233,12 +232,14 @@ function LiveWaveform({
       typeof window !== "undefined" &&
       window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
-    const teal = "rgba(20, 184, 166, 0.85)";
-    const tealDim = "rgba(20, 184, 166, 0.30)";
+    // Brand teal, plus a brighter cyan-ish highlight for "speaking".
+    const listen = { h: 173, s: 80 }; // teal
+    const speak = { h: 187, s: 85 }; // shifts toward cyan when the agent talks
+
     let raf = 0;
-    let smooth = 0;
-    // Per-bar phase so the spectrum looks lively rather than a flat block.
-    const phase = Array.from({ length: BAR_COUNT }, (_, i) => i * 0.55);
+    let smooth = 0; // smoothed audio level [0,1]
+    let hueMix = 0; // 0 = listening, 1 = speaking (eased)
+    let t = 0;
 
     const resize = () => {
       const dpr = window.devicePixelRatio || 1;
@@ -250,48 +251,72 @@ function LiveWaveform({
     resize();
     window.addEventListener("resize", resize);
 
-    let t = 0;
     const render = () => {
       const rect = canvas.getBoundingClientRect();
       const w = rect.width;
       const h = rect.height;
+      const cx = w / 2;
+      const cy = h / 2;
       ctx.clearRect(0, 0, w, h);
 
+      const speaking = modeRef.current === "speaking";
       const agent = playerRef.current?.level() ?? 0;
       const mic = micLevelRef.current ?? 0;
       // Decay the captured mic peak so quiet settles smoothly.
       micLevelRef.current = mic * 0.86;
-      const raw = modeRef.current === "speaking" ? Math.max(agent, mic * 0.5) : mic;
+      const raw = speaking ? Math.max(agent, mic * 0.5) : mic;
       // Normalise: RMS is small, so amplify and clamp.
       const target = Math.min(1, raw * 4.5);
-      smooth += (target - smooth) * 0.2;
+      smooth += (target - smooth) * 0.18;
+      hueMix += ((speaking ? 1 : 0) - hueMix) * 0.06;
 
-      t += 0.08;
-      const gap = 3;
-      const barW = Math.max(2, (w - gap * (BAR_COUNT - 1)) / BAR_COUNT);
-      const radius = barW / 2;
+      t += reduced ? 0.012 : 0.03;
 
-      for (let i = 0; i < BAR_COUNT; i++) {
-        // Bell-ish envelope: center bars taller, plus per-bar shimmer.
-        const center = 1 - Math.abs(i - (BAR_COUNT - 1) / 2) / ((BAR_COUNT - 1) / 2);
-        const env = 0.45 + 0.55 * center;
-        const shimmer = reduced ? 0.5 : 0.5 + 0.5 * Math.sin(t + phase[i]);
-        const idle = 0.08 + 0.05 * shimmer;
-        const active = smooth * env * (0.55 + 0.45 * shimmer);
-        const level = reduced ? Math.max(idle, smooth * env * 0.5) : Math.max(idle, active);
+      // Calm breathing baseline + audio-driven swell.
+      const breathe = reduced ? 0.5 + 0.5 * Math.sin(t) : 0.5 + 0.5 * Math.sin(t);
+      const idle = 0.06 + 0.04 * breathe;
+      const energy = reduced ? idle * 0.6 + smooth * 0.15 : Math.max(idle, smooth);
 
-        const barH = Math.max(barW, level * h);
-        const x = i * (barW + gap);
-        const y = (h - barH) / 2;
-        ctx.fillStyle = level > 0.14 ? teal : tealDim;
-        if (typeof ctx.roundRect === "function") {
-          ctx.beginPath();
-          ctx.roundRect(x, y, barW, barH, radius);
-          ctx.fill();
-        } else {
-          ctx.fillRect(x, y, barW, barH);
-        }
-      }
+      const hue = listen.h + (speak.h - listen.h) * hueMix;
+      const sat = listen.s + (speak.s - listen.s) * hueMix;
+
+      // Geometry: base radius fills most of the canvas; swells with energy.
+      const maxR = Math.min(w, h) / 2;
+      const baseR = maxR * 0.42;
+      const coreR = baseR * (1 + energy * 0.28);
+      const auraR = Math.min(maxR, coreR * (1.75 + energy * 0.6));
+
+      // 1) Outer aura — soft glowing halo that brightens with energy.
+      const auraAlpha = 0.10 + energy * 0.45;
+      const aura = ctx.createRadialGradient(cx, cy, coreR * 0.6, cx, cy, auraR);
+      aura.addColorStop(0, `hsla(${hue}, ${sat}%, 60%, ${auraAlpha})`);
+      aura.addColorStop(0.5, `hsla(${hue}, ${sat}%, 55%, ${auraAlpha * 0.45})`);
+      aura.addColorStop(1, `hsla(${hue}, ${sat}%, 50%, 0)`);
+      ctx.fillStyle = aura;
+      ctx.fillRect(0, 0, w, h);
+
+      // 2) Core sphere — radial gradient with an off-centre highlight so it
+      // reads as a lit 3D ball rather than a flat disc.
+      const lx = cx - coreR * 0.32;
+      const ly = cy - coreR * 0.34;
+      const sphere = ctx.createRadialGradient(lx, ly, coreR * 0.1, cx, cy, coreR);
+      sphere.addColorStop(0, `hsla(${hue}, ${sat}%, ${78 + energy * 8}%, 0.98)`);
+      sphere.addColorStop(0.45, `hsla(${hue}, ${sat}%, 58%, 0.96)`);
+      sphere.addColorStop(0.85, `hsla(${hue + 6}, ${sat}%, 38%, 0.95)`);
+      sphere.addColorStop(1, `hsla(${hue + 10}, ${sat}%, 26%, 0.9)`);
+      ctx.beginPath();
+      ctx.arc(cx, cy, coreR, 0, Math.PI * 2);
+      ctx.fillStyle = sphere;
+      ctx.fill();
+
+      // 3) Specular highlight — a small bright bloom for liveliness.
+      const spec = ctx.createRadialGradient(lx, ly, 0, lx, ly, coreR * 0.7);
+      spec.addColorStop(0, `hsla(${hue}, 100%, 92%, ${0.35 + energy * 0.35})`);
+      spec.addColorStop(1, `hsla(${hue}, 100%, 92%, 0)`);
+      ctx.beginPath();
+      ctx.arc(cx, cy, coreR, 0, Math.PI * 2);
+      ctx.fillStyle = spec;
+      ctx.fill();
 
       raf = requestAnimationFrame(render);
     };
@@ -303,13 +328,7 @@ function LiveWaveform({
     };
   }, [micLevelRef, playerRef]);
 
-  return (
-    <canvas
-      ref={canvasRef}
-      className="h-12 w-full"
-      aria-hidden
-    />
-  );
+  return <canvas ref={canvasRef} className="h-56 w-56" aria-hidden />;
 }
 
 export function VoiceDemo() {
@@ -451,49 +470,35 @@ export function VoiceDemo() {
 
   if (state === "live") {
     const speaking = mode === "speaking";
+    // One short, muted caption under the orb — latest reply if the agent is
+    // speaking, otherwise the latest thing we heard. Not a transcript log.
+    const caption = speaking ? reply : transcript;
     return (
-      <div className="space-y-4 text-center">
-        <div className="flex items-center justify-between">
-          <span
-            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
-              speaking
-                ? "bg-primary/15 text-primary"
-                : "bg-secondary/60 text-muted-foreground"
-            }`}
-          >
-            <span
-              className={`h-1.5 w-1.5 rounded-full ${
-                speaking ? "bg-primary" : "animate-pulse bg-primary"
-              }`}
-              aria-hidden
-            />
-            {speaking ? "Steward speaking" : "Listening"}
-          </span>
-          <span className="font-mono text-xs text-muted-foreground">{timeLeft}s</span>
+      <div className="relative flex flex-col items-center">
+        {/* Countdown — small, tucked into the corner. */}
+        <span className="absolute right-0 top-0 font-mono text-xs tabular-nums text-muted-foreground/70">
+          {timeLeft}s
+        </span>
+
+        {/* The orb is the focus. */}
+        <div className="mt-2 grid place-items-center">
+          <VoiceOrb micLevelRef={micLevelRef} playerRef={playerRef} mode={mode} />
         </div>
 
-        {/* Live audio-reactive waveform */}
-        <LiveWaveform micLevelRef={micLevelRef} playerRef={playerRef} mode={mode} />
+        {/* De-emphasised state label. */}
+        <p className="mt-5 text-sm font-medium text-foreground/80">
+          {speaking ? "Steward is speaking" : "Listening…"}
+        </p>
 
-        <div className="min-h-[3.5rem] space-y-2 text-left">
-          {transcript && (
-            <p className="text-sm leading-snug text-muted-foreground">
-              <span className="font-medium text-foreground">You:</span> {transcript}
-            </p>
-          )}
-          {reply && (
-            <p className="text-sm leading-snug text-foreground">
-              <span className="font-medium text-primary">Steward:</span> {reply}
-            </p>
-          )}
-          {!transcript && !reply && (
-            <p className="text-sm text-muted-foreground">Say hello to get started&hellip;</p>
-          )}
-        </div>
+        {/* One subtle caption — short, muted, single line. */}
+        <p className="mt-1 h-5 max-w-[18rem] truncate text-center text-xs text-muted-foreground">
+          {caption}
+        </p>
 
+        {/* Quiet end-session affordance. */}
         <button
           onClick={endDemo}
-          className="w-full rounded-md border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          className="mt-6 text-xs text-muted-foreground/70 transition-colors hover:text-foreground"
         >
           End session
         </button>
