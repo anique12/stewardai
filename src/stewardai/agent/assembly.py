@@ -264,7 +264,14 @@ _MEETING_SYSTEM = (
 
 
 def build_meeting_agent(  # noqa: ANN001
-    settings=None, *, tracker=None, transcript=None, on_summarize=None, transcript_path=None
+    settings=None,
+    *,
+    tracker=None,
+    transcript=None,
+    on_summarize=None,
+    transcript_path=None,
+    live_tools=None,
+    user_id: str | None = None,
 ):
     """Agent that labels each finalized user turn with the active speaker and
     records it to ``transcript`` (a list[str]) for later summarization.
@@ -276,14 +283,26 @@ def build_meeting_agent(  # noqa: ANN001
 
     When ``transcript_path`` is set, each labeled turn is ALSO appended to that file
     as it arrives, so the full raw transcript is persisted turn-by-turn and survives
-    a stop/crash (the summary alone is not the transcript)."""
+    a stop/crash (the summary alone is not the transcript).
+
+    When ``live_tools`` is provided (a list of LiveKit FunctionTool callables built by
+    ``build_live_tool_functions``), they are registered on the agent so the LLM can
+    call Composio actions mid-meeting. The system prompt is extended with the
+    directed-only gate (tools only on explicit "Steward, ..." requests)."""
     from livekit.agents import Agent  # type: ignore
 
     from stewardai.agent.summary import append_transcript_line
 
+    # Extend system instructions with the tool-gate addendum when tools are available
+    instructions = _MEETING_SYSTEM
+    if live_tools:
+        from stewardai.agent.live_tools import TOOLS_SYSTEM_ADDENDUM
+        instructions = _MEETING_SYSTEM + TOOLS_SYSTEM_ADDENDUM
+
     class MeetingAgent(Agent):  # type: ignore[misc, valid-type]
         def __init__(self) -> None:
-            super().__init__(instructions=_MEETING_SYSTEM)
+            tools_arg = live_tools or []
+            super().__init__(instructions=instructions, tools=tools_arg)
             self._tracker = tracker
             self._transcript = transcript if transcript is not None else []
             self._on_summarize = on_summarize

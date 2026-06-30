@@ -90,6 +90,10 @@ class Settings(BaseSettings):
     # Vexa bot integration (Redis control channel + meeting identity)
     redis_url: str = "redis://localhost:6379"
     vexa_meeting_id: str | None = None
+    # Supabase user UUID for the meeting owner. Set from the meeting record when
+    # running a real meeting (VEXA_USER_ID env). Unset for the public /pipeline
+    # demo — Composio tools are disabled in that case (no user, no actions).
+    vexa_user_id: str | None = None
     vexa_platform: str = "google_meet"
     # rate the Vexa bot should paplay our PCM at; our pipeline is 16 kHz end-to-end (SAMPLE_RATE).
     playback_sample_rate: int = 16000
@@ -156,6 +160,10 @@ class Settings(BaseSettings):
     def composio_enabled(self) -> bool:
         """True when a Composio API key is configured."""
         return bool(self.composio_api_key)
+
+    # Supabase (service-role key for backend writes that bypass RLS)
+    supabase_url: str | None = None
+    supabase_service_role_key: str | None = None
 
     # Logging
     log_level: str = "info"

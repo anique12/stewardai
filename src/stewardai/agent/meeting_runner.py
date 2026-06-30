@@ -91,6 +91,46 @@ async def run_meeting(settings: Settings | None = None) -> None:
     # Build the LLM backend explicitly so we can warm its connection before the first
     # turn (the first Gemini call is ~5.8s cold vs ~0.56s warm — see llm.warmup).
     llm_backend = make_llm(s)
+
+    # Composio live tools (only when user_id + composio key are set)
+    _composio_service = None
+    _supabase_client = None
+    _actions_writer = None
+    _live_tools: list = []
+
+    if s.composio_enabled and s.vexa_user_id:
+        try:
+            from stewardai.agent.actions import AgentActionsWriter
+            from stewardai.agent.live_tools import build_live_tool_functions
+            from stewardai.integrations.composio_service import ComposioService
+            from stewardai.integrations.supabase_client import create_service_client
+
+            _composio_service = ComposioService()
+            _supabase_client = await create_service_client(s)
+            _actions_writer = AgentActionsWriter(
+                meeting_id=s.vexa_meeting_id or "unknown",
+                user_id=s.vexa_user_id,
+                client=_supabase_client,
+            )
+            _live_tools = build_live_tool_functions(
+                s.vexa_user_id,
+                s.vexa_meeting_id or "unknown",
+                _composio_service,
+                _actions_writer,
+            )
+            _log.info(
+                "composio_live_tools_ready",
+                user_id=s.vexa_user_id,
+                count=len(_live_tools),
+            )
+        except Exception as exc:
+            _log.warning(
+                "composio_live_tools_setup_failed",
+                error=str(exc),
+                note="meeting continues without live tools",
+            )
+            _live_tools = []
+
     # decide() needs the committed turn, not partials -> force preemptive off when gated.
     session = build_session(
         s, stt_backend=None, llm_backend=llm_backend, tts_backend=None, gated=True
@@ -116,6 +156,8 @@ async def run_meeting(settings: Settings | None = None) -> None:
         transcript=transcript,
         on_summarize=lambda: loop.create_task(_write_summary("command")),
         transcript_path=transcript_path,
+        live_tools=_live_tools or None,
+        user_id=s.vexa_user_id,
     )
     audio_in = _build_push_audio_input()()
     audio_out = QueueAudioOutput(label="vexa")
@@ -194,6 +236,22 @@ async def run_meeting(settings: Settings | None = None) -> None:
             # this may not complete under signal/async cancellation).
             with contextlib.suppress(Exception):
                 await _write_summary("shutdown")
+            # Post-meeting action extraction (best-effort, guarded)
+            if _composio_service is not None and s.vexa_user_id and _actions_writer is not None:
+                with contextlib.suppress(Exception):
+                    from stewardai.agent.actions import extract_post_meeting_actions
+                    await asyncio.wait_for(
+                        extract_post_meeting_actions(
+                            llm_backend,
+                            transcript,
+                            user_id=s.vexa_user_id,
+                            meeting_id=s.vexa_meeting_id or "unknown",
+                            composio_service=_composio_service,
+                            writer=_actions_writer,
+                        ),
+                        timeout=15.0,
+                    )
+                    _log.info("post_meeting_actions_extracted", meeting=s.vexa_meeting_id)
             with contextlib.suppress(Exception):
                 await session.aclose()
             with contextlib.suppress(Exception):
