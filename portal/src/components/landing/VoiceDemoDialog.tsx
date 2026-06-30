@@ -51,10 +51,12 @@ export function VoiceDemoDialog({
         {/* Title kept for screen readers / Radix a11y, hidden visually so the
             orb is the sole focus. */}
         <DialogTitle className="sr-only">Talk to Steward</DialogTitle>
-        {/* Faint radial wash behind the orb to seat it in the panel. */}
+        {/* Faint radial wash that seats the ring in the panel while keeping the
+            ring's dark hole clean: transparent at the center, a soft tint out
+            where the band sits, fading away past it. */}
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_38%,hsl(var(--primary)/0.10),transparent_62%)]"
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_42%,transparent_18%,hsl(var(--primary)/0.09)_40%,transparent_66%)]"
         />
         <div className="relative px-6 pb-8 pt-10">
           {open ? <VoiceDemo /> : null}
