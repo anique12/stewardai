@@ -10,6 +10,8 @@ a live audio loop (that needs a real meeting + the Vexa bridge).
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from stewardai.config import Settings
@@ -18,6 +20,24 @@ pytestmark = pytest.mark.heavy
 
 # Skip the whole module if the livekit extra is absent.
 pytest.importorskip("livekit.agents")
+
+
+@pytest.fixture(autouse=True)
+def _ensure_event_loop():
+    """Guarantee a current event loop for the synchronous build tests.
+
+    ``AgentSession.__init__`` calls ``asyncio.get_event_loop()``. Under
+    pytest-asyncio's ``auto`` mode an earlier async test closes its loop and
+    leaves the thread with no current loop, so a *sync* test that constructs an
+    ``AgentSession`` afterwards would otherwise raise ``RuntimeError: There is
+    no current event loop``. Install a fresh loop for these sync tests; the
+    behaviour is otherwise identical when a loop already exists.
+    """
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
+    yield
 
 
 def _stub_settings() -> Settings:

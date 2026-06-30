@@ -69,3 +69,30 @@ async def test_high_risk_tool_returns_confirm_string_no_execute():
     # Should NOT have executed
     svc.execute.assert_not_called()
     writer.insert.assert_not_called()
+
+
+async def test_low_risk_tool_failure_writes_failed_row():
+    """When a low-risk tool's execute raises, the function should return an
+    apologetic string and log a failed row with the error message."""
+    svc = _make_service({"GMAIL_FETCH_EMAILS": "low"})
+    # Override the default return_value with a side_effect so execute raises
+    svc.execute.side_effect = RuntimeError("boom")
+    writer = _make_writer()
+    tools = build_live_tool_functions("u1", "m1", svc, writer)
+    assert len(tools) == 1
+    tool = tools[0]
+    result = await tool._func()
+
+    # Result should be a non-empty apologetic string
+    assert isinstance(result, str)
+    assert len(result) > 0
+    assert "Sorry" in result or "couldn't" in result or "fetch emails" in result.lower()
+
+    # execute must have been attempted
+    svc.execute.assert_called_once()
+
+    # writer.insert must have been called with state="failed" and error containing "boom"
+    writer.insert.assert_called_once()
+    call_kwargs = writer.insert.call_args.kwargs
+    assert call_kwargs["state"] == "failed"
+    assert "boom" in call_kwargs["error"]
