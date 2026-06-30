@@ -1,7 +1,9 @@
 import { signDemoToken } from "@/lib/demo-token";
 import { NextRequest, NextResponse } from "next/server";
 
-// Simple in-memory per-IP rate limit: max 3 tokens/hour
+// Simple in-memory per-IP rate limit. Loosened for testing (each failed connect
+// attempt + retry burns a token); tighten before a public launch.
+const MAX_TOKENS_PER_HOUR = 60;
 const ipMap = new Map<string, { count: number; resetAt: number }>();
 
 function getRateLimitResult(ip: string): "ok" | "limited" {
@@ -12,7 +14,7 @@ function getRateLimitResult(ip: string): "ok" | "limited" {
     ipMap.set(ip, { count: 1, resetAt: now + hourMs });
     return "ok";
   }
-  if (entry.count >= 3) return "limited";
+  if (entry.count >= MAX_TOKENS_PER_HOUR) return "limited";
   entry.count += 1;
   return "ok";
 }
