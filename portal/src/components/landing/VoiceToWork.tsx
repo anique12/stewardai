@@ -13,24 +13,30 @@ import {
 // rippling animation defined in globals.css (same visual as the hero panel).
 const BARS = [
   0.45, 0.7, 0.55, 0.9, 0.4, 0.65, 1, 0.5, 0.8, 0.35, 0.6, 0.95, 0.45, 0.75,
-  0.55, 0.85, 0.4, 0.7, 0.5, 0.9, 0.6, 0.45, 0.8, 0.35,
+  0.55, 0.85, 0.4, 0.7, 0.5, 0.9, 0.6, 0.45, 0.8, 0.35, 0.7, 0.5, 0.85, 0.4,
 ];
 
 type Integration = "calendar" | "gmail" | "notion";
 
-// One integration the agent runs as part of working through a meeting.
+// One integration the agent runs as part of working through a meeting. Each
+// row also carries the moment (ms into the work phase) at which it flips from
+// "Processing…" to its done state — so the three complete at staggered times.
 type IntegrationRow = {
   integration: Integration;
   tool: string; // e.g. "Google Calendar"
-  task: string; // collapsed label, e.g. "Book follow-up, Friday 3pm"
+  task: string; // label, e.g. "Book follow-up, Friday 3pm"
   result: string; // done line, e.g. "Meeting booked · Fri 3:00 PM"
+  doneAt: number; // ms after the work phase begins
 };
 
-// A meeting scenario: a spoken line → a summary header → 3 integrations the
-// agent works through one at a time.
+// A single transcript turn from one of the meeting's speakers.
+type Turn = { speaker: string; line: string };
+
+// A meeting scenario: a short multi-speaker transcript snippet → a summary
+// header → 3 integrations the agent runs in parallel (staggered completion).
 type Snippet = {
-  speaker: string;
-  line: string;
+  speaker: string; // primary "active speaker" for the live capture label
+  turns: Turn[]; // multi-speaker transcript, streamed in order
   summary: string; // header, e.g. "Sync with Priya — 3 follow-ups"
   rows: [IntegrationRow, IntegrationRow, IntegrationRow];
 };
@@ -38,7 +44,13 @@ type Snippet = {
 const SNIPPETS: Snippet[] = [
   {
     speaker: "Anique",
-    line: "Sync with Priya — book a follow-up Friday, recap the team, save the notes.",
+    turns: [
+      { speaker: "Anique", line: "Good sync — let's lock the next steps." },
+      { speaker: "Priya", line: "Sounds good. Friday afternoon works for me." },
+      { speaker: "Anique", line: "Book the follow-up for Friday at 3." },
+      { speaker: "Priya", line: "And loop in the team with a quick recap?" },
+      { speaker: "Anique", line: "Yep — recap the team and save the notes to Atlas." },
+    ],
     summary: "Sync with Priya — 3 follow-ups",
     rows: [
       {
@@ -46,24 +58,33 @@ const SNIPPETS: Snippet[] = [
         tool: "Google Calendar",
         task: "Book follow-up, Friday 3pm",
         result: "Meeting booked · Fri 3:00 PM",
+        doneAt: 1000,
       },
       {
         integration: "gmail",
         tool: "Gmail",
         task: "Send recap to the team",
         result: "Email sent to 4 people",
+        doneAt: 1900,
       },
       {
         integration: "notion",
         tool: "Notion",
         task: "Save notes to Project Atlas",
         result: "Saved to Notion",
+        doneAt: 2800,
       },
     ],
   },
   {
     speaker: "Dev",
-    line: "Launch slips a week — update the roadmap, email design, and log it.",
+    turns: [
+      { speaker: "Dev", line: "Heads up — the launch is slipping a week." },
+      { speaker: "Maya", line: "Okay. Design needs to know before they ship copy." },
+      { speaker: "Dev", line: "Push the roadmap date out one week." },
+      { speaker: "Maya", line: "I'll re-time the assets once it's moved." },
+      { speaker: "Dev", line: "Email design the change and log it on the calendar." },
+    ],
     summary: "Launch review — 3 actions",
     rows: [
       {
@@ -71,18 +92,21 @@ const SNIPPETS: Snippet[] = [
         tool: "Notion",
         task: "Update roadmap — launch +1 week",
         result: "Roadmap updated",
+        doneAt: 850,
       },
       {
         integration: "gmail",
         tool: "Gmail",
         task: "Notify the design team",
         result: "Email sent to design",
+        doneAt: 2000,
       },
       {
         integration: "calendar",
         tool: "Google Calendar",
         task: "Move launch date to next Fri",
         result: "Event moved · next Fri",
+        doneAt: 2950,
       },
     ],
   },
@@ -100,107 +124,53 @@ const INTEGRATION_META: Record<
 // ---------------------------------------------------------------------------
 // Timeline state machine
 //
-// Each snippet plays: voice → typing → settled, then the sequential RUNNER
-// works the 3 rows one at a time:
-//   for each row i: expand(i) → processing(i) → done(i) → collapse(i)
-// then a brief hold with all three "done", then advance to the next snippet.
+// Each snippet plays four coarse phases:
+//   voice  → live capture; waveform active, transcript hidden
+//   typing → multi-speaker transcript streams in, turn by turn
+//   work   → all 3 integration rows enter "Processing…" together, then each
+//            flips to its done state at its own `doneAt` offset (staggered,
+//            in parallel — no expand/collapse, no per-row sequencing)
+//   hold   → all three done, brief pause, then advance to the next snippet
 //
-// The runner is modelled as discrete steps so timing is a simple per-step
-// duration table and the reducer just walks the list and loops.
+// Rows never change height: the status area swaps IN PLACE from spinner to
+// check + result with a fade. The reducer just walks the phases and loops.
 // ---------------------------------------------------------------------------
 
-type Step =
-  | { kind: "voice" }
-  | { kind: "typing" }
-  | { kind: "settled" } // card + collapsed rows appear
-  | { kind: "expand"; row: number } // row i expands open
-  | { kind: "processing"; row: number } // spinner + "Processing…"
-  | { kind: "result"; row: number } // green check + result line (expanded)
-  | { kind: "collapse"; row: number } // row i collapses to compact done
-  | { kind: "hold" }; // all three done, brief pause, then loop
+type Phase = "voice" | "typing" | "work" | "hold";
 
-// Per-row sub-state derived from the active step.
-type RowState = "pending" | "expanded" | "processing" | "result" | "done";
+// Longest row completion drives how long the work phase must run.
+const MAX_DONE_AT = Math.max(
+  ...SNIPPETS.flatMap((s) => s.rows.map((r) => r.doneAt)),
+);
 
-const STEP_MS = {
+const PHASE_MS: Record<Phase, number> = {
   voice: 1400,
-  typing: 1800,
-  settled: 550,
-  expand: 320,
-  processing: 950,
-  result: 600,
-  collapse: 320,
-  hold: 1500,
-} as const;
+  typing: 2600, // streams ~5 turns
+  work: MAX_DONE_AT + 700, // last row done + a beat
+  hold: 1400,
+};
 
-function buildTimeline(): Step[] {
-  const steps: Step[] = [{ kind: "voice" }, { kind: "typing" }, { kind: "settled" }];
-  for (let row = 0; row < 3; row += 1) {
-    steps.push({ kind: "expand", row });
-    steps.push({ kind: "processing", row });
-    steps.push({ kind: "result", row });
-    steps.push({ kind: "collapse", row });
-  }
-  steps.push({ kind: "hold" });
-  return steps;
-}
+const PHASE_ORDER: Phase[] = ["voice", "typing", "work", "hold"];
 
-const TIMELINE = buildTimeline();
-
-function stepMs(step: Step): number {
-  return STEP_MS[step.kind];
-}
-
-type State = { snippet: number; stepIdx: number };
+type State = { snippet: number; phaseIdx: number };
 
 function reducer(state: State): State {
-  const next = state.stepIdx + 1;
-  if (next >= TIMELINE.length) {
-    return { snippet: (state.snippet + 1) % SNIPPETS.length, stepIdx: 0 };
+  const next = state.phaseIdx + 1;
+  if (next >= PHASE_ORDER.length) {
+    return { snippet: (state.snippet + 1) % SNIPPETS.length, phaseIdx: 0 };
   }
-  return { ...state, stepIdx: next };
-}
-
-// Resolve each row's sub-state for the current step. Rows before the active
-// one are "done", the active row tracks the step, later rows are "pending".
-function rowStatesFor(step: Step): [RowState, RowState, RowState] {
-  const out: RowState[] = ["pending", "pending", "pending"];
-  if (
-    step.kind === "expand" ||
-    step.kind === "processing" ||
-    step.kind === "result" ||
-    step.kind === "collapse"
-  ) {
-    for (let i = 0; i < step.row; i += 1) out[i] = "done";
-    out[step.row] =
-      step.kind === "expand"
-        ? "expanded"
-        : step.kind === "processing"
-          ? "processing"
-          : step.kind === "result"
-            ? "result"
-            : "done"; // collapse → settles into compact done
-  } else if (step.kind === "hold") {
-    out[0] = out[1] = out[2] = "done";
-  }
-  return out as [RowState, RowState, RowState];
+  return { ...state, phaseIdx: next };
 }
 
 export function VoiceToWork() {
   const reduced = usePrefersReducedMotion();
 
   if (reduced) {
-    // Static end-state: all three integration rows in their collapsed DONE
-    // state. No timers, no loop.
+    // Static end-state: all three integration rows DONE, full transcript
+    // shown, voice panel resting. No timers, no loop.
     return (
       <>
-        <Stage
-          snippet={SNIPPETS[0]}
-          step={{ kind: "hold" }}
-          rowStates={["done", "done", "done"]}
-          transcriptFull
-          reduced
-        />
+        <Stage snippet={SNIPPETS[0]} phase="hold" reduced />
         <WorksWith />
       </>
     );
@@ -215,76 +185,72 @@ export function VoiceToWork() {
 }
 
 function AnimatedStage() {
-  const [state, dispatch] = useReducer(reducer, { snippet: 0, stepIdx: 0 });
-  const step = TIMELINE[state.stepIdx];
+  const [state, dispatch] = useReducer(reducer, { snippet: 0, phaseIdx: 0 });
+  const phase = PHASE_ORDER[state.phaseIdx];
 
   const dispatchRef = useRef(dispatch);
   dispatchRef.current = dispatch;
   useEffect(() => {
-    const id = setTimeout(() => dispatchRef.current(), stepMs(step));
+    const id = setTimeout(() => dispatchRef.current(), PHASE_MS[phase]);
     return () => clearTimeout(id);
-  }, [step, state.snippet]);
+  }, [phase, state.snippet]);
 
-  return (
-    <Stage
-      snippet={SNIPPETS[state.snippet]}
-      step={step}
-      rowStates={rowStatesFor(step)}
-    />
-  );
+  return <Stage snippet={SNIPPETS[state.snippet]} phase={phase} />;
 }
 
-// Typewriter reveal for the transcript line. Resets whenever the line changes
-// or the typing phase (re)starts; freezes fully revealed once past "typing".
-function useTypewriter(text: string, active: boolean, full: boolean) {
-  const [count, setCount] = useState(0);
+// Streams the multi-speaker transcript turn-by-turn during the "typing" phase
+// and freezes fully revealed afterwards. Returns how many turns are visible
+// and, for the in-flight turn, a typewriter slice of its text.
+function useStreamedTurns(
+  turns: Turn[],
+  active: boolean,
+  full: boolean,
+): { visible: number; partial: string } {
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
-    if (full) {
-      setCount(text.length);
+    if (full || !active) {
+      setTick(0);
       return;
     }
-    if (!active) {
-      setCount(0);
-      return;
-    }
-    setCount(0);
-    let i = 0;
+    setTick(0);
+    let n = 0;
+    const total = turns.reduce((a, t) => a + t.line.length, 0);
+    const stepMs = Math.max(14, Math.floor(PHASE_MS.typing / (total + turns.length * 2)));
     const id = setInterval(() => {
-      i += 1;
-      setCount(i);
-      if (i >= text.length) clearInterval(id);
-    }, Math.max(18, Math.floor(STEP_MS.typing / text.length)));
+      n += 1;
+      setTick(n);
+    }, stepMs);
     return () => clearInterval(id);
-  }, [text, active, full]);
+  }, [turns, active, full]);
 
-  return text.slice(0, count);
+  if (full) return { visible: turns.length, partial: "" };
+
+  // Walk the running character budget across turns to find the in-flight one.
+  let budget = tick;
+  for (let i = 0; i < turns.length; i += 1) {
+    const len = turns[i].line.length;
+    if (budget < len) {
+      return { visible: i, partial: turns[i].line.slice(0, budget) };
+    }
+    budget -= len + 2; // small inter-turn pause
+  }
+  return { visible: turns.length, partial: "" };
 }
 
 function Stage({
   snippet,
-  step,
-  rowStates,
-  transcriptFull = false,
+  phase,
   reduced = false,
 }: {
   snippet: Snippet;
-  step: Step;
-  rowStates: [RowState, RowState, RowState];
-  transcriptFull?: boolean;
+  phase: Phase;
   reduced?: boolean;
 }) {
-  const voiceActive = step.kind === "voice";
-  const typing = step.kind === "typing";
-
-  // Stage progression: transcript shows from "typing" on; work shows once the
-  // timeline reaches "settled" (i.e. anything past voice/typing).
-  const pastTyping =
-    transcriptFull || (step.kind !== "voice" && step.kind !== "typing");
-  const transcriptShown = transcriptFull || step.kind !== "voice";
-  const workShown = pastTyping;
-
-  const typed = useTypewriter(snippet.line, typing, transcriptFull || pastTyping);
+  const voiceActive = phase === "voice";
+  const transcriptShown = reduced || phase !== "voice";
+  const workShown = reduced || phase === "work" || phase === "hold";
+  const transcriptFull = reduced || phase === "work" || phase === "hold";
 
   return (
     <div className="card-ring overflow-hidden rounded-2xl shadow-2xl shadow-black/40">
@@ -303,67 +269,42 @@ function Stage({
       </div>
 
       {/* Three stages: side-by-side on sm+, stacked top-to-bottom on mobile.
-          A faint connecting arrow flows speech → text → work. */}
-      <div className="relative grid items-stretch gap-px bg-border sm:grid-cols-[0.9fr_1.1fr_1.2fr]">
+          A faint connecting arrow flows speech → text → work. `items-stretch`
+          forces all three columns to share the tallest column's height. */}
+      <div className="relative grid items-stretch gap-px bg-border sm:grid-cols-[0.95fr_1.1fr_1.2fr]">
         {/* Stage A — Voice */}
         <StageCell label="Voice" active={voiceActive || reduced}>
-          <div className="flex h-full flex-col justify-center">
-            <div
-              className="flex h-12 items-center justify-between gap-[2px]"
-              aria-hidden
-            >
-              {BARS.map((h, i) => (
-                <span
-                  key={i}
-                  className="waveform-bar w-[2px] flex-1 rounded-full bg-primary/70"
-                  style={{
-                    ["--peak" as string]: h,
-                    animationDelay: `${(i % 8) * 0.09}s`,
-                    // Idle the waveform between speaking phases so the "active"
-                    // pulse reads as live speech rather than a constant loop.
-                    animationPlayState: reduced || voiceActive ? "running" : "paused",
-                    opacity: reduced || voiceActive ? 1 : 0.4,
-                  }}
-                />
-              ))}
-            </div>
-            <p className="mt-3 text-center text-xs text-muted-foreground">
-              {voiceActive || reduced ? "Listening…" : "Captured"}
-            </p>
-          </div>
+          <VoicePanel
+            snippet={snippet}
+            active={voiceActive}
+            reduced={reduced}
+          />
           <Flow />
         </StageCell>
 
         {/* Stage B — Transcript */}
         <StageCell label="Transcript" active={transcriptShown}>
-          <div
-            className={`flex h-full flex-col justify-center transition-opacity duration-500 ${
-              transcriptShown ? "opacity-100" : "opacity-0"
-            }`}
-          >
-            <p className="text-sm">
-              <span className="font-medium text-primary">{snippet.speaker}</span>
-              <br />
-              <span className="text-foreground">
-                &ldquo;{typed}
-                {typing && (
-                  <span className="ml-px inline-block h-4 w-px translate-y-0.5 animate-pulse bg-primary align-middle" />
-                )}
-                {(transcriptFull || pastTyping) && "”"}
-              </span>
-            </p>
-          </div>
+          <TranscriptPanel
+            snippet={snippet}
+            shown={transcriptShown}
+            typing={phase === "typing"}
+            full={transcriptFull}
+          />
           <Flow />
         </StageCell>
 
-        {/* Stage C — Work (sequential integration runner) */}
+        {/* Stage C — Work (parallel integration runner) */}
         <StageCell label="Work" active={workShown}>
           <div
             className={`flex h-full flex-col transition-all duration-500 ${
               workShown ? "translate-y-0 opacity-100" : "translate-y-1 opacity-0"
             }`}
           >
-            <RunnerCard snippet={snippet} rowStates={rowStates} />
+            <RunnerCard
+              snippet={snippet}
+              working={phase === "work"}
+              done={reduced || phase === "hold"}
+            />
           </div>
         </StageCell>
       </div>
@@ -371,98 +312,234 @@ function Stage({
   );
 }
 
-// Sequential integration runner: a summary header + 3 integration rows that
-// run one at a time (expand → processing → done → collapse). FIXED height so
-// the hero never reflows as rows expand and collapse.
-function RunnerCard({
+// Live capture panel: a fuller animated waveform, a "● Listening" pulse, an
+// active-speaker label and a ticking elapsed timer — reads as a real capture.
+function VoicePanel({
   snippet,
-  rowStates,
+  active,
+  reduced,
 }: {
   snippet: Snippet;
-  rowStates: [RowState, RowState, RowState];
+  active: boolean;
+  reduced: boolean;
 }) {
+  const live = active || reduced;
+  const elapsed = useElapsed(active, reduced);
+
   return (
-    <div className="flex flex-col gap-2.5">
+    <div className="flex h-full flex-col">
+      {/* Status row: listening pulse + elapsed timer. */}
+      <div className="flex items-center justify-between">
+        <span className="inline-flex items-center gap-1.5 text-xs">
+          <span
+            className={`h-1.5 w-1.5 rounded-full bg-destructive ${
+              live ? "animate-pulse" : "opacity-50"
+            }`}
+            aria-hidden
+          />
+          <span className={live ? "text-foreground" : "text-muted-foreground"}>
+            {live ? "Listening" : "Captured"}
+          </span>
+        </span>
+        <span className="font-mono text-xs tabular-nums text-muted-foreground">
+          {elapsed}
+        </span>
+      </div>
+
+      {/* Tall, full-width waveform fills the column body. */}
+      <div className="flex flex-1 items-center" aria-hidden>
+        <div className="flex h-24 w-full items-center justify-between gap-[2px]">
+          {BARS.map((h, i) => (
+            <span
+              key={i}
+              className="waveform-bar w-[2px] flex-1 rounded-full bg-primary/70"
+              style={{
+                ["--peak" as string]: h,
+                animationDelay: `${(i % 8) * 0.09}s`,
+                // Idle between speaking phases so the active pulse reads as
+                // live speech rather than a constant loop.
+                animationPlayState: live ? "running" : "paused",
+                opacity: live ? 1 : 0.35,
+              }}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Active-speaker chip. */}
+      <div className="flex items-center gap-2">
+        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
+          {snippet.speaker.slice(0, 1)}
+        </span>
+        <span className="min-w-0 truncate text-xs text-muted-foreground">
+          <span className="text-foreground">{snippet.speaker}</span> speaking
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// Multi-speaker transcript: short streamed turns from two speakers, labeled and
+// weight/color-differentiated, that fill the column body.
+function TranscriptPanel({
+  snippet,
+  shown,
+  typing,
+  full,
+}: {
+  snippet: Snippet;
+  shown: boolean;
+  typing: boolean;
+  full: boolean;
+}) {
+  const { visible, partial } = useStreamedTurns(snippet.turns, typing, full);
+  // Primary speaker (first turn) gets the brand accent; the other is neutral.
+  const primary = snippet.turns[0]?.speaker;
+
+  return (
+    <div
+      className={`flex h-full flex-col gap-2.5 transition-opacity duration-500 ${
+        shown ? "opacity-100" : "opacity-0"
+      }`}
+    >
+      {snippet.turns.map((turn, i) => {
+        const isVisible = full || i < visible || (i === visible && partial.length > 0);
+        const isPartial = !full && i === visible;
+        const text = isPartial ? partial : turn.line;
+        const isPrimary = turn.speaker === primary;
+        return (
+          <p
+            key={i}
+            className={`min-w-0 text-[13px] leading-snug transition-opacity duration-300 ${
+              isVisible ? "opacity-100" : "opacity-0"
+            }`}
+          >
+            <span
+              className={`mr-1.5 font-medium ${
+                isPrimary ? "text-primary" : "text-sky-400"
+              }`}
+            >
+              {turn.speaker}
+            </span>
+            <span className="text-foreground/90">
+              {text}
+              {isPartial && (
+                <span className="ml-px inline-block h-3.5 w-px translate-y-0.5 animate-pulse bg-primary align-middle" />
+              )}
+            </span>
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+// Parallel integration runner: a summary header + 3 fixed-height integration
+// rows. All three enter "Processing…" together when `working`, then each flips
+// to done at its own `doneAt` offset. Rows never change height — the status
+// area swaps in place with a fade, so the card never reflows.
+function RunnerCard({
+  snippet,
+  working,
+  done,
+}: {
+  snippet: Snippet;
+  working: boolean;
+  done: boolean;
+}) {
+  // Elapsed-ms clock that starts when the work phase begins; drives the
+  // staggered per-row completion. Frozen (all done) during the hold phase.
+  const elapsed = useWorkClock(working);
+  const doneCount = snippet.rows.filter(
+    (r) => done || (working && elapsed >= r.doneAt),
+  ).length;
+
+  return (
+    <div className="flex h-full flex-col gap-2.5">
       <div className="flex items-center gap-2">
         <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">
           {snippet.summary}
         </p>
         <span className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
-          {rowStates.filter((s) => s === "done").length}/3
+          {doneCount}/3
         </span>
       </div>
-      <ul className="flex flex-col gap-2">
-        {snippet.rows.map((row, i) => (
-          <RunnerRow key={`${snippet.summary}-${i}`} row={row} state={rowStates[i]} />
-        ))}
+      <ul className="flex flex-1 flex-col gap-2">
+        {snippet.rows.map((row, i) => {
+          const rowDone = done || (working && elapsed >= row.doneAt);
+          // Show the work state (spinner/check) once working starts or done.
+          const activated = working || done;
+          return (
+            <RunnerRow
+              key={`${snippet.summary}-${i}`}
+              row={row}
+              activated={activated}
+              done={rowDone}
+            />
+          );
+        })}
       </ul>
     </div>
   );
 }
 
-// A single integration row. Collapsed (pending/done) it's a compact tile+label
-// line; active it expands to reveal a processing/result status block. The
-// expandable block uses a grid-rows trick for a smooth height transition; the
-// outer row is a fixed-height container so neighbours never shift.
-function RunnerRow({ row, state }: { row: IntegrationRow; state: RowState }) {
+// A single fixed-height integration row: brand tile + task label, with the
+// status line below swapping IN PLACE from "spinner + Processing…" to "check +
+// result" via a cross-fade. Height is fixed so neighbours never shift.
+function RunnerRow({
+  row,
+  activated,
+  done,
+}: {
+  row: IntegrationRow;
+  activated: boolean;
+  done: boolean;
+}) {
   const { Icon } = INTEGRATION_META[row.integration];
-  const expanded = state === "expanded" || state === "processing" || state === "result";
-  const done = state === "done";
 
   return (
     <li
-      className={`rounded-lg border bg-background/40 transition-colors duration-300 ${
-        expanded ? "border-primary/40" : "border-border"
+      className={`flex min-h-[3.25rem] flex-col justify-center gap-1 rounded-lg border bg-background/40 px-2.5 py-2 transition-colors duration-300 ${
+        done ? "border-primary/40" : activated ? "border-primary/25" : "border-border"
       }`}
     >
-      <div className="flex items-center gap-2.5 px-2.5 py-2">
+      <div className="flex items-center gap-2.5">
         {/* Brand tile — neutral/white so multi-color marks read on dark. */}
         <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-white shadow-sm shadow-black/20">
           <Icon className="h-4 w-4" />
         </span>
-        <div className="min-w-0 flex-1">
-          <p
-            className={`truncate text-[13px] transition-colors duration-300 ${
-              expanded || done ? "text-foreground" : "text-muted-foreground"
-            }`}
-          >
-            {row.task}
-          </p>
-        </div>
-        {/* Compact done check on collapsed rows. */}
-        <span
-          className={`grid h-4 w-4 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition-all duration-300 ${
-            done ? "scale-100 opacity-100" : "scale-75 opacity-0"
+        <p
+          className={`min-w-0 flex-1 truncate text-[13px] transition-colors duration-300 ${
+            activated ? "text-foreground" : "text-muted-foreground"
           }`}
-          aria-hidden
         >
-          <Check className="h-3 w-3" strokeWidth={3} />
-        </span>
+          {row.task}
+        </p>
       </div>
 
-      {/* Expandable status region: grid-template-rows 0fr → 1fr animates height. */}
-      <div
-        className={`grid transition-all duration-300 ease-out ${
-          expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
-        }`}
-      >
-        <div className="overflow-hidden">
-          <div className="mx-2.5 mb-2 border-t border-border/60 pt-2 text-[13px]">
-            {state === "result" ? (
-              <span className="flex items-center gap-2 text-foreground">
-                <span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground">
-                  <Check className="h-3 w-3" strokeWidth={3} />
-                </span>
-                <span className="truncate">{row.result}</span>
-              </span>
-            ) : (
-              <span className="flex items-center gap-2 text-muted-foreground">
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" aria-hidden />
-                Processing…
-              </span>
-            )}
-          </div>
-        </div>
+      {/* Fixed-height status line: cross-fades spinner ↔ check + result in
+          place — no height change. */}
+      <div className="relative h-4 pl-[2.375rem] text-[12px]">
+        {/* Processing… */}
+        <span
+          className={`absolute inset-0 flex items-center gap-1.5 text-muted-foreground transition-opacity duration-300 ${
+            activated && !done ? "opacity-100" : "opacity-0"
+          }`}
+        >
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" aria-hidden />
+          Processing…
+        </span>
+        {/* Done · result */}
+        <span
+          className={`absolute inset-0 flex items-center gap-1.5 transition-opacity duration-300 ${
+            done ? "opacity-100" : "opacity-0"
+          }`}
+        >
+          <span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground">
+            <Check className="h-2.5 w-2.5" strokeWidth={3} />
+          </span>
+          <span className="min-w-0 truncate text-foreground">{row.result}</span>
+        </span>
       </div>
     </li>
   );
@@ -478,7 +555,7 @@ function StageCell({
   children: React.ReactNode;
 }) {
   return (
-    <div className="relative bg-card p-5 sm:p-6">
+    <div className="relative flex flex-col bg-card p-5 sm:p-6">
       <p
         className={`font-mono text-[11px] uppercase tracking-wider transition-colors duration-300 ${
           active ? "text-primary" : "text-muted-foreground"
@@ -486,9 +563,10 @@ function StageCell({
       >
         {label}
       </p>
-      {/* Fixed min-height reserves room for the header + 3 rows (one expanded)
-          so the hero never reflows as rows open and close. */}
-      <div className="mt-4 min-h-[12.5rem]">{children}</div>
+      {/* Fixed min-height reserves room for the tallest column (Work: header +
+          3 fixed rows). With `items-stretch` on the grid, all three columns
+          match this height, so the card never reflows across phases. */}
+      <div className="mt-4 min-h-[15.5rem] flex-1">{children}</div>
     </div>
   );
 }
@@ -541,6 +619,41 @@ function WorksWith() {
       </div>
     </div>
   );
+}
+
+// Elapsed-ms clock that resets and starts ticking when `working` becomes true,
+// driving staggered per-row completion. Returns 0 (and stops) when idle.
+function useWorkClock(working: boolean): number {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!working) {
+      setElapsed(0);
+      return;
+    }
+    const start = Date.now();
+    setElapsed(0);
+    const id = setInterval(() => setElapsed(Date.now() - start), 60);
+    return () => clearInterval(id);
+  }, [working]);
+  return elapsed;
+}
+
+// Ticking mm:ss elapsed timer for the voice panel. Runs while `active`; shows a
+// settled value at rest / under reduced motion.
+function useElapsed(active: boolean, reduced: boolean): string {
+  const [secs, setSecs] = useState(0);
+  useEffect(() => {
+    if (reduced) {
+      setSecs(42);
+      return;
+    }
+    if (!active) return; // freeze last value between phases
+    const id = setInterval(() => setSecs((s) => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [active, reduced]);
+  const mm = String(Math.floor(secs / 60)).padStart(2, "0");
+  const ss = String(secs % 60).padStart(2, "0");
+  return `${mm}:${ss}`;
 }
 
 // Tracks the user's reduced-motion preference (and reacts to changes).
