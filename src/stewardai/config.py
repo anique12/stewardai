@@ -95,6 +95,10 @@ class Settings(BaseSettings):
     # demo — Composio tools are disabled in that case (no user, no actions).
     vexa_user_id: str | None = None
     vexa_platform: str = "google_meet"
+    # Vexa gateway (bot spawning). vexa_api_key authenticates the scheduler's
+    # POST {vexa_gateway_url}/bots call via the X-API-Key header.
+    vexa_api_key: str | None = None
+    vexa_gateway_url: str = "http://localhost:8056"
     # rate the Vexa bot should paplay our PCM at; our pipeline is 16 kHz end-to-end (SAMPLE_RATE).
     playback_sample_rate: int = 16000
 
