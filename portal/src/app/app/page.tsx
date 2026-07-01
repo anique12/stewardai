@@ -1,3 +1,4 @@
+import { InstantJoin } from "@/components/meetings/InstantJoin";
 import { MeetingRow } from "@/components/meetings/MeetingRow";
 import { createServerClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -20,15 +21,18 @@ export default async function AppPage() {
 
   if (!conn) {
     return (
-      <div className="rounded-lg border border-border bg-card p-8 text-center">
-        <h2 className="text-xl font-semibold text-foreground">Connect your calendar</h2>
-        <p className="mt-2 text-muted-foreground">
-          Connect Google Calendar to see and opt in to your meetings.
-        </p>
-        <a href="/app/settings?connect=calendar"
-          className="mt-4 inline-block rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
-          Connect Calendar
-        </a>
+      <div className="space-y-8">
+        <InstantJoin />
+        <div className="rounded-lg border border-border bg-card p-8 text-center">
+          <h2 className="text-xl font-semibold text-foreground">Connect your calendar</h2>
+          <p className="mt-2 text-muted-foreground">
+            Connect Google Calendar to see and opt in to your meetings.
+          </p>
+          <a href="/app/settings?connect=calendar"
+            className="mt-4 inline-block rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+            Connect Calendar
+          </a>
+        </div>
       </div>
     );
   }
@@ -74,6 +78,7 @@ export default async function AppPage() {
 
   return (
     <div className="space-y-8">
+      <InstantJoin />
       <section>
         <h2 className="mb-3 text-lg font-semibold text-foreground">Upcoming</h2>
         {upcoming?.length ? (
