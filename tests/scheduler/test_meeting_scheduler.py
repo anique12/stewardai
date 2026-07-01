@@ -1,7 +1,9 @@
-"""Tests for the meeting scheduler (bot + agent dispatch, single-slot lifecycle).
+"""Tests for the meeting scheduler (bot dispatch, multiplexer model).
 
-Everything external is mocked: the Supabase async client chain, the Vexa gateway
-(via spawn_bot / httpx), and subprocess.Popen for the agent launch.
+The scheduler no longer spawns per-meeting agents or holds a single-meeting slot:
+one long-lived multiplexer serves every meeting, so each cycle just dispatches a
+Vexa bot for EVERY due meeting. Everything external is mocked: the Supabase async
+client chain and the Vexa gateway (via spawn_bot / httpx).
 """
 from __future__ import annotations
 
@@ -97,127 +99,79 @@ async def test_get_due_meetings_drops_rows_without_meet_url():
 
 # --- dispatch_meeting -------------------------------------------------------
 
-async def test_dispatch_success_marks_joining_and_spawns_agent():
+async def test_dispatch_success_marks_joining():
     client, _ = _mock_client()
     meeting = _meeting(id="m-1", user_id="u-42")
 
-    with (
-        patch.object(
-            ms, "spawn_bot",
-            AsyncMock(return_value={"id": 130, "native_meeting_id": "abc"}),
-        ),
-        patch("subprocess.Popen") as popen,
-    ):
-        popen.return_value = MagicMock(name="proc")
-        proc = await ms.dispatch_meeting(client, _settings(), meeting)
+    with patch.object(
+        ms, "spawn_bot",
+        AsyncMock(return_value={"id": 130, "native_meeting_id": "abc"}),
+    ) as spawn:
+        await ms.dispatch_meeting(client, _settings(), meeting)
 
-    assert proc is popen.return_value
-
-    # Row updated to bot_status='joining' (+ native_meeting_id from response)
+    # Gateway was called to spawn the bot.
+    spawn.assert_awaited_once()
+    # Row updated to bot_status='joining' (+ native_meeting_id from response).
     payloads = _update_payloads(client)
     assert any(
         p.get("bot_status") == "joining" and p.get("native_meeting_id") == "abc"
         for p in payloads
     ), payloads
 
-    # Agent spawned with the Vexa int id (as str) and the owner's user_id in env
-    popen.assert_called_once()
-    env = popen.call_args.kwargs["env"]
-    assert env["VEXA_MEETING_ID"] == "130"
-    assert env["VEXA_USER_ID"] == "u-42"
-
 
 async def test_dispatch_does_not_write_int_into_uuid_column():
     """The Vexa int id must NOT be written to the UUID vexa_meeting_id column."""
     client, _ = _mock_client()
-    with (
-        patch.object(ms, "spawn_bot", AsyncMock(return_value={"id": 130})),
-        patch("subprocess.Popen", return_value=MagicMock()),
-    ):
+    with patch.object(ms, "spawn_bot", AsyncMock(return_value={"id": 130})):
         await ms.dispatch_meeting(client, _settings(), _meeting())
 
     for p in _update_payloads(client):
         assert "vexa_meeting_id" not in p, p
 
 
-async def test_dispatch_bot_failure_marks_failed_and_returns_none():
+async def test_dispatch_bot_failure_marks_failed():
     client, _ = _mock_client()
-    with (
-        patch.object(ms, "spawn_bot", AsyncMock(side_effect=RuntimeError("gateway 500"))),
-        patch("subprocess.Popen") as popen,
+    with patch.object(
+        ms, "spawn_bot", AsyncMock(side_effect=RuntimeError("gateway 500"))
     ):
-        proc = await ms.dispatch_meeting(client, _settings(), _meeting())
+        await ms.dispatch_meeting(client, _settings(), _meeting())
 
-    assert proc is None
-    popen.assert_not_called()
     payloads = _update_payloads(client)
     assert any(p.get("bot_status") == "failed" for p in payloads), payloads
 
 
-async def test_dispatch_agent_spawn_failure_marks_failed():
-    client, _ = _mock_client()
-    with (
-        patch.object(ms, "spawn_bot", AsyncMock(return_value={"id": 130})),
-        patch("subprocess.Popen", side_effect=OSError("bash not found")),
-    ):
-        proc = await ms.dispatch_meeting(client, _settings(), _meeting())
+# --- run_once dispatch-all (no slot limit) ----------------------------------
 
-    assert proc is None
-    assert any(p.get("bot_status") == "failed" for p in _update_payloads(client))
-
-
-# --- run_once single-slot lifecycle -----------------------------------------
-
-async def test_run_once_skips_dispatch_when_slot_busy():
-    client, _ = _mock_client([_meeting()])
-    live_proc = MagicMock()
-    live_proc.poll.return_value = None  # still running
-    state = ms.SchedulerState(meeting_id="m-active", proc=live_proc)
+async def test_run_once_dispatches_a_bot_for_every_due_meeting():
+    client, _ = _mock_client([_meeting(id="m-1"), _meeting(id="m-2"), _meeting(id="m-3")])
 
     with patch.object(ms, "dispatch_meeting", AsyncMock()) as dispatch:
-        await ms.run_once(client, _settings(), state)
+        await ms.run_once(client, _settings())
+
+    # Every due meeting is dispatched — concurrent meetings are fine now.
+    assert dispatch.await_count == 3
+    dispatched_ids = [c.args[2]["id"] for c in dispatch.await_args_list]
+    assert dispatched_ids == ["m-1", "m-2", "m-3"]
+
+
+async def test_run_once_noop_when_no_due_meetings():
+    client, _ = _mock_client([])
+
+    with patch.object(ms, "dispatch_meeting", AsyncMock()) as dispatch:
+        await ms.run_once(client, _settings())
 
     dispatch.assert_not_called()
-    # get_due_meetings should not even be queried when busy
-    client.table.return_value.select.assert_not_called()
-    assert state.meeting_id == "m-active"
 
 
-async def test_run_once_reaps_finished_agent_and_marks_done():
-    client, _ = _mock_client([])  # no due meetings after reaping
-    dead_proc = MagicMock()
-    dead_proc.poll.return_value = 0  # exited
-    dead_proc.returncode = 0
-    state = ms.SchedulerState(meeting_id="m-old", proc=dead_proc)
-
-    await ms.run_once(client, _settings(), state)
-
-    payloads = _update_payloads(client)
-    assert any(p.get("bot_status") == "done" for p in payloads), payloads
-    assert state.meeting_id is None
-    assert state.proc is None
-
-
-async def test_run_once_dispatches_first_due_meeting_when_free():
+async def test_run_once_calls_gateway_for_each_meeting_end_to_end():
+    """Without mocking dispatch_meeting, each due meeting hits the gateway once."""
     client, _ = _mock_client([_meeting(id="m-1"), _meeting(id="m-2")])
-    state = ms.SchedulerState()
-    new_proc = MagicMock()
 
-    with patch.object(ms, "dispatch_meeting", AsyncMock(return_value=new_proc)) as dispatch:
-        await ms.run_once(client, _settings(), state)
+    with patch.object(
+        ms, "spawn_bot", AsyncMock(return_value={"id": 1, "native_meeting_id": "n"})
+    ) as spawn:
+        await ms.run_once(client, _settings())
 
-    dispatch.assert_awaited_once()
-    assert dispatch.await_args.args[2]["id"] == "m-1"  # first due meeting
-    assert state.meeting_id == "m-1"
-    assert state.proc is new_proc
-
-
-async def test_run_once_leaves_slot_free_when_dispatch_returns_none():
-    client, _ = _mock_client([_meeting(id="m-1")])
-    state = ms.SchedulerState()
-
-    with patch.object(ms, "dispatch_meeting", AsyncMock(return_value=None)):
-        await ms.run_once(client, _settings(), state)
-
-    assert state.meeting_id is None
-    assert state.proc is None
+    assert spawn.await_count == 2
+    payloads = _update_payloads(client)
+    assert sum(1 for p in payloads if p.get("bot_status") == "joining") == 2

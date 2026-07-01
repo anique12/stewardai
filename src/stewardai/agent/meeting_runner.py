@@ -160,6 +160,52 @@ class MeetingSession:
         """Swap this session onto a new bot connection (reconnect)."""
         self._conn = conn
 
+    async def _set_bot_status(self, status: str) -> None:
+        """Best-effort meetings.bot_status writeback keyed by native_meeting_id.
+
+        Now that the scheduler no longer reaps a per-meeting agent, the
+        multiplexer owns the meeting lifecycle: 'in_meeting' when the session
+        starts, 'done' on teardown. Targets the newest row for this
+        native_meeting_id whose status is still active (joining/pending/
+        in_meeting). Fully guarded — a writeback failure never breaks the session.
+        """
+        if self._supabase is None or not self.native_meeting_id:
+            return
+        try:
+            active = ("joining", "pending", "in_meeting")
+            resp = await (
+                self._supabase.table("meetings")
+                .select("id, bot_status, created_at")
+                .eq("native_meeting_id", self.native_meeting_id)
+                .order("created_at", desc=True)
+                .execute()
+            )
+            rows = resp.data or []
+            target = next((r for r in rows if r.get("bot_status") in active), None)
+            if target is None:
+                target = rows[0] if rows else None
+            if target is None or not target.get("id"):
+                return
+            await (
+                self._supabase.table("meetings")
+                .update({"bot_status": status})
+                .eq("id", target["id"])
+                .execute()
+            )
+            _log.info(
+                "bot_status_writeback",
+                meeting=self._mid,
+                native_meeting_id=self.native_meeting_id,
+                status=status,
+            )
+        except Exception as exc:  # noqa: BLE001 — writeback must never break the session
+            _log.warning(
+                "bot_status_writeback_failed",
+                meeting=self._mid,
+                status=status,
+                error=str(exc),
+            )
+
     async def build(self) -> None:
         """Construct the per-session AgentSession + I/O and register handlers."""
         from livekit.agents import metrics as lk_metrics
@@ -290,6 +336,8 @@ class MeetingSession:
         )
         self._tasks = [pump, feed]
         _log.info("meeting_session_started", meeting=self._mid, user_id=self.user_id)
+        # Multiplexer now owns the lifecycle writeback (scheduler no longer reaps).
+        await self._set_bot_status("in_meeting")
         # feed ends when the bot disconnects (frames() hits EOF) — that's teardown.
         self._feed_task = feed
 
@@ -343,6 +391,8 @@ class MeetingSession:
                 await self._speaker_sub.aclose()
         with contextlib.suppress(Exception):
             await self._conn.aclose()
+        # Close the meeting lifecycle now that the scheduler no longer reaps agents.
+        await self._set_bot_status("done")
         _log.info("meeting_session_torn_down", meeting=self._mid)
 
 

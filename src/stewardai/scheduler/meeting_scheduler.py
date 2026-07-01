@@ -1,32 +1,30 @@
-"""Meeting scheduler: watch Supabase for due opted-in meetings and, for each,
-spawn the Vexa bot plus a fresh agent pinned to that meeting.
+"""Meeting scheduler: watch Supabase for due opted-in meetings and spawn a bot
+for each.
 
 This automates both "instant join" (a meeting created moments before it starts)
 and calendar-driven joins: a poll worker selects meetings whose `start_time`
-falls inside the join window, spawns a Vexa bot into the Google Meet, and
-launches `stewardai.agent.meeting_runner` pinned to that Vexa meeting.
+falls inside the join window and spawns a Vexa bot into each Google Meet.
 
-SINGLE-MEETING CONSTRAINT (v1)
-------------------------------
-The agent binds ONE TCP bridge on BRIDGE_TCP_PORT (default 8765) and every bot's
-audio forwarder dials that same port, so only ONE agent process can run at a
-time. The scheduler therefore supports exactly ONE active meeting: it holds a
-single-slot `SchedulerState` and skips dispatch while that slot is occupied.
-Lifting this requires per-meeting bridge ports (not yet built).
+MULTIPLEXER MODEL
+-----------------
+The agent is a SINGLE long-lived multiplexing process (``run_multiplexer`` in
+``stewardai.agent.meeting_runner``): one process listens on one port and each
+Vexa bot dials in to get its OWN per-connection ``MeetingSession`` (identity is
+resolved from the handshake). The scheduler therefore NO LONGER spawns a
+per-meeting agent process and has NO single-meeting slot — it simply dispatches
+a bot for EVERY due meeting each cycle (concurrent meetings are fine). The
+multiplexer owns the agent lifecycle and the ``in_meeting``/``done`` writeback.
 
 vexa_meeting_id COLUMN NOTE
 ---------------------------
 The `meetings.vexa_meeting_id` column is a UUID, but Vexa's meeting id is an
 INTEGER (e.g. 130). We deliberately do NOT write the int into that column
-(type mismatch); we leave it null and instead pass the id to the agent via the
-`VEXA_MEETING_ID` env override.
+(type mismatch); we leave it null. The multiplexer resolves each connection's
+owner via ``native_meeting_id`` instead.
 """
 from __future__ import annotations
 
 import asyncio
-import os
-import subprocess
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -48,9 +46,6 @@ LOOK_AHEAD_S = 600    # 10 minutes lookahead
 
 # Bot identity shown in the meeting participant list.
 BOT_NAME = "StewardAI"
-
-# Command that launches the meeting agent (run from the repo root).
-AGENT_CMD = ["bash", "scripts/run_meeting.sh"]
 
 
 async def get_due_meetings(client: AsyncClient) -> list[dict]:
@@ -94,54 +89,22 @@ async def spawn_bot(meeting: dict, settings: Settings) -> dict:
         return resp.json()
 
 
-def spawn_agent(vexa_meeting_id: str, user_id: str) -> subprocess.Popen:
-    """Launch the meeting agent pinned to a Vexa meeting + owner.
-
-    Runs scripts/run_meeting.sh from the repo root, inheriting the current env
-    (STT/TTS/GEMINI/COMPOSIO/SUPABASE/...) and overriding VEXA_MEETING_ID (the
-    Vexa integer id, as a string) and VEXA_USER_ID (the meeting owner's UUID, so
-    the agent loads that owner's Composio tools).
-    """
-    env = {**os.environ, "VEXA_MEETING_ID": str(vexa_meeting_id), "VEXA_USER_ID": user_id}
-    return subprocess.Popen(AGENT_CMD, env=env)  # noqa: S603 — fixed command, no shell
-
-
-@dataclass
-class SchedulerState:
-    """In-memory single-slot lifecycle for the one active meeting.
-
-    Holds the currently-active meeting id and its agent process handle. Empty
-    (both None) when the slot is free.
-    """
-
-    meeting_id: str | None = None
-    proc: subprocess.Popen | None = None
-
-    @property
-    def busy(self) -> bool:
-        return self.proc is not None
-
-    def clear(self) -> None:
-        self.meeting_id = None
-        self.proc = None
-
-
 async def dispatch_meeting(
     client: AsyncClient, settings: Settings, meeting: dict
-) -> subprocess.Popen | None:
-    """Spawn the Vexa bot + agent for one meeting, transitioning bot_status.
+) -> None:
+    """Spawn the Vexa bot for one meeting, transitioning bot_status.
 
     On success: mark the row bot_status='joining' (+ native_meeting_id from the
-    response when present), launch the agent pinned to the Vexa id, and return
-    the process handle. On any failure: mark bot_status='failed' and return None.
+    response when present). On any failure: mark bot_status='failed'.
 
-    The Vexa id (an int) is passed to the agent via env — it is NOT written to
-    the row's UUID vexa_meeting_id column (type mismatch; see module docstring).
+    No agent process is launched — the long-lived multiplexer accepts the bot's
+    connection and resolves the meeting owner per-connection via native_meeting_id.
+    The Vexa id (an int) is NOT written to the row's UUID vexa_meeting_id column
+    (type mismatch; see module docstring).
     """
     meeting_id = meeting["id"]
     try:
         resp = await spawn_bot(meeting, settings)
-        vexa_id = resp["id"]
 
         update: dict = {"bot_status": "joining"}
         native_id = resp.get("native_meeting_id")
@@ -151,14 +114,13 @@ async def dispatch_meeting(
             client.table("meetings").update(update).eq("id", meeting_id).execute()
         )
 
-        proc = spawn_agent(str(vexa_id), meeting["user_id"])
         _log.info(
             "meeting_dispatched",
             meeting_id=meeting_id,
-            vexa_meeting_id=vexa_id,
-            user_id=meeting["user_id"],
+            vexa_meeting_id=resp.get("id"),
+            native_meeting_id=native_id,
+            user_id=meeting.get("user_id"),
         )
-        return proc
     except Exception as exc:
         _log.warning("meeting_dispatch_failed", meeting_id=meeting_id, error=str(exc))
         try:
@@ -172,72 +134,41 @@ async def dispatch_meeting(
             _log.warning(
                 "meeting_failed_mark_failed", meeting_id=meeting_id, error=str(exc2)
             )
-        return None
 
 
-async def run_once(client: AsyncClient, settings: Settings, state: SchedulerState) -> None:
-    """One scheduler cycle: reap a finished agent, then fill the free slot.
+async def run_once(client: AsyncClient, settings: Settings) -> None:
+    """One scheduler cycle: dispatch a bot for EVERY due meeting.
 
-    1. Reap: if the slot holds a process that has exited (poll() is not None),
-       the agent is done -> mark its meeting bot_status='done' and free the slot.
-    2. Dispatch: only if the slot is free, fetch due meetings and dispatch the
-       first one (single-meeting constraint). If busy, log and skip.
+    Concurrent meetings are fine — the multiplexer serves them all — so there is
+    no slot limit and no agent reaping here. Each dispatch is independent and
+    already guarded internally (marks the row failed on its own errors).
     """
-    # 1. Reap a finished agent.
-    if state.busy and state.proc is not None and state.proc.poll() is not None:
-        finished_id = state.meeting_id
-        _log.info("meeting_agent_exited", meeting_id=finished_id, code=state.proc.returncode)
-        try:
-            await (
-                client.table("meetings")
-                .update({"bot_status": "done"})
-                .eq("id", finished_id)
-                .execute()
-            )
-        except Exception as exc:  # noqa: BLE001 — best-effort completion marking
-            _log.warning("meeting_done_mark_failed", meeting_id=finished_id, error=str(exc))
-        state.clear()
-
-    # 2. Only dispatch when the slot is free (single-meeting constraint).
-    if state.busy:
-        _log.info("scheduler_slot_busy", active_meeting_id=state.meeting_id)
-        return
-
     meetings = await get_due_meetings(client)
     if not meetings:
         return
 
-    meeting = meetings[0]
-    if len(meetings) > 1:
-        _log.info(
-            "scheduler_deferring_extra_meetings",
-            dispatching=meeting["id"],
-            deferred=len(meetings) - 1,
-        )
-    proc = await dispatch_meeting(client, settings, meeting)
-    if proc is not None:
-        state.meeting_id = meeting["id"]
-        state.proc = proc
+    _log.info("scheduler_dispatching", count=len(meetings))
+    for meeting in meetings:
+        await dispatch_meeting(client, settings, meeting)
 
 
 async def run_forever(interval_s: int = 30) -> None:
-    """Poll for due meetings on a recurring interval, dispatching one at a time.
+    """Poll for due meetings on a recurring interval, dispatching a bot for each.
 
-    Builds the service-role Supabase client + settings once, holds a single-slot
-    SchedulerState, then loops run_once + sleep(interval_s). Each cycle is
-    guarded so one bad cycle can't kill the loop.
+    Builds the service-role Supabase client + settings once, then loops
+    run_once + sleep(interval_s). Each cycle is guarded so one bad cycle can't
+    kill the loop.
     """
     from stewardai.config import get_settings
     from stewardai.integrations.supabase_client import create_service_client
 
     settings = get_settings()
     client = await create_service_client(settings)
-    state = SchedulerState()
 
     _log.info("meeting_scheduler_started", interval_s=interval_s)
     while True:
         try:
-            await run_once(client, settings, state)
+            await run_once(client, settings)
         except Exception as exc:  # noqa: BLE001 — never let one cycle kill the loop
             _log.warning("meeting_scheduler_cycle_error", error=str(exc))
         await asyncio.sleep(interval_s)
