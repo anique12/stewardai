@@ -1,19 +1,17 @@
 import { InstantJoin } from "@/components/meetings/InstantJoin";
 import { MeetingRow } from "@/components/meetings/MeetingRow";
+import { requireUserPage } from "@/lib/auth-helpers";
 import { createServerClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 
 export const dynamic = "force-dynamic";
 
 export default async function AppPage() {
-  const supabase = createServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const service = createServiceClient();
+  const user = await requireUserPage();
+  const db = createServerClient(); // RLS-scoped reads
 
   // Check calendar connection
-  const { data: conn } = await service
+  const { data: conn } = await db
     .from("calendar_connections")
     .select("id")
     .eq("user_id", user.id)
@@ -37,15 +35,15 @@ export default async function AppPage() {
     );
   }
 
-  // Trigger calendar sync inline (fire-and-forget via internal import avoids HTTP round-trip)
-  // Import is dynamic to avoid blocking the page render on sync errors
+  // Trigger calendar sync inline (fire-and-forget)
   const { buildMeetingUpsert, fetchUpcomingEvents } = await import("@/lib/calendar");
-  const { data: calConn } = await service
+  const { data: calConn } = await db
     .from("calendar_connections")
     .select("google_refresh_token")
     .eq("user_id", user.id)
     .single();
   if (calConn) {
+    const service = createServiceClient(); // elevated: upsert may run without request cookies in the async tail
     fetchUpcomingEvents(calConn.google_refresh_token)
       .then((events) => {
         const rows = events.map((e) => buildMeetingUpsert(user.id, e));
@@ -60,14 +58,14 @@ export default async function AppPage() {
   }
 
   const now = new Date().toISOString();
-  const { data: upcoming } = await service
+  const { data: upcoming } = await db
     .from("meetings")
     .select("id,title,start_time,meet_url,opted_in,bot_status")
     .eq("user_id", user.id)
     .gte("start_time", now)
     .order("start_time");
 
-  const { data: past } = await service
+  const { data: past } = await db
     .from("meetings")
     .select("id,title,start_time,meet_url,opted_in,bot_status")
     .eq("user_id", user.id)
