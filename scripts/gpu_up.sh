@@ -26,8 +26,11 @@ echo "== 1/4  build the Vexa bot image (vexaai/vexa-bot:steward) =="
 docker build -f "$VEXA_DIR/services/vexa-bot/Dockerfile" \
   -t vexaai/vexa-bot:steward "$VEXA_DIR/services/vexa-bot"
 
-echo "== 2/4  bring up the Vexa stack =="
-( cd "$VEXA_DIR/deploy/compose" && docker compose up -d )
+echo "== 2/4  bring up the Vexa stack (its own Makefile — creates ~/vexa/.env, sets"
+echo "        IMAGE_TAG/BROWSER_IMAGE, pulls core images, inits DB, sets API key) =="
+# Use our freshly-built bot image (with the mic fix) instead of the DockerHub default.
+export BROWSER_IMAGE="vexaai/vexa-bot:steward"
+( cd "$VEXA_DIR" && make all )
 
 echo "== 3/4  activate venv + expose CUDA libs to CTranslate2 (faster-whisper) =="
 # shellcheck disable=SC1091
