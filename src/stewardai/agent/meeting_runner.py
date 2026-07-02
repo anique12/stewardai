@@ -574,12 +574,15 @@ class MeetingSession:
             tool_executor=self._tool_executor,
         )
 
-        async def _write_summary(trigger: str) -> None:
+        async def _write_summary(
+            trigger: str, transcript: list[str] | None = None
+        ) -> None:
             # Serialize: the "summarize" voice command and teardown can both call
             # this; the persist delete-then-insert must not interleave with itself.
             async with self._summary_lock:
                 with contextlib.suppress(Exception):
-                    transcript = self._transcript_for_output()
+                    if transcript is None:
+                        transcript = self._transcript_for_output()
                     summary = await asyncio.wait_for(
                         generate_summary(self._llm, transcript), timeout=15.0
                     )
@@ -791,8 +794,12 @@ class MeetingSession:
             with contextlib.suppress(asyncio.CancelledError):
                 await t
         # Best-effort summary backup (the "summarize" command trigger is reliable).
+        # Snapshot once so the summary's persisted transcript_segments.seq and the
+        # extraction's action source_seq index into the SAME list (see
+        # _transcript_for_output docstring: best-effort, can change across calls).
+        teardown_transcript = self._transcript_for_output()
         with contextlib.suppress(Exception):
-            await self._write_summary("shutdown")
+            await self._write_summary("shutdown", teardown_transcript)
         # Post-meeting action extraction (best-effort, guarded, timed out).
         if (
             self._composio is not None
@@ -805,7 +812,7 @@ class MeetingSession:
                 await asyncio.wait_for(
                     extract_post_meeting_actions(
                         self._llm,
-                        self._transcript_for_output(),
+                        teardown_transcript,
                         user_id=self.user_id,
                         meeting_id=self._meeting_uuid,
                         composio_service=self._composio,
