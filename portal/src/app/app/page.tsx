@@ -15,7 +15,7 @@ export default async function AppPage() {
     .from("calendar_connections")
     .select("id")
     .eq("user_id", user.id)
-    .single();
+    .maybeSingle();
 
   if (!conn) {
     return (
@@ -41,7 +41,7 @@ export default async function AppPage() {
     .from("calendar_connections")
     .select("google_refresh_token")
     .eq("user_id", user.id)
-    .single();
+    .maybeSingle();
   if (calConn) {
     const service = createServiceClient(); // elevated: upsert may run without request cookies in the async tail
     fetchUpcomingEvents(calConn.google_refresh_token)

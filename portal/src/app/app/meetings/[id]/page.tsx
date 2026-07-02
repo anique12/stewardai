@@ -25,7 +25,7 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
 
   const [{ data: segments }, { data: summary }, { data: actionItems }, { data: agentActions }] = await Promise.all([
     db.from("transcript_segments").select("*").eq("meeting_id", params.id).order("seq"),
-    db.from("summaries").select("*").eq("meeting_id", params.id).single(),
+    db.from("summaries").select("*").eq("meeting_id", params.id).maybeSingle(),
     db.from("action_items").select("*").eq("meeting_id", params.id).order("created_at"),
     db.from("agent_actions").select("*").eq("meeting_id", params.id).eq("user_id", user.id).order("created_at"),
   ]);

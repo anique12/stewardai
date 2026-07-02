@@ -18,7 +18,7 @@ such query carries a `user_id` (or ownership-join) filter.
 | `api/integrations/status` | `requireUserRoute` | RLS read + service upsert | `user_id` |
 | `api/integrations/[app]/connect` | `requireUserRoute` | service | `user_id` |
 | `api/integrations/[app]/disconnect` | `requireUserRoute` | service | `user_id` + ownership check |
-| `api/calendar/sync` | `requireUserRoute` | service | `user_id` |
+| `api/calendar/sync` | `requireUserRoute` | RLS read + service upsert | `user_id` |
 | `api/meetings/instant` | `requireUserRoute` | service | `user_id` |
 | `api/meetings/[id]/actions/[actionId]/approve` | `requireUserRoute` | service | ownership check |
 | `api/meetings/[id]/actions/[actionId]/dismiss` | `requireUserRoute` | service | ownership check |
