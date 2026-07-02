@@ -17,7 +17,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <a href="/app/settings/connections" className="text-muted-foreground hover:text-foreground">Connected Apps</a>
         </div>
       </nav>
-      <main className="mx-auto max-w-5xl px-6 py-10">{children}</main>
+      <main className="mx-auto max-w-7xl px-6 py-10">{children}</main>
     </div>
   );
 }

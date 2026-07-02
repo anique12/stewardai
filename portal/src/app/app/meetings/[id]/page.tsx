@@ -40,8 +40,16 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
         meetUrl={meeting.meet_url}
         botStatus={meeting.bot_status}
       />
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
-        <section className="order-2 min-w-0 lg:order-1">
+      <div className="grid gap-6 lg:grid-cols-[380px_minmax(0,1fr)]">
+        <aside className="lg:sticky lg:top-6 lg:max-h-[calc(100vh-6rem)] lg:self-start lg:overflow-y-auto">
+          <MeetingSummary
+            summary={summary ?? null}
+            actionItems={actionItems ?? []}
+            agentActions={agentActions ?? []}
+            meetingId={params.id}
+          />
+        </aside>
+        <section className="min-w-0">
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Timeline</h2>
           <MeetingTimeline
             segments={segments ?? []}
@@ -51,14 +59,6 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
             live={meeting.bot_status === "in_meeting"}
           />
         </section>
-        <aside className="order-1 lg:order-2 lg:sticky lg:top-6 lg:max-h-[calc(100vh-6rem)] lg:self-start lg:overflow-y-auto">
-          <MeetingSummary
-            summary={summary ?? null}
-            actionItems={actionItems ?? []}
-            agentActions={agentActions ?? []}
-            meetingId={params.id}
-          />
-        </aside>
       </div>
     </div>
   );
