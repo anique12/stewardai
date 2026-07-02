@@ -1,3 +1,4 @@
+import { requireUserRoute } from "@/lib/auth-helpers";
 import { createServerClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getComposio, SUPPORTED_TOOLKITS } from "@/lib/composio";
@@ -23,15 +24,11 @@ function localStatus(composioStatus: string | undefined): string {
 }
 
 export async function GET() {
-  const supabase = createServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const { user, response } = await requireUserRoute();
+  if (!user) return response;
 
-  const service = createServiceClient();
+  const db = createServerClient();     // RLS-scoped reads
+  const service = createServiceClient(); // elevated: reconcile upsert
 
   // Fetch all Composio connected accounts for this entity (user). The list
   // items carry `id`, `status`, and `toolkit.slug` (no userId echo — we filter
@@ -56,7 +53,7 @@ export async function GET() {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[integrations] status list failed:", message);
     // Fall through: return whatever our local table already has rather than 500.
-    const { data: existing } = await service
+    const { data: existing } = await db
       .from("connected_apps")
       .select("app,status,connected_account_id,connected_at,updated_at")
       .eq("user_id", user.id);
@@ -83,7 +80,7 @@ export async function GET() {
     .upsert(upserts, { onConflict: "user_id,app" });
 
   // Return current state from our table (only this user's rows).
-  const { data: rows } = await service
+  const { data: rows } = await db
     .from("connected_apps")
     .select("app,status,connected_account_id,connected_at,updated_at")
     .eq("user_id", user.id);
