@@ -28,6 +28,17 @@ docker build -f "$VEXA_DIR/services/vexa-bot/Dockerfile" \
 
 echo "== 2/4  bring up the Vexa stack (its own Makefile — creates ~/vexa/.env, sets"
 echo "        IMAGE_TAG/BROWSER_IMAGE, pulls core images, inits DB, sets API key) =="
+# Ensure ~/vexa/.env exists (env target creates it from the template, no preflight).
+( cd "$VEXA_DIR" && make -C deploy/compose env >/dev/null 2>&1 || true )
+# StewardAI bypasses Vexa's own transcription (our agent does STT via whisper), so
+# skip the transcription-token preflight with Vexa's CI escape hatch.
+if [ -f "$VEXA_DIR/.env" ]; then
+  if grep -q '^TRANSCRIPTION_SERVICE_TOKEN=' "$VEXA_DIR/.env"; then
+    sed -i 's|^TRANSCRIPTION_SERVICE_TOKEN=.*|TRANSCRIPTION_SERVICE_TOKEN=ci-placeholder|' "$VEXA_DIR/.env"
+  else
+    echo 'TRANSCRIPTION_SERVICE_TOKEN=ci-placeholder' >> "$VEXA_DIR/.env"
+  fi
+fi
 # Use our freshly-built bot image (with the mic fix) instead of the DockerHub default.
 export BROWSER_IMAGE="vexaai/vexa-bot:steward"
 ( cd "$VEXA_DIR" && make all )
