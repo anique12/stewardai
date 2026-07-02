@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
-import { Inter } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({
-  subsets: ["latin"],
-  display: "swap",
+// Self-hosted Inter (variable) — avoids a build-time Google Fonts fetch that
+// times out on slow/offline networks and left the site unstyled.
+const inter = localFont({
+  src: "./fonts/InterVariable.woff2",
   variable: "--font-sans",
+  weight: "100 900",
+  display: "swap",
 });
 
 const geistMono = localFont({
