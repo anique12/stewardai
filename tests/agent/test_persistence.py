@@ -113,8 +113,20 @@ async def test_action_items_due_coercion_and_skips():
 
     rows = _ops(client, "action_items", "insert")[0]["payload"]
     assert rows == [
-        {"meeting_id": UUID, "owner": "Alice", "task": "ship it", "due": "2026-07-05"},
-        {"meeting_id": UUID, "owner": "Unassigned", "task": "vague one", "due": None},
+        {
+            "meeting_id": UUID,
+            "owner": "Alice",
+            "task": "ship it",
+            "due": "2026-07-05",
+            "source_seq": None,
+        },
+        {
+            "meeting_id": UUID,
+            "owner": "Unassigned",
+            "task": "vague one",
+            "due": None,
+            "source_seq": None,
+        },
     ]
 
 
@@ -135,3 +147,16 @@ async def test_one_table_failure_does_not_block_others():
     await persist_meeting_artifacts(client, UUID, ["[A]: hi"], summary)
     assert len(_ops(client, "summaries", "upsert")) == 1
     assert len(_ops(client, "action_items", "insert")) == 1
+
+
+async def test_action_items_writes_source_seq():
+    client = _Client()
+    summary = {
+        "tldr": "t",
+        "action_items": [
+            {"owner": "Anique", "task": "send invite", "due": None, "source_line": 4}
+        ],
+    }
+    await persist_meeting_artifacts(client, UUID, ["[Anique]: send invite"], summary)
+    rows = _ops(client, "action_items", "insert")[0]["payload"]
+    assert rows[0]["source_seq"] == 4
