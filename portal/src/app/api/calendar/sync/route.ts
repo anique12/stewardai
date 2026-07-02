@@ -1,12 +1,11 @@
 import { buildMeetingUpsert, fetchUpcomingEvents } from "@/lib/calendar";
-import { createServerClient } from "@/lib/supabase/server";
+import { requireUserRoute } from "@/lib/auth-helpers";
 import { createServiceClient } from "@/lib/supabase/service";
 import { NextResponse } from "next/server";
 
 export async function GET() {
-  const supabase = createServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { user, response } = await requireUserRoute();
+  if (!user) return response;
 
   const service = createServiceClient();
   const { data: conn } = await service

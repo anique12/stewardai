@@ -1,4 +1,4 @@
-import { createServerClient } from "@/lib/supabase/server";
+import { requireUserRoute } from "@/lib/auth-helpers";
 import { createServiceClient } from "@/lib/supabase/service";
 import {
   getComposio,
@@ -11,12 +11,9 @@ export async function POST(
   _request: NextRequest,
   { params }: { params: { app: string } }
 ) {
-  const supabase = createServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user, response } = await requireUserRoute();
   if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return response;
   }
 
   const app = params.app as SupportedToolkit;
