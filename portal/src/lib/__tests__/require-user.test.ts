@@ -1,7 +1,7 @@
 import type { User } from "@supabase/supabase-js";
 
 const getUserMock = jest.fn();
-const redirectMock = jest.fn(() => {
+const redirectMock = jest.fn((..._args: unknown[]) => {
   throw new Error("REDIRECT");
 });
 
