@@ -26,35 +26,37 @@ export type AgentAction = {
 };
 
 export function ToolkitIcon({ toolkit }: { toolkit: string | null }) {
-  const cls = "h-5 w-5";
+  const cls = "h-4 w-4";
+  const wrap =
+    "flex h-6 w-6 items-center justify-center rounded-full bg-white p-0.5 ring-1 ring-border";
   switch (toolkit?.toLowerCase()) {
     case "gmail":
       return (
-        <span className="flex h-7 w-7 items-center justify-center rounded bg-white p-0.5">
+        <span className={wrap}>
           <GmailIcon className={cls} />
         </span>
       );
     case "googlecalendar":
       return (
-        <span className="flex h-7 w-7 items-center justify-center rounded bg-white p-0.5">
+        <span className={wrap}>
           <GoogleCalendarIcon className={cls} />
         </span>
       );
     case "notion":
       return (
-        <span className="flex h-7 w-7 items-center justify-center rounded bg-white p-0.5">
+        <span className={wrap}>
           <NotionIcon className={cls} />
         </span>
       );
     case "slack":
       return (
-        <span className="flex h-7 w-7 items-center justify-center rounded bg-white p-0.5">
+        <span className={wrap}>
           <SlackIcon className={cls} />
         </span>
       );
     default:
       return (
-        <span className="flex h-7 w-7 items-center justify-center rounded bg-muted text-muted-foreground text-xs">
+        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-muted-foreground text-xs">
           ?
         </span>
       );
@@ -95,10 +97,12 @@ export function ActionStepCard({
   action,
   meetingId,
   onMutate,
+  variant = "full",
 }: {
   action: AgentAction;
   meetingId: string;
   onMutate: () => void;
+  variant?: "full" | "compact";
 }) {
   const [editing, setEditing] = useState(false);
   const [editedArgs, setEditedArgs] = useState<Record<string, unknown>>(action.args ?? {});
@@ -131,6 +135,31 @@ export function ActionStepCard({
 
   const toolkit = action.toolkit ?? "";
   const slug = action.action_slug ?? "";
+
+  // Compact: status-focused, no payload / no slug subtitle / no edit — used inline
+  // under a timeline utterance. Title is smaller than the parent utterance text.
+  if (variant === "compact") {
+    return (
+      <div className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-3 py-2">
+        <ToolkitIcon toolkit={toolkit} />
+        <p className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
+          {action.title ?? slug ?? "Unnamed action"}
+        </p>
+        {action.state === "proposed" ? (
+          <div className="flex items-center gap-1.5">
+            <Button size="sm" className="h-6 px-2 text-xs" disabled={busy} onClick={handleApprove}>
+              Approve
+            </Button>
+            <Button size="sm" variant="outline" className="h-6 px-2 text-xs" disabled={busy} onClick={handleDismiss}>
+              Dismiss
+            </Button>
+          </div>
+        ) : (
+          <StateBadge state={action.state} />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-lg border border-border bg-card p-4 space-y-3">
