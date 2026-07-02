@@ -131,7 +131,9 @@ _EXTRACT_SYSTEM = (
     "  title: short human-readable description (e.g. 'Send recap to team')\n"
     "  action_slug: the exact 'name' of one of the AVAILABLE ACTIONS listed below\n"
     "  toolkit: that action's toolkit (e.g. 'gmail', 'googlecalendar')\n"
-    "  args: a JSON object whose keys/types match that action's params schema EXACTLY\n\n"
+    "  args: a JSON object whose keys/types match that action's params schema EXACTLY\n"
+    "  source_line: the 0-based index of the transcript line that motivated this "
+    "item (an integer shown as 'N:' at the start of each line below), or null if none\n\n"
     "Rules:\n"
     "- Only emit items you can map to one of the AVAILABLE ACTIONS (by its exact name). "
     "Skip anything you cannot map. Do NOT invent action names or arg keys.\n"
@@ -155,6 +157,17 @@ def _now_in_tz(tz: str) -> str:
         return datetime.now(ZoneInfo(tz)).isoformat(timespec="seconds")
     except Exception:  # noqa: BLE001 — bad/unknown tz → local time
         return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _coerce_source_line(value: Any) -> int | None:
+    """Accept an int or int-like string transcript index; else None."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().lstrip("-").isdigit():
+        return int(value.strip())
+    return None
 
 
 def _build_extraction_prompt(
@@ -186,7 +199,11 @@ def _build_extraction_prompt(
         if lines
         else "No actions available — respond with []."
     )
-    body = "\n".join(transcript) if transcript else "(no transcript captured)"
+    body = (
+        "\n".join(f"{i}: {line}" for i, line in enumerate(transcript))
+        if transcript
+        else "(no transcript captured)"
+    )
     return (
         f"Current date and time: {now_iso}\nUser timezone (IANA): {timezone}\n\n"
         f"{tools_text}\n\nTranscript:\n{body}"
@@ -331,6 +348,7 @@ async def extract_post_meeting_actions(
         else:
             state = "proposed"
 
+        src_line = _coerce_source_line(item.get("source_line"))
         row_id = await writer.insert(
             source=source,
             toolkit=toolkit,
@@ -339,6 +357,7 @@ async def extract_post_meeting_actions(
             risk=risk,
             title=title,
             state=state,
+            source_seq=src_line,
         )
         if row_id:
             written += 1

@@ -177,3 +177,23 @@ async def test_no_connected_toolkits_returns_zero():
     )
     assert count == 0
     writer.insert.assert_not_called()
+
+
+def test_extraction_prompt_numbers_transcript_lines():
+    from stewardai.agent.actions import _build_extraction_prompt
+    prompt = _build_extraction_prompt(
+        tools=[{"function": {"name": "GMAIL_SEND_EMAIL", "description": "d", "parameters": {}}}],
+        transcript=["[Anique]: do X", "[Sam]: ok"],
+        now_iso="2026-07-02T10:00:00",
+        timezone="UTC",
+    )
+    assert "0: [Anique]: do X" in prompt
+    assert "1: [Sam]: ok" in prompt
+
+
+def test_coerce_source_line():
+    from stewardai.agent.actions import _coerce_source_line
+    assert _coerce_source_line(3) == 3
+    assert _coerce_source_line("2") == 2
+    assert _coerce_source_line("nope") is None
+    assert _coerce_source_line(None) is None
