@@ -125,3 +125,35 @@ async def resolve_turn(
     if not said_result:
         # Never end a tool turn on just the ack — always confirm the outcome.
         yield "Okay, that's done."
+
+
+async def stream_with_slow_filler(
+    source: AsyncIterator[str], *, slow_filler_s: float = 0.0
+) -> AsyncIterator[str]:
+    """Wrap a plain text-delta stream with the SAME slow-reply filler as the gated path:
+    if the FIRST delta doesn't arrive within ``slow_filler_s``, speak one disfluent
+    filler (WITHOUT cancelling the stream), then yield the real deltas. 0 disables.
+
+    Lets the ungated / generic voice agent get 'no dead air on a slow reply' too, with
+    the identical fillers + threshold as ``resolve_turn``."""
+    aiter = source.__aiter__()
+    pending: asyncio.Task | None = None
+    filler_said = False
+    while True:
+        if pending is None:
+            pending = asyncio.ensure_future(aiter.__anext__())
+        if slow_filler_s > 0 and not filler_said:
+            done, _ = await asyncio.wait({pending}, timeout=slow_filler_s)
+            if not done:
+                filler_said = True
+                _log.info("slow_reply_filler", after_s=slow_filler_s)
+                yield random.choice(_SLOW_FILLERS)
+                continue
+        try:
+            delta = await pending
+        except StopAsyncIteration:
+            break
+        finally:
+            pending = None
+        if delta:
+            yield delta

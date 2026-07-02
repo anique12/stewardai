@@ -253,13 +253,30 @@ def build_llm_node(
                 if deltas:
                     _log.info("llm_done", backend=self._inner.name, deltas=deltas)
                 return
-            # ungated path (browser 1:1): stream complete() deltas as before
+            # ungated path (browser 1:1 / generic voice agent): stream complete() deltas
+            # WITH the same accuracy/UX wiring as the gated meeting agent — slow-reply
+            # filler, supersede guard, and LLM-error fallback (minus tool-calling/gating).
+            from stewardai.agent.tool_turn import stream_with_slow_filler
+            from stewardai.config import get_settings
+
             _log.info("llm_chat", backend=self._inner.name, messages=len(messages))
+            # Supersede guard: stamp this turn; stop emitting if a newer turn starts, so a
+            # slow/late reply is never spoken after the user has moved on.
+            self._steward_llm._turn_seq += 1
+            my_seq = self._steward_llm._turn_seq
+            # 1:1 voice: every user turn is directed at the agent, so always enable filler.
+            slow_filler_s = get_settings().slow_reply_filler_s
             n = 0
             try:
-                async for delta in self._inner.complete(
-                    messages, system=self._system, temperature=self._temperature
+                async for delta in stream_with_slow_filler(
+                    self._inner.complete(
+                        messages, system=self._system, temperature=self._temperature
+                    ),
+                    slow_filler_s=slow_filler_s,
                 ):
+                    if self._steward_llm._turn_seq != my_seq:
+                        _log.info("turn_superseded", backend=self._inner.name, deltas=n)
+                        return
                     if not delta:
                         continue
                     n += 1
@@ -268,9 +285,14 @@ def build_llm_node(
                 # Expected on barge-in: the user started a new turn mid-generation.
                 _log.info("llm_cancelled", backend=self._inner.name, deltas=n)
                 raise
-            except Exception as exc:  # noqa: BLE001 - surface, don't swallow
+            except Exception as exc:  # noqa: BLE001 - speak a fallback, don't wedge/silent
                 _log.warning("llm_error", backend=self._inner.name, deltas=n, error=str(exc))
-                raise
+                if n == 0:
+                    self._event_ch.send_nowait(
+                        _make_chat_chunk(lk_llm, request_id, _LLM_ERROR_FALLBACK)
+                    )
+                    _log.info("llm_error_fallback_spoken", backend=self._inner.name)
+                return
             else:
                 _log.info("llm_done", backend=self._inner.name, deltas=n)
 

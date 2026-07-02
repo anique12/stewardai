@@ -10,7 +10,12 @@ from __future__ import annotations
 
 import asyncio
 
-from stewardai.agent.tool_turn import _ACTION_ACK, _SLOW_FILLERS, resolve_turn
+from stewardai.agent.tool_turn import (
+    _ACTION_ACK,
+    _SLOW_FILLERS,
+    resolve_turn,
+    stream_with_slow_filler,
+)
 
 
 async def _collect(gen) -> list:  # noqa: ANN001
@@ -175,3 +180,48 @@ async def test_slow_action_filler_replaces_the_ack():
     assert out[0] in _SLOW_FILLERS
     assert _ACTION_ACK not in out            # filler replaced the ack (no double)
     assert "Done." in "".join(out)
+
+
+# --- stream_with_slow_filler (ungated / generic voice agent path) --------------------
+
+
+async def _delta_stream(delay: float, deltas: tuple):  # noqa: ANN202
+    """A plain text-delta async stream that waits ``delay`` before its first delta."""
+    await asyncio.sleep(delay)
+    for d in deltas:
+        yield d
+
+
+async def test_stream_filler_fires_on_a_slow_first_delta_then_streams_the_reply():
+    out = await _collect(
+        stream_with_slow_filler(_delta_stream(0.05, ("Here ", "you ", "go.")), slow_filler_s=0.01)
+    )
+    assert out[0] in _SLOW_FILLERS              # slow first delta -> filler spoken first
+    assert "".join(out[1:]) == "Here you go."   # real deltas still stream after
+
+
+async def test_stream_fast_reply_gets_no_filler():
+    out = await _collect(
+        stream_with_slow_filler(_delta_stream(0.0, ("Quick.",)), slow_filler_s=0.5)
+    )
+    assert out == ["Quick."]                    # beat the timer -> no filler
+
+
+async def test_stream_filler_disabled_when_zero():
+    out = await _collect(
+        stream_with_slow_filler(_delta_stream(0.05, ("Answer.",)), slow_filler_s=0.0)
+    )
+    assert out == ["Answer."]                   # disabled even though slow
+
+
+async def test_stream_filler_fires_at_most_once():
+    # Two slow gaps, but only the FIRST should trigger a filler (not one per gap).
+    async def gappy():  # noqa: ANN202
+        await asyncio.sleep(0.03)
+        yield "a"
+        await asyncio.sleep(0.03)
+        yield "b"
+
+    out = await _collect(stream_with_slow_filler(gappy(), slow_filler_s=0.01))
+    assert sum(1 for c in out if c in _SLOW_FILLERS) == 1
+    assert "".join(c for c in out if c not in _SLOW_FILLERS) == "ab"
