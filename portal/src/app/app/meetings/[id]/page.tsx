@@ -40,7 +40,7 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
         meetUrl={meeting.meet_url}
         botStatus={meeting.bot_status}
       />
-      <div className="grid gap-6 lg:grid-cols-[380px_minmax(0,1fr)]">
+      <div className="grid gap-8 lg:grid-cols-[380px_minmax(0,1fr)] lg:gap-12">
         <aside className="lg:sticky lg:top-6 lg:max-h-[calc(100vh-6rem)] lg:self-start lg:overflow-y-auto">
           <MeetingSummary
             summary={summary ?? null}
