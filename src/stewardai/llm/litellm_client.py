@@ -79,6 +79,14 @@ class LiteLLMClient:
         if self._s.gemini_api_key:
             os.environ.setdefault("GEMINI_API_KEY", self._s.gemini_api_key)
         self.model = self._s.resolved_llm_model
+        # Cross-provider fallbacks (None when unset): litellm tries these in order when
+        # the primary errors — chiefly Gemini's 503 "model overloaded". Each provider
+        # needs its own key in env (ANTHROPIC_API_KEY / GROQ_API_KEY / ...).
+        self._fallbacks = self._s.resolved_llm_fallbacks or None
+        if self._fallbacks:
+            _log.info(
+                "llm_fallbacks_configured", primary=self.model, fallbacks=self._fallbacks
+            )
 
     async def complete(
         self, messages: list[Message], *, system: str | None = None, temperature: float = 0.4
@@ -96,6 +104,7 @@ class LiteLLMClient:
             stream=True,
             temperature=temperature,
             timeout=self._s.llm_timeout_s,  # backstop against a silently hung stream
+            fallbacks=self._fallbacks,
         )
         async for chunk in response:
             delta = chunk.choices[0].delta.content
@@ -125,6 +134,7 @@ class LiteLLMClient:
         resp = await litellm.acompletion(
             model=self.model, messages=payload, tools=tools,
             tool_choice="required", temperature=0.0, timeout=self._s.llm_timeout_s,
+            fallbacks=self._fallbacks,
             # Gemini connections occasionally fail instantly (an httpx pool blip that
             # litellm surfaces as a 0.002s "Timeout"); a couple of retries rides over
             # it so one bad turn doesn't go silent. The gated node also swallows a
@@ -168,7 +178,7 @@ class LiteLLMClient:
         )
         resp = await litellm.acompletion(
             model=self.model, messages=payload, temperature=0.2,
-            timeout=self._s.llm_timeout_s, num_retries=2,
+            timeout=self._s.llm_timeout_s, num_retries=2, fallbacks=self._fallbacks,
         )
         text = (resp.choices[0].message.content or "").strip()
         _log.info("llm_phrase_result", backend=self.name, slug=slug, chars=len(text))
@@ -196,6 +206,7 @@ class LiteLLMClient:
         response = await litellm.acompletion(
             model=self.model, messages=payload, tools=tools, tool_choice="auto",
             temperature=0.0, timeout=self._s.llm_timeout_s, num_retries=2, stream=True,
+            fallbacks=self._fallbacks,
         )
         tool_acc: dict[int, dict] = {}  # streamed tool-call deltas, by index
         text_chars = 0

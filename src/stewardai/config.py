@@ -80,6 +80,13 @@ class Settings(BaseSettings):
     # (measured: ~0.5s warm vs ~5-8s cold). 0 disables. Does NOT fix Gemini's inherent
     # per-call variance — only the cold-start spikes.
     llm_keepalive_s: float = 20.0
+    # Cross-provider fallback: comma-separated litellm model ids tried IN ORDER when the
+    # primary model errors — mainly Gemini's server-side 503 "model overloaded" (a global
+    # capacity issue that paid tier does NOT fix). Falling back to a DIFFERENT provider
+    # (not overloaded at the same instant) beats retrying into the same pool. Each needs
+    # its key in env (ANTHROPIC_API_KEY / GROQ_API_KEY / ...). Empty = no fallback.
+    # e.g. "claude-haiku-4-5-20251001" or "groq/llama-3.3-70b-versatile"
+    llm_fallback_models: str = ""
 
     # Bridge
     bridge_transport: Literal["tcp", "unix"] = "tcp"
@@ -189,6 +196,12 @@ class Settings(BaseSettings):
             return self.llm_model
         m = self.gemini_model.strip()
         return m if "/" in m else f"gemini/{m}"
+
+    @property
+    def resolved_llm_fallbacks(self) -> list[str]:
+        """Fallback litellm model ids (from llm_fallback_models), in order. Empty list
+        when unset -> no fallback."""
+        return [m.strip() for m in self.llm_fallback_models.split(",") if m.strip()]
 
 
 @lru_cache
