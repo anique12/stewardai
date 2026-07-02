@@ -32,16 +32,18 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
   const botName = profile?.bot_name ?? "StewardAI";
 
   return (
-    <div className="space-y-6">
-      <MeetingHeader
-        title={meeting.title}
-        startTime={meeting.start_time}
-        endTime={meeting.end_time}
-        meetUrl={meeting.meet_url}
-        botStatus={meeting.bot_status}
-      />
-      <div className="grid gap-8 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:gap-12">
-        <section className="min-w-0">
+    <div className="flex flex-col gap-6 lg:h-full">
+      <div className="shrink-0">
+        <MeetingHeader
+          title={meeting.title}
+          startTime={meeting.start_time}
+          endTime={meeting.end_time}
+          meetUrl={meeting.meet_url}
+          botStatus={meeting.bot_status}
+        />
+      </div>
+      <div className="grid gap-8 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:gap-12">
+        <section className="min-w-0 lg:min-h-0 lg:overflow-y-auto lg:pr-2">
           <MeetingSummary
             summary={summary ?? null}
             actionItems={actionItems ?? []}
@@ -49,15 +51,17 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
             meetingId={params.id}
           />
         </section>
-        <aside className="min-w-0 lg:sticky lg:top-6 lg:max-h-[calc(100vh-6rem)] lg:self-start lg:overflow-y-auto">
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Transcript</h2>
-          <MeetingTimeline
-            segments={segments ?? []}
-            actions={agentActions ?? []}
-            meetingId={params.id}
-            botName={botName}
-            live={meeting.bot_status === "in_meeting"}
-          />
+        <aside className="flex min-w-0 flex-col lg:min-h-0">
+          <h2 className="mb-3 shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Transcript</h2>
+          <div className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-2">
+            <MeetingTimeline
+              segments={segments ?? []}
+              actions={agentActions ?? []}
+              meetingId={params.id}
+              botName={botName}
+              live={meeting.bot_status === "in_meeting"}
+            />
+          </div>
         </aside>
       </div>
     </div>

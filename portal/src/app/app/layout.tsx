@@ -7,9 +7,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/");
   return (
-    <div className="min-h-screen bg-background">
+    <div className="flex h-screen flex-col bg-background">
       <TimezoneSync />
-      <nav className="border-b border-border px-6 py-3 flex items-center justify-between">
+      <nav className="flex shrink-0 items-center justify-between border-b border-border px-6 py-3">
         <span className="font-bold text-foreground">StewardAI</span>
         <div className="flex items-center gap-4 text-sm">
           <a href="/app" className="text-muted-foreground hover:text-foreground">Meetings</a>
@@ -17,7 +17,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <a href="/app/settings/connections" className="text-muted-foreground hover:text-foreground">Connected Apps</a>
         </div>
       </nav>
-      <main className="w-full px-6 py-10 lg:px-10">{children}</main>
+      <main className="min-h-0 w-full flex-1 overflow-y-auto px-6 py-10 lg:px-10">{children}</main>
     </div>
   );
 }
