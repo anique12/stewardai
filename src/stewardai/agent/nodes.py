@@ -178,6 +178,7 @@ def build_llm_node(
             super().__init__(
                 llm, chat_ctx=chat_ctx, tools=tools or [], conn_options=conn_options
             )
+            self._steward_llm = llm  # shared plugin instance (holds the turn counter)
             self._inner = inner
             self._system = system
             self._temperature = temperature
@@ -192,19 +193,35 @@ def build_llm_node(
                 from stewardai.agent.tool_turn import resolve_turn
 
                 deltas = 0
-                # Was the bot directly addressed this turn? (only used if the LLM fails)
+                # Was the bot directly addressed this turn? Used for the LLM-error
+                # fallback AND to gate the slow-reply filler (never blurt on ambient).
                 addressed = _addressed_by_name(self._system, messages)
+                # Supersede guard: stamp this turn. If a NEWER user turn starts (bumps
+                # the shared counter), stop emitting — a slow/late reply is never spoken
+                # after the user has already moved on.
+                self._steward_llm._turn_seq += 1
+                my_seq = self._steward_llm._turn_seq
+                from stewardai.config import get_settings
+
+                slow_filler_s = get_settings().slow_reply_filler_s if addressed else 0.0
                 try:
-                    # Gate + (optionally) run a live Composio action. Streams chunks:
-                    # a short "one moment" ack is yielded FIRST (spoken while the tool
-                    # runs), then the result — so an action turn has no dead air.
+                    # Gate + (optionally) run a live Composio action. Streams chunks: a
+                    # short "one moment" ack for a tool run, or a disfluent filler if the
+                    # model is slow — so a tool/overloaded turn is never dead air.
                     async for chunk in resolve_turn(
                         self._inner,
                         messages,
                         system=self._system,
                         action_tools=self._action_tools,
                         executor=self._tool_executor,
+                        slow_filler_s=slow_filler_s,
                     ):
+                        if self._steward_llm._turn_seq != my_seq:
+                            # A newer turn began — this reply is stale; drop it.
+                            _log.info(
+                                "turn_superseded", backend=self._inner.name, deltas=deltas
+                            )
+                            return
                         if chunk:
                             self._event_ch.send_nowait(
                                 _make_chat_chunk(lk_llm, request_id, chunk)
@@ -271,6 +288,9 @@ def build_llm_node(
             self._gated = gated
             self._action_tools = action_tools
             self._tool_executor = tool_executor
+            # Monotonic per-session turn counter; each turn's stream stamps itself and
+            # stops emitting if a newer turn bumps this (supersede guard).
+            self._turn_seq = 0
 
         def chat(
             self,

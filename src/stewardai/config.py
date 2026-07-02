@@ -87,6 +87,11 @@ class Settings(BaseSettings):
     # its key in env (ANTHROPIC_API_KEY / GROQ_API_KEY / ...). Empty = no fallback.
     # e.g. "claude-haiku-4-5-20251001" or "groq/llama-3.3-70b-versatile"
     llm_fallback_models: str = ""
+    # If the model produces no output within this many seconds on a turn the bot was
+    # directly addressed on, speak a short disfluent filler ("Hmm, let me see...") so a
+    # slow/overloaded reply isn't dead air. Measured from decide-start (after EOU), so
+    # ~this + EOU after the user stops. 0 disables. Only fires on addressed turns.
+    slow_reply_filler_s: float = 2.0
 
     # Bridge
     bridge_transport: Literal["tcp", "unix"] = "tcp"

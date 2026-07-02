@@ -8,7 +8,9 @@ confirmation (never end on just the ack).
 
 from __future__ import annotations
 
-from stewardai.agent.tool_turn import _ACTION_ACK, resolve_turn
+import asyncio
+
+from stewardai.agent.tool_turn import _ACTION_ACK, _SLOW_FILLERS, resolve_turn
 
 
 async def _collect(gen) -> list:  # noqa: ANN001
@@ -119,3 +121,57 @@ async def test_action_empty_result_falls_back_to_confirmation():
     )
     assert out[0] == _ACTION_ACK
     assert "done" in "".join(out).lower()  # fallback confirmation spoken
+
+
+class _SlowLLM:
+    """decide_stream that waits ``delay`` before yielding its (scripted) events."""
+
+    def __init__(self, delay: float, events: list, phrase_words: tuple = ("Done.",)) -> None:
+        self._delay = delay
+        self._events = events
+        self._phrase_words = phrase_words
+
+    async def decide_stream(self, messages, *, system=None, action_tools=None):  # noqa: ANN001
+        await asyncio.sleep(self._delay)
+        for ev in self._events:
+            yield ev
+
+    async def phrase_result_stream(self, messages, *, system=None, slug=None, result=None):  # noqa: ANN001
+        for w in self._phrase_words:
+            if w:
+                yield w + " "
+
+
+async def test_slow_reply_speaks_a_filler_first_then_the_real_reply():
+    llm = _SlowLLM(delay=0.05, events=[("text", "Here is the answer.")])
+    out = await _collect(resolve_turn(llm, [], system="s", slow_filler_s=0.01))
+    assert out[0] in _SLOW_FILLERS                       # slow -> filler spoken first
+    assert "".join(out[1:]) == "Here is the answer."      # real reply still follows
+
+
+async def test_fast_reply_gets_no_filler():
+    llm = _SlowLLM(delay=0.0, events=[("text", "Quick.")])
+    out = await _collect(resolve_turn(llm, [], system="s", slow_filler_s=0.5))
+    assert out == ["Quick."]                              # beat the timer -> no filler
+
+
+async def test_filler_disabled_by_default():
+    llm = _SlowLLM(delay=0.05, events=[("text", "Answer.")])
+    out = await _collect(resolve_turn(llm, [], system="s"))  # slow_filler_s defaults to 0
+    assert out == ["Answer."]                             # no filler even though slow
+
+
+async def test_slow_action_filler_replaces_the_ack():
+    # Slow to first event AND it's an action: the filler fires, and the action path must
+    # NOT add a SECOND ack — just the filler, then the result.
+    llm = _SlowLLM(delay=0.05, events=[("action", "X", {})], phrase_words=("Done.",))
+
+    async def executor(slug, args):  # noqa: ANN001
+        return {"ok": True}
+
+    out = await _collect(
+        resolve_turn(llm, [], system="s", action_tools=[{}], executor=executor, slow_filler_s=0.01)
+    )
+    assert out[0] in _SLOW_FILLERS
+    assert _ACTION_ACK not in out            # filler replaced the ack (no double)
+    assert "Done." in "".join(out)

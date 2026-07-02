@@ -16,6 +16,7 @@ and returns the raw result; the runner supplies it (it holds composio + user + t
 from __future__ import annotations
 
 import asyncio
+import random
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
@@ -28,6 +29,16 @@ _log = get_logger("agent.tool_turn")
 # flushes/speaks it right away (before the result chunk arrives).
 _ACTION_ACK = "One moment."
 
+# Rotated, deliberately DISFLUENT fillers spoken when the model is slow to first output
+# (e.g. Gemini overloaded) so a slow turn isn't dead air. The "Hmm/Umm" + ellipsis make
+# the TTS render a natural, thinking cadence (no SSML needed). Varied so it isn't robotic.
+_SLOW_FILLERS = (
+    "Hmm, let me see...",
+    "Umm, one moment...",
+    "Let me think...",
+    "Okay, just a sec...",
+)
+
 
 async def resolve_turn(
     llm: Any,
@@ -36,16 +47,46 @@ async def resolve_turn(
     system: str | None = None,
     action_tools: list | None = None,
     executor: Callable[[str, dict], Awaitable[dict]] | None = None,
+    slow_filler_s: float = 0.0,
 ) -> AsyncIterator[str]:
     """Stream the text chunk(s) to speak this turn (nothing = stay silent).
 
     One streaming gate call: the model streams spoken text (→ TTS starts on the first
     sentence), calls stay_silent (→ nothing), or calls an action tool. On an action we
     ALWAYS speak: an ack (unless the model already gave a spoken preamble), then the
-    streamed result — with a fallback confirmation so a tool turn never ends silent."""
-    spoke = False          # did the model stream any spoken text?
+    streamed result — with a fallback confirmation so a tool turn never ends silent.
+
+    ``slow_filler_s`` > 0: if the model produces no output within that many seconds,
+    speak one short disfluent filler ("Hmm, let me see...") so a slow/overloaded turn
+    isn't dead air. It does NOT cancel the in-flight call — the real reply streams after.
+    Pass 0 to disable; the caller passes 0 on turns the bot wasn't addressed on, so an
+    overloaded AMBIENT turn never blurts a filler."""
+    spoke = False          # did the model stream any spoken text (or a filler)?
     action: tuple[str, dict] | None = None
-    async for ev in llm.decide_stream(messages, system=system, action_tools=action_tools):
+    filler_said = False
+    aiter = llm.decide_stream(
+        messages, system=system, action_tools=action_tools
+    ).__aiter__()
+    pending: asyncio.Task | None = None
+    while True:
+        if pending is None:
+            pending = asyncio.ensure_future(aiter.__anext__())
+        # Before ANY output, wait up to slow_filler_s for the first event; if it's slow,
+        # speak one filler (WITHOUT cancelling the call) and keep waiting for the reply.
+        if slow_filler_s > 0 and not spoke and action is None and not filler_said:
+            done, _ = await asyncio.wait({pending}, timeout=slow_filler_s)
+            if not done:
+                filler_said = True
+                spoke = True  # so the action path below won't add a SECOND ack
+                _log.info("slow_reply_filler", after_s=slow_filler_s)
+                yield random.choice(_SLOW_FILLERS)
+                continue
+        try:
+            ev = await pending
+        except StopAsyncIteration:
+            break
+        finally:
+            pending = None
         if ev[0] == "text":
             if ev[1]:
                 spoke = True
