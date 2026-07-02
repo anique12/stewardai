@@ -118,6 +118,27 @@ class AgentActionsWriter:
                 "agent_actions_update_state_failed", row_id=row_id, state=state
             )
 
+    async def existing_action_keys(self) -> set[tuple[str, str]]:
+        """(action_slug, canonical-args-json) for rows already stored for this
+        meeting — used to skip re-proposing actions already inserted live."""
+        keys: set[tuple[str, str]] = set()
+        try:
+            resp = await (
+                self._client.table("agent_actions")
+                .select("action_slug,args")
+                .eq("meeting_id", self._meeting_id)
+                .execute()
+            )
+            for r in resp.data or []:
+                slug = r.get("action_slug")
+                if not slug:
+                    continue
+                canon = json.dumps(r.get("args") or {}, sort_keys=True, separators=(",", ":"))
+                keys.add((slug, canon))
+        except Exception:
+            _log.exception("agent_actions_existing_keys_failed")
+        return keys
+
 
 # ---------------------------------------------------------------------------
 # Post-meeting extraction prompt
@@ -316,6 +337,8 @@ async def extract_post_meeting_actions(
         if isinstance(t, dict) and (t.get("function") or {}).get("name")
     )
 
+    existing_keys = await writer.existing_action_keys()
+
     written = 0
     for item in items:
         if not isinstance(item, dict):
@@ -335,6 +358,11 @@ async def extract_post_meeting_actions(
             _log.debug(
                 "post_meeting_extract_slug_skipped", slug=slug
             )
+            continue
+
+        canon_args = json.dumps(args or {}, sort_keys=True, separators=(",", ":"))
+        if (slug, canon_args) in existing_keys:
+            _log.debug("post_meeting_extract_dedup_skipped", slug=slug)
             continue
 
         try:
