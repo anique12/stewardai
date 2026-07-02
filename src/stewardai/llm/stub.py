@@ -21,8 +21,30 @@ class StubLLM:
         for word in reply.split():
             yield word + " "
 
-    async def decide(self, messages: list[Message], *, system: str | None = None) -> Decision:  # noqa: ANN001
+    async def decide(  # noqa: ANN001
+        self, messages: list[Message], *, system: str | None = None, action_tools=None
+    ) -> Decision:
         return self.next_decision or Decision(speak=False)
+
+    async def phrase_result(  # noqa: ANN001
+        self, messages: list[Message], *, system=None, slug=None, result=None
+    ) -> str:
+        return f"Done: {slug}."
+
+    async def decide_stream(self, messages, *, system=None, action_tools=None):  # noqa: ANN001
+        """Translate next_decision into the streaming event protocol used by
+        tool_turn.resolve_turn: ('text', delta) / ('action', slug, args) / nothing."""
+        d = self.next_decision or Decision(speak=False)
+        if not d.speak:
+            return
+        if d.action_slug:
+            yield ("action", d.action_slug, d.action_args or {})
+            return
+        if d.text:
+            yield ("text", d.text)
+
+    async def phrase_result_stream(self, messages, *, system=None, slug=None, result=None):  # noqa: ANN001
+        yield f"Done: {slug}."
 
     async def aclose(self) -> None:
         return None

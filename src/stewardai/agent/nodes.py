@@ -148,6 +148,8 @@ def build_llm_node(
     system: str | None = None,
     temperature: float = 0.4,
     gated: bool = False,
+    action_tools=None,  # noqa: ANN001 - OpenAI-format Composio tool schemas (gated live actions)
+    tool_executor=None,  # noqa: ANN001 - async (slug, args) -> result dict
 ):
     """Return a ``livekit.agents.llm.LLM`` instance wrapping ``backend``.
 
@@ -170,7 +172,8 @@ def build_llm_node(
         """Streams ``backend.complete`` deltas as ``ChatChunk`` events."""
 
         def __init__(  # noqa: ANN001
-            self, llm, *, chat_ctx, tools, conn_options, inner, system, temperature, gated
+            self, llm, *, chat_ctx, tools, conn_options, inner, system, temperature,
+            gated, action_tools, tool_executor
         ):
             super().__init__(
                 llm, chat_ctx=chat_ctx, tools=tools or [], conn_options=conn_options
@@ -179,18 +182,48 @@ def build_llm_node(
             self._system = system
             self._temperature = temperature
             self._gated = gated
+            self._action_tools = action_tools
+            self._tool_executor = tool_executor
 
         async def _run(self) -> None:
             messages = _chat_ctx_to_messages(self._chat_ctx)
             request_id = _gen_id()
             if self._gated:
-                decision = await self._inner.decide(messages, system=self._system)
-                _log.info("llm_gated_decide", backend=self._inner.name, speak=decision.speak)
-                if not decision.speak:
-                    return  # emit no deltas -> AgentSession stays silent
-                if decision.text:
-                    self._event_ch.send_nowait(_make_chat_chunk(lk_llm, request_id, decision.text))
-                _log.info("llm_done", backend=self._inner.name, deltas=1)
+                from stewardai.agent.tool_turn import resolve_turn
+
+                deltas = 0
+                try:
+                    # Gate + (optionally) run a live Composio action. Streams chunks:
+                    # a short "one moment" ack is yielded FIRST (spoken while the tool
+                    # runs), then the result — so an action turn has no dead air.
+                    async for chunk in resolve_turn(
+                        self._inner,
+                        messages,
+                        system=self._system,
+                        action_tools=self._action_tools,
+                        executor=self._tool_executor,
+                    ):
+                        if chunk:
+                            self._event_ch.send_nowait(
+                                _make_chat_chunk(lk_llm, request_id, chunk)
+                            )
+                            deltas += 1
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001 - a transient LLM failure must
+                    # NOT wedge the session. If decide()/action raises (e.g. a Gemini
+                    # connection blip surfaced as litellm.Timeout), an uncaught exception
+                    # here leaves the AgentSession stuck ("speech scheduling is paused"),
+                    # which skips all further user input and FREEZES the transcript.
+                    # Swallow it: stay silent this turn so the turn completes cleanly.
+                    _log.warning(
+                        "llm_gated_decide_failed",
+                        backend=self._inner.name,
+                        error=str(exc),
+                    )
+                    return
+                if deltas:
+                    _log.info("llm_done", backend=self._inner.name, deltas=deltas)
                 return
             # ungated path (browser 1:1): stream complete() deltas as before
             _log.info("llm_chat", backend=self._inner.name, messages=len(messages))
@@ -217,13 +250,16 @@ def build_llm_node(
         """LLM adapter for our ``LLMBackend``."""
 
         def __init__(
-            self, inner: LLMBackend, system: str | None, temperature: float, gated: bool
+            self, inner: LLMBackend, system: str | None, temperature: float, gated: bool,
+            action_tools=None, tool_executor=None,  # noqa: ANN001
         ) -> None:
             super().__init__()
             self._inner = inner
             self._system = system
             self._temperature = temperature
             self._gated = gated
+            self._action_tools = action_tools
+            self._tool_executor = tool_executor
 
         def chat(
             self,
@@ -248,12 +284,14 @@ def build_llm_node(
                 system=self._system,
                 temperature=self._temperature,
                 gated=self._gated,
+                action_tools=self._action_tools,
+                tool_executor=self._tool_executor,
             )
 
         async def aclose(self) -> None:  # type: ignore[override]
             await self._inner.aclose()
 
-    return StewardLLM(backend, system, temperature, gated)
+    return StewardLLM(backend, system, temperature, gated, action_tools, tool_executor)
 
 
 def _chat_ctx_to_messages(chat_ctx) -> list[Message]:  # noqa: ANN001

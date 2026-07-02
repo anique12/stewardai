@@ -29,6 +29,10 @@ from stewardai.config import Settings, get_settings
 
 _log = get_logger("agent.meeting_runner")
 
+# Separator between the stable speaker id and the display name inside a per-speaker
+# frame key ("<id>\x1f<name>"); mirrors transport/DeepgramSpeakerTranscriber.
+_SPEAKER_KEY_SEP = "\x1f"
+
 
 async def _pump_paced(audio_out, conn: MeetingConnection) -> None:  # noqa: ANN001
     """Drain the paced output and stream each frame to the bot at ~real time.
@@ -36,9 +40,24 @@ async def _pump_paced(audio_out, conn: MeetingConnection) -> None:  # noqa: ANN0
     Sends each AudioFrame's PCM via the connection's send() (a ``0x00`` PCM frame
     back on the same socket that delivers inbound meeting audio). Pacing is
     self-determined by each frame's own sample_rate.
+
+    Emits ``tts_pump`` (first frame + periodic) / ``tts_pump_end`` so the
+    outbound audio path (agent → bot playback) is observable — without it a
+    silent bot is indistinguishable from "TTS never produced audio", "the pump
+    never ran", and "the bot never played it".
     """
-    async for frame in audio_out.paced_frames():
-        await conn.send(frame.pcm)
+    mid = getattr(conn, "meeting_id", "?")
+    total = 0
+    frames = 0
+    try:
+        async for frame in audio_out.paced_frames():
+            await conn.send(frame.pcm)
+            total += len(frame.pcm)
+            frames += 1
+            if frames == 1 or frames % 50 == 0:
+                _log.info("tts_pump", meeting=mid, frames=frames, bytes=total)
+    finally:
+        _log.info("tts_pump_end", meeting=mid, frames=frames, bytes=total)
 
 
 async def _feed_inbound(conn: MeetingConnection, audio_in, on_first_frame=None) -> None:  # noqa: ANN001
@@ -146,8 +165,34 @@ class MeetingSession:
         self._supabase = supabase_client
 
         self._mid = str(meeting_id)
+        # Supabase meetings.id (UUID). self._mid is the Vexa int id, but the portal
+        # keys transcript_segments/summaries/action_items/agent_actions on the UUID.
+        # Resolved in build() before we write anything Supabase-side.
+        self._meeting_uuid: str | None = None
+        # Per-meeting STT keyterms (attendee names + domain terms) from the calendar
+        # sync; fed to the Deepgram per-speaker transcriber. Empty if none / no column.
+        self._meeting_keyterms: list[str] = []
+        # Label for Steward's own spoken lines in the transcript (the owner's
+        # configured bot display name; resolved in build(), defaults to "Steward").
+        self._bot_label: str = "Steward"
+        # Owner's IANA timezone (profiles.timezone) so calendar actions use their
+        # LOCAL time, not UTC. Resolved in build(); defaults to UTC if unset.
+        self._user_timezone: str = "UTC"
         self._transcript: list[str] = []
+        # Attributed transcript built by the per-speaker path (real speaker names).
+        # Preferred over _transcript for persistence/summary when populated.
+        self._attributed_transcript: list[str] = []
+        # Monotonic seq for LIVE transcript_segments inserts, shared across human
+        # turns (combined STT recorder) and Steward's own lines, so the portal shows
+        # them in order. Live persistence rides the RELIABLE combined transcript, not
+        # the best-effort per-speaker path (which may produce nothing).
+        self._live_seq: int = 0
+        self._per_speaker = None
         self._actions_writer = None
+        # Live tool-calling: Composio action schemas offered to the gated decide, and
+        # the executor that runs a chosen action. None when Composio is off/blocked.
+        self._action_tools = None
+        self._tool_executor = None
         self._session = None
         self._agent = None
         self._audio_in = None
@@ -155,10 +200,24 @@ class MeetingSession:
         self._control: RedisControl | None = None
         self._speaker_sub = None
         self._tasks: list[asyncio.Task] = []
+        # Serializes _write_summary (voice-command trigger vs teardown) so the
+        # persist delete-then-insert can never interleave with itself.
+        self._summary_lock = asyncio.Lock()
 
     def rebind(self, conn: MeetingConnection) -> None:
         """Swap this session onto a new bot connection (reconnect)."""
         self._conn = conn
+
+    def _transcript_for_output(self) -> list[str]:
+        """Transcript for persistence + summary. Prefer the per-speaker attributed
+        transcript (real names) ONLY when it is at least as complete as the combined
+        one. The per-speaker path is best-effort and can produce nothing (or just a
+        stray bot line): if we blindly preferred it, one attributed line would shadow
+        the full combined conversation and the summary/final persist would drop every
+        human turn (observed live: teardown wrote a single segment)."""
+        if len(self._attributed_transcript) >= len(self._transcript):
+            return self._attributed_transcript
+        return self._transcript
 
     async def _set_bot_status(self, status: str) -> None:
         """Best-effort meetings.bot_status writeback keyed by native_meeting_id.
@@ -206,11 +265,213 @@ class MeetingSession:
                 error=str(exc),
             )
 
+    async def _resolve_meeting_uuid(self) -> None:
+        """Resolve + cache the Supabase meetings.id (UUID) for this meeting.
+
+        self._mid is the Vexa int id; the portal keys transcript_segments,
+        summaries, action_items and agent_actions on meetings.id (uuid), so we
+        need it before persisting anything. Picks the newest row for this
+        native_meeting_id, preferring an active one. Best-effort — guarded.
+        """
+        if self._meeting_uuid or self._supabase is None or not self.native_meeting_id:
+            return
+        with contextlib.suppress(Exception):
+            resp = await (
+                self._supabase.table("meetings")
+                .select("id, bot_status, created_at")
+                .eq("native_meeting_id", self.native_meeting_id)
+                .order("created_at", desc=True)
+                .execute()
+            )
+            rows = resp.data or []
+            active = ("joining", "pending", "in_meeting")
+            target = next((r for r in rows if r.get("bot_status") in active), None)
+            if target is None:
+                target = rows[0] if rows else None
+            if target and target.get("id"):
+                self._meeting_uuid = target["id"]
+                _log.info(
+                    "meeting_uuid_resolved",
+                    meeting=self._mid,
+                    meeting_uuid=self._meeting_uuid,
+                )
+        # Reached the body (supabase + native_meeting_id present) but still no UUID
+        # — the meetings row is missing or the query failed. Never silent: without
+        # this UUID nothing persists to the portal.
+        if not self._meeting_uuid:
+            _log.warning(
+                "meeting_uuid_unresolved",
+                meeting=self._mid,
+                native_meeting_id=self.native_meeting_id,
+            )
+
+    async def _resolve_keyterms(self) -> None:
+        """Load this meeting's calendar-derived STT keyterms. Best-effort + separate
+        from UUID resolution so a missing ``keyterms`` column can't break anything."""
+        if self._supabase is None or not self._meeting_uuid:
+            return
+        with contextlib.suppress(Exception):
+            resp = await (
+                self._supabase.table("meetings")
+                .select("keyterms")
+                .eq("id", self._meeting_uuid)
+                .limit(1)
+                .execute()
+            )
+            rows = resp.data or []
+            raw = (rows[0].get("keyterms") if rows else "") or ""
+            self._meeting_keyterms = [t.strip() for t in raw.split(",") if t.strip()]
+            if self._meeting_keyterms:
+                _log.info(
+                    "meeting_keyterms_loaded",
+                    meeting=self._mid,
+                    count=len(self._meeting_keyterms),
+                )
+
+    async def _resolve_profile(self) -> None:
+        """Load the owner's bot display name + timezone from their profile. Two
+        separate guarded queries so a missing ``timezone`` column can't lose the name."""
+        if self._supabase is None or not self.user_id:
+            return
+        with contextlib.suppress(Exception):
+            resp = await (
+                self._supabase.table("profiles")
+                .select("bot_name")
+                .eq("user_id", self.user_id)
+                .limit(1)
+                .execute()
+            )
+            rows = resp.data or []
+            name = ((rows[0].get("bot_name") if rows else None) or "").strip()
+            if name:
+                self._bot_label = name
+        with contextlib.suppress(Exception):
+            resp = await (
+                self._supabase.table("profiles")
+                .select("timezone")
+                .eq("user_id", self.user_id)
+                .limit(1)
+                .execute()
+            )
+            rows = resp.data or []
+            tz = ((rows[0].get("timezone") if rows else None) or "").strip()
+            if tz:
+                self._user_timezone = tz
+
+    async def _tapped_speaker_frames(self):  # noqa: ANN202 - async generator
+        """Wrap the per-speaker frame stream, updating the SpeakerTracker with each
+        frame's carried NAME so the combined transcript can label turns with real
+        names. The bot publishes no start/end speaker events on this platform — the
+        only place the name is available is these per-speaker frames — so without
+        this tap every combined turn is labeled the generic "[Speaker]:".
+
+        The frame key is "<stable-speaker-id>\\x1f<display name>" (see transport
+        ``_pack_speaker_pcm``); we take the name and mark it most-recently-active.
+        """
+        async for key, pcm in self._conn.speaker_frames():
+            name = key.split(_SPEAKER_KEY_SEP, 1)[1] if _SPEAKER_KEY_SEP in key else ""
+            tracker = getattr(self, "_tracker", None)
+            if name and tracker is not None:
+                tracker.note_active(name)
+            yield (key, pcm)
+
+    async def _consume_speaker_names(self) -> None:
+        """Drain the per-speaker frames PURELY to feed the SpeakerTracker with real
+        speaker names — no Deepgram, no transcription. Used when the Deepgram
+        per-speaker transcriber is disabled (e.g. a fully-local whisper+kokoro GPU
+        run with no DEEPGRAM_API_KEY): names ride the frames themselves, so the
+        combined transcript is still attributed. Also drains the per-speaker queue
+        so it can't grow unbounded when nothing else consumes it."""
+        async for _key, _pcm in self._tapped_speaker_frames():
+            pass
+
+    async def _run_live_action(self, slug: str, args: dict) -> dict:
+        """Execute ONE Composio action for a directed live request and return the raw
+        result (the caller phrases it aloud). Runs OFF the event loop — the SDK call
+        is synchronous + network, so inline it would freeze the whole meeting."""
+        result = await asyncio.to_thread(
+            self._composio.execute,
+            self.user_id,
+            slug,
+            args or {},
+            default_timezone=self._user_timezone,
+        )
+        _log.info(
+            "live_action_executed",
+            meeting=self._mid,
+            slug=slug,
+            successful=bool(isinstance(result, dict) and result.get("successful")),
+        )
+        # Best-effort: log to agent_actions so the portal's "Steward's Actions" shows it.
+        if self._actions_writer is not None:
+            with contextlib.suppress(Exception):
+                ok = bool(isinstance(result, dict) and result.get("successful"))
+                err = None
+                if not ok and isinstance(result, dict):
+                    err = str(result.get("error") or "tool reported failure")
+                await self._actions_writer.insert(
+                    source="directed",
+                    toolkit=slug.split("_", 1)[0].lower(),
+                    action_slug=slug,
+                    args=args or {},
+                    risk="low",
+                    title=slug,
+                    state="done" if ok else "failed",
+                    result=result if isinstance(result, dict) else {"result": result},
+                    error=err,
+                )
+        return result if isinstance(result, dict) else {"result": result}
+
+    async def _persist_live_line(self, labeled: str) -> None:
+        """Persist ONE finalized transcript line ("[Speaker]: text") to Supabase as
+        it arrives, so the portal shows the transcript live. Uses a single monotonic
+        seq across human turns (the reliable combined STT recorder) and Steward's own
+        lines. Best-effort and fully guarded — a persist failure never breaks a turn.
+
+        No-op without a resolved meetings.id UUID (transcript_segments.meeting_id is a
+        uuid FK, so writing without it would fail every insert)."""
+        if self._supabase is None or not self._meeting_uuid:
+            return
+        from stewardai.agent.persistence import (
+            _parse_segment,
+            persist_transcript_segment,
+        )
+
+        speaker, text = _parse_segment(labeled)
+        if not text:
+            return
+        seq = self._live_seq
+        self._live_seq += 1
+        await persist_transcript_segment(
+            self._supabase, self._meeting_uuid, seq, speaker, text
+        )
+
+    async def _record_bot_line(self, text: str) -> None:
+        """Append Steward's own spoken reply to the transcript (+ live-persist), so
+        the meeting record shows the bot's side, not just the humans'."""
+        text = (text or "").strip()
+        if not text:
+            return
+        line = f"[{self._bot_label}]: {text}"
+        self._attributed_transcript.append(line)
+        self._transcript.append(line)
+        with contextlib.suppress(Exception):
+            from stewardai.agent.summary import append_transcript_line
+
+            append_transcript_line(
+                f"evals/out/meeting-{self._mid}-transcript-attributed.txt", line
+            )
+        await self._persist_live_line(line)
+
     async def build(self) -> None:
         """Construct the per-session AgentSession + I/O and register handlers."""
         from livekit.agents import metrics as lk_metrics
 
-        from stewardai.agent.assembly import build_meeting_agent, build_session
+        from stewardai.agent.assembly import (
+            build_meeting_agent,
+            build_meeting_system,
+            build_session,
+        )
         from stewardai.agent.summary import generate_summary, write_summary
         from stewardai.bridge.audio_input import _build_push_audio_input
         from stewardai.bridge.audio_output import QueueAudioOutput
@@ -221,55 +482,154 @@ class MeetingSession:
         tracker = SpeakerTracker()
         self._control = RedisControl(s.redis_url, self._mid)
 
+        # Resolve the Supabase meetings.id (UUID) up front — everything we persist
+        # (agent_actions, transcript, summary, action items) keys on it.
+        await self._resolve_meeting_uuid()
+        # Load calendar-derived keyterms (attendee names + domain terms) for STT.
+        await self._resolve_keyterms()
+        # Owner's bot display name + timezone (for transcript label + calendar actions).
+        await self._resolve_profile()
+
         # Composio live tools (only when we resolved a user_id + Composio is enabled).
-        live_tools: list = []
-        if s.composio_enabled and self.user_id and self._composio is not None:
+        _composio_ready = s.composio_enabled and self.user_id and self._composio is not None
+        if _composio_ready and not self._meeting_uuid:
+            # agent_actions.meeting_id is a uuid FK — without the resolved meetings.id
+            # UUID every insert would violate it, so skip live tools (and log) rather
+            # than write the Vexa int and fail silently.
+            _log.warning(
+                "live_tools_skipped_no_meeting_uuid",
+                meeting=self._mid,
+                native_meeting_id=self.native_meeting_id,
+            )
+        if _composio_ready and self._meeting_uuid:
             try:
                 from stewardai.agent.actions import AgentActionsWriter
-                from stewardai.agent.live_tools import build_live_tool_functions
 
                 self._actions_writer = AgentActionsWriter(
-                    meeting_id=self._mid,
+                    meeting_id=self._meeting_uuid,
                     user_id=self.user_id,
                     client=self._supabase,
                 )
-                live_tools = build_live_tool_functions(
-                    self.user_id, self._mid, self._composio, self._actions_writer
-                )
+                # OpenAI-format tool schemas the gated decide() can pick from to run a
+                # LIVE action (e.g. check calendar) when directly addressed. Paired
+                # with self._tool_executor which actually runs the chosen action.
+                self._action_tools = self._composio.get_tools(self.user_id)
+                self._tool_executor = self._run_live_action
                 _log.info(
-                    "composio_live_tools_ready",
+                    "composio_action_tools_ready",
                     meeting_id=self._mid,
                     user_id=self.user_id,
-                    count=len(live_tools),
+                    count=len(self._action_tools or []),
                 )
             except Exception as exc:  # noqa: BLE001 - meeting continues without tools
+                # Composio off/blocked (e.g. WAF) -> no live actions; the prompt's
+                # no-tools note keeps the agent from promising actions it can't do.
                 _log.warning(
-                    "composio_live_tools_setup_failed",
+                    "composio_action_tools_setup_failed",
                     meeting_id=self._mid,
                     error=str(exc),
                 )
-                live_tools = []
+                self._action_tools = None
+                self._tool_executor = None
+
+        # Agent identity + wake word = the owner's DISPLAY NAME (self._bot_label),
+        # never a hardcoded "Steward". These keyterms bias the STT toward the wake
+        # name + domain/participant terms so the transcript that drives decide()
+        # hears the name (not "Stuart"). Deduped, order-preserving.
+        _kt_conf = [t.strip() for t in (s.stt_keyterms or "").split(",") if t.strip()]
+        self._keyterms = list(
+            dict.fromkeys(
+                k for k in (self._bot_label, *_kt_conf, *self._meeting_keyterms) if k
+            )
+        )
+        # System prompt carries the display name AND whether external tools actually
+        # loaded — so with no tools it won't promise "checking your calendar".
+        meeting_system = build_meeting_system(
+            self._bot_label, tools_available=bool(self._action_tools)
+        )
 
         # Shared backends passed through; build_session builds fresh nodes/plugins
         # around them per session (see run_multiplexer's sharing note).
         # decide() needs the committed turn, not partials -> preemptive off (gated).
+        # action_tools + tool_executor give the gated decide the ability to run a live
+        # action (calendar/email/…) when directly addressed and speak the result.
         self._session = build_session(
             s,
             stt_backend=self._stt,
             llm_backend=self._llm,
             tts_backend=self._tts,
             gated=True,
+            system=meeting_system,
+            keyterms=self._keyterms,
+            action_tools=self._action_tools,
+            tool_executor=self._tool_executor,
         )
 
         async def _write_summary(trigger: str) -> None:
-            with contextlib.suppress(Exception):
-                summary = await asyncio.wait_for(
-                    generate_summary(self._llm, self._transcript), timeout=15.0
-                )
-                write_summary(self._mid, summary)
-                _log.info("summary_written", trigger=trigger, meeting=self._mid)
+            # Serialize: the "summarize" voice command and teardown can both call
+            # this; the persist delete-then-insert must not interleave with itself.
+            async with self._summary_lock:
+                with contextlib.suppress(Exception):
+                    transcript = self._transcript_for_output()
+                    summary = await asyncio.wait_for(
+                        generate_summary(self._llm, transcript), timeout=15.0
+                    )
+                    write_summary(self._mid, summary)
+                    _log.info("summary_written", trigger=trigger, meeting=self._mid)
+                    # Persist to Supabase so the portal panels populate (keyed on the
+                    # meetings.id UUID). Retry resolution — the meetings row may not
+                    # have existed at build() but does by now. Timed out so a hung
+                    # Supabase can't wedge teardown.
+                    if self._supabase is not None:
+                        if not self._meeting_uuid:
+                            await self._resolve_meeting_uuid()
+                        if self._meeting_uuid:
+                            from stewardai.agent.persistence import (
+                                persist_meeting_artifacts,
+                            )
+
+                            await asyncio.wait_for(
+                                persist_meeting_artifacts(
+                                    self._supabase,
+                                    self._meeting_uuid,
+                                    transcript,
+                                    summary,
+                                ),
+                                timeout=10.0,
+                            )
+                        else:
+                            _log.warning(
+                                "persist_skipped_no_meeting_uuid",
+                                meeting=self._mid,
+                                native_meeting_id=self.native_meeting_id,
+                            )
 
         self._write_summary = _write_summary
+        # Per-speaker attributed transcript, built in parallel to the AgentSession.
+        # Deepgram streaming (keyterm-boosted + real-time-persisted) when a Deepgram
+        # key is configured; otherwise no per-speaker path and the combined transcript
+        # is the fallback. Populated only when the bot forwards per-speaker frames.
+        self._per_speaker = None
+        if s.deepgram_api_key:
+            from stewardai.agent.assembly import make_deepgram_speaker_stt
+            from stewardai.agent.deepgram_speaker_transcriber import (
+                DeepgramSpeakerTranscriber,
+            )
+
+            self._per_speaker = DeepgramSpeakerTranscriber(
+                lambda kt: make_deepgram_speaker_stt(s, kt),
+                self._attributed_transcript,
+                transcript_path=f"evals/out/meeting-{self._mid}-transcript-attributed.txt",
+                # Live portal persistence is driven by the reliable combined transcript
+                # (see on_line below), NOT this best-effort per-speaker path — which can
+                # produce nothing and whose own seq space would collide with it. This
+                # path still builds _attributed_transcript for the final (real-name)
+                # teardown rewrite when it works.
+                supabase=None,
+                meeting_uuid=self._meeting_uuid,
+                # Wake name + domain/participant terms (self._bot_label first).
+                extra_keyterms=self._keyterms,
+            )
         transcript_path = f"evals/out/meeting-{self._mid}-transcript.txt"
         self._agent = build_meeting_agent(
             s,
@@ -277,7 +637,13 @@ class MeetingSession:
             transcript=self._transcript,
             on_summarize=lambda: loop.create_task(_write_summary("command")),
             transcript_path=transcript_path,
-            live_tools=live_tools or None,
+            # Persist each finalized human turn to the portal live (fire-and-forget so
+            # a Supabase round-trip never adds latency to the turn hot path).
+            on_line=lambda labeled: loop.create_task(self._persist_live_line(labeled)),
+            # Same name-aware, tool-availability-aware prompt as the decide gate.
+            # Live tool-calling runs through the gated node (action_tools/tool_executor
+            # on build_session), NOT the agent's registered tools — so none here.
+            instructions=meeting_system,
             user_id=self.user_id,
         )
 
@@ -298,22 +664,57 @@ class MeetingSession:
         def _ms(x):  # noqa: ANN001, ANN202
             return round(x * 1000) if x is not None else None
 
+        # Accumulate per-turn metrics so we can emit ONE readable latency line
+        # ("turn_latency") showing the whole pipeline at a glance + the bottleneck,
+        # instead of four scattered events you have to correlate by timestamp.
+        turn: dict = {}
+
         def _log_metrics(ev) -> None:  # noqa: ANN001
             m = ev.metrics
             if isinstance(m, lk_metrics.EOUMetrics):
+                turn["stt_ms"] = _ms(m.transcription_delay)
+                turn["eou_ms"] = _ms(m.end_of_utterance_delay)
                 _log.info("turn_eou", meeting=self._mid,
-                          eou_delay_ms=_ms(m.end_of_utterance_delay),
-                          transcription_delay_ms=_ms(m.transcription_delay))
+                          eou_delay_ms=turn["eou_ms"],
+                          transcription_delay_ms=turn["stt_ms"])
             elif isinstance(m, lk_metrics.STTMetrics):
                 _log.info("turn_stt", meeting=self._mid, duration_ms=_ms(m.duration))
             elif isinstance(m, lk_metrics.LLMMetrics):
-                _log.info("turn_llm", meeting=self._mid, ttft_ms=_ms(m.ttft),
+                turn["llm_ttft_ms"] = _ms(m.ttft)
+                _log.info("turn_llm", meeting=self._mid, ttft_ms=turn["llm_ttft_ms"],
                           duration_ms=_ms(m.duration))
             elif isinstance(m, lk_metrics.TTSMetrics):
-                _log.info("turn_tts", meeting=self._mid, ttfb_ms=_ms(m.ttfb),
+                turn["tts_ttfb_ms"] = _ms(m.ttfb)
+                # user-stopped-speaking → Steward-starts-speaking, broken down.
+                reply = sum(
+                    v for v in (turn.get("eou_ms"), turn.get("llm_ttft_ms"),
+                                turn.get("tts_ttfb_ms")) if v
+                )
+                _log.info(
+                    "turn_latency", meeting=self._mid,
+                    stt_ms=turn.get("stt_ms"), eou_ms=turn.get("eou_ms"),
+                    llm_ttft_ms=turn.get("llm_ttft_ms"),
+                    tts_ttfb_ms=turn.get("tts_ttfb_ms"), reply_total_ms=reply,
+                )
+                _log.info("turn_tts", meeting=self._mid, ttfb_ms=turn["tts_ttfb_ms"],
                           duration_ms=_ms(m.duration))
+                turn.clear()
 
         self._session.on("metrics_collected", _log_metrics)
+
+        # Capture Steward's OWN spoken replies into the transcript (assistant items),
+        # so the meeting record shows the bot's side too — not just the humans'.
+        def _on_item_added(ev) -> None:  # noqa: ANN001
+            item = getattr(ev, "item", None)
+            if item is None or getattr(item, "role", None) != "assistant":
+                return
+            text = getattr(item, "text_content", None) or ""
+            if text.strip():
+                loop.create_task(self._record_bot_line(text))
+
+        with contextlib.suppress(Exception):
+            self._session.on("conversation_item_added", _on_item_added)
+
         self._tracker = tracker
         self._SpeakerSubscriber = SpeakerSubscriber
 
@@ -321,6 +722,14 @@ class MeetingSession:
         """Start the AgentSession + speaker subscriber + pump tasks for this meeting."""
         loop = asyncio.get_running_loop()
         await self._session.start(agent=self._agent)
+        # Warm the TTS websocket now (cold first synth ~12s → off the first reply).
+        # Fire-and-forget; the throwaway audio is discarded, never played.
+        with contextlib.suppress(Exception):
+            from stewardai.llm.warmup import warmup_tts
+
+            tts_obj = getattr(self._session, "_steward_tts", None)
+            if tts_obj is not None:
+                loop.create_task(warmup_tts(tts_obj, quiet=True))
         self._speaker_sub = self._SpeakerSubscriber(
             self._s.redis_url, self._mid, self._tracker
         )
@@ -334,7 +743,24 @@ class MeetingSession:
         feed = asyncio.create_task(
             _feed_inbound(self._conn, self._audio_in, on_first_frame=_unmute_once)
         )
+        # Per-speaker transcription runs alongside the combined feed (Deepgram
+        # streaming); harmless no-op for legacy bots (speaker_frames() stays empty).
+        # Cancelled in teardown. Only started when a per-speaker transcriber exists.
         self._tasks = [pump, feed]
+        # Per-speaker frames carry the speaker NAME and arrive regardless of the STT
+        # backend. We always consume them so the combined transcript gets real names
+        # (the tap feeds the SpeakerTracker). If Deepgram is configured, the
+        # per-speaker transcriber drains the tapped stream (and ALSO builds the
+        # attributed transcript); otherwise a lightweight name-only consumer runs so
+        # attribution works fully local (whisper+kokoro, no DEEPGRAM_API_KEY).
+        if self._per_speaker is not None:
+            self._tasks.append(
+                asyncio.create_task(
+                    self._per_speaker.run(self._tapped_speaker_frames())
+                )
+            )
+        else:
+            self._tasks.append(asyncio.create_task(self._consume_speaker_names()))
         _log.info("meeting_session_started", meeting=self._mid, user_id=self.user_id)
         # Multiplexer now owns the lifecycle writeback (scheduler no longer reaps).
         await self._set_bot_status("in_meeting")
@@ -370,11 +796,12 @@ class MeetingSession:
                 await asyncio.wait_for(
                     extract_post_meeting_actions(
                         self._llm,
-                        self._transcript,
+                        self._transcript_for_output(),
                         user_id=self.user_id,
-                        meeting_id=self._mid,
+                        meeting_id=self._meeting_uuid,
                         composio_service=self._composio,
                         writer=self._actions_writer,
+                        default_timezone=self._user_timezone,
                     ),
                     timeout=15.0,
                 )

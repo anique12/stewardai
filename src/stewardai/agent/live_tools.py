@@ -22,23 +22,11 @@ from stewardai.common.logging import get_logger
 _log = get_logger("agent.live_tools")
 
 # ---------------------------------------------------------------------------
-# System-prompt addendum for tool use
-# ---------------------------------------------------------------------------
-
-TOOLS_SYSTEM_ADDENDUM = (
-    "\n\nYou also have access to external tools (e.g. Gmail, Google Calendar, "
-    "Notion, Slack). Use them ONLY when someone in the meeting directly addresses "
-    "you by name (e.g. 'Steward, send…', 'Steward, schedule…'). "
-    "NEVER call a tool on ambient conversation or when someone is not speaking to you. "
-    "For high-risk actions (sending email, posting to Slack), always confirm with "
-    "the requester verbally before executing: say something like "
-    "'Want me to go ahead and send that?' and wait for a yes."
-)
-
-
-# ---------------------------------------------------------------------------
 # Tool registration
 # ---------------------------------------------------------------------------
+# NOTE: the tool-use system-prompt guidance now lives in
+# ``assembly.build_meeting_system`` (parameterized by the agent's display name),
+# so it's consistent across the decide gate and the agent and never hardcodes a name.
 
 
 def build_live_tool_functions(
@@ -46,6 +34,7 @@ def build_live_tool_functions(
     meeting_id: str,
     composio_service: Any,  # ComposioService — untyped to avoid circular import
     writer: Any,  # AgentActionsWriter — untyped to avoid circular import
+    default_timezone: str = "UTC",
 ) -> list[Any]:
     """Build a list of LiveKit agent ``FunctionTool``-compatible callables.
 
@@ -99,6 +88,7 @@ def build_live_tool_functions(
             composio_service=composio_service,
             writer=writer,
             function_tool=function_tool,
+            default_timezone=default_timezone,
         )
         if tool is not None:
             tools.append(tool)
@@ -122,6 +112,7 @@ def _make_tool(
     composio_service: Any,
     writer: Any,
     function_tool: Any,
+    default_timezone: str = "UTC",
 ) -> Any | None:
     """Factory: produce a single risk-gated async tool callable for ``slug``.
 
@@ -163,6 +154,7 @@ def _make_tool(
             meeting_id=meeting_id,
             composio_service=composio_service,
             writer=writer,
+            default_timezone=default_timezone,
         )
 
     # Use raw_schema= so the LLM sees the exact Composio parameter schema.
@@ -184,6 +176,7 @@ async def _execute_and_log(
     meeting_id: str,
     composio_service: Any,
     writer: Any,
+    default_timezone: str = "UTC",
 ) -> str:
     """Execute a Composio action and write an audit row to agent_actions.
 
@@ -191,7 +184,9 @@ async def _execute_and_log(
     On failure, returns an error phrase and logs state='failed'.
     """
     try:
-        result = composio_service.execute(user_id, slug, kwargs)
+        result = composio_service.execute(
+            user_id, slug, kwargs, default_timezone=default_timezone
+        )
         # Composio reports logical failures (bad args, API rejection) via
         # `successful: false` rather than raising — persist state accordingly,
         # otherwise a rejected call gets mislabeled as done.

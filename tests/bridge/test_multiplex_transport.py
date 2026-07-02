@@ -180,3 +180,73 @@ async def test_two_concurrent_connections_both_reach_on_session():
         assert seen == {1, 2}
     finally:
         await server.aclose()
+
+
+# ---------------------------------------------------------------------------
+# Per-speaker frames (TYPE_PCM_SPEAKER = 0x02)
+# ---------------------------------------------------------------------------
+
+
+def test_speaker_pcm_pack_parse_roundtrip():
+    from stewardai.bridge.transport import (
+        TYPE_PCM_SPEAKER,
+        _pack_speaker_pcm,
+        _parse_speaker_pcm,
+    )
+
+    frame = _pack_speaker_pcm("Zoë 🙂", b"pcm-bytes")
+    payload = frame[4:]  # strip 4-byte length prefix
+    assert payload[0] == TYPE_PCM_SPEAKER
+    parsed = _parse_speaker_pcm(payload[1:])
+    assert parsed == ("Zoë 🙂", b"pcm-bytes")
+
+
+def test_parse_speaker_pcm_malformed_and_edges():
+    from stewardai.bridge.transport import _parse_speaker_pcm
+
+    assert _parse_speaker_pcm(b"") is None            # no name-length byte
+    assert _parse_speaker_pcm(bytes((5,)) + b"ab") is None  # name shorter than declared
+    assert _parse_speaker_pcm(bytes((0,))) == ("", b"")     # empty name + empty pcm is valid
+
+
+async def test_per_speaker_frames_routed_separately():
+    """0x02 frames surface on speaker_frames() as (speaker, pcm); 0x00 stays on frames()."""
+    from stewardai.bridge.transport import _pack_speaker_pcm
+
+    combined: list[bytes] = []
+    per_speaker: list[tuple[str, bytes]] = []
+    done = asyncio.Event()
+
+    async def on_session(meeting_id, native_meeting_id, conn):  # noqa: ANN001
+        async def _drain_combined():
+            async for pcm in conn.frames():
+                combined.append(pcm)
+
+        async def _drain_speaker():
+            async for item in conn.speaker_frames():
+                per_speaker.append(item)
+
+        await asyncio.gather(_drain_combined(), _drain_speaker())
+        done.set()
+
+    server = MultiplexFrameServer(on_session, "127.0.0.1", 0)
+    await server.start()
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", server.port)
+        writer.write(_pack(TYPE_HANDSHAKE, json.dumps({"meeting_id": 9, "v": 1}).encode()))
+        writer.write(_pack(TYPE_PCM, b"\x01\x02" * 160))
+        writer.write(_pack_speaker_pcm("Alice", b"\xaa\xbb" * 160))
+        writer.write(_pack_speaker_pcm("Bob", b"\xcc\xdd" * 160))
+        writer.write(_pack(TYPE_PCM, b"\x03\x04" * 160))
+        await writer.drain()
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:  # noqa: BLE001
+            pass
+        await asyncio.wait_for(done.wait(), timeout=2.0)
+    finally:
+        await server.aclose()
+
+    assert combined == [b"\x01\x02" * 160, b"\x03\x04" * 160]
+    assert per_speaker == [("Alice", b"\xaa\xbb" * 160), ("Bob", b"\xcc\xdd" * 160)]

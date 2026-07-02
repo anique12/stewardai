@@ -38,8 +38,12 @@ _LEN = struct.Struct(">I")  # 4-byte big-endian uint32
 _MAX_FRAME = 1 << 20  # 1 MiB guard against a desynced/garbage length prefix
 
 # Type-tagged multiplexing protocol: payload[0] is one of these.
-TYPE_PCM = 0x00  # payload[1:] = s16le PCM audio
+TYPE_PCM = 0x00  # payload[1:] = s16le PCM audio (combined mix)
 TYPE_HANDSHAKE = 0x01  # payload[1:] = UTF-8 JSON handshake
+# Per-speaker PCM: payload[1] = speaker-name length (uint8), then that many UTF-8
+# name bytes, then s16le PCM for one speaker's utterance segment. Additive — old
+# bots never emit it, so the combined 0x00 stream (and legacy bots) are unaffected.
+TYPE_PCM_SPEAKER = 0x02
 HANDSHAKE_VERSION = 1
 
 
@@ -244,14 +248,35 @@ def _pack_typed(type_byte: int, data: bytes) -> bytes:
     return _LEN.pack(len(payload)) + payload
 
 
-async def _read_typed_frames_into(
-    reader: asyncio.StreamReader, queue: asyncio.Queue[bytes | None]
-) -> None:
-    """Decode type-tagged PCM frames from ``reader`` into ``queue`` until EOF.
+def _pack_speaker_pcm(speaker: str, pcm: bytes) -> bytes:
+    """Frame one speaker's PCM segment: ``0x02 + [name_len][name][pcm]``."""
+    name = speaker.encode("utf-8")[:255]
+    return _pack_typed(TYPE_PCM_SPEAKER, bytes((len(name),)) + name + pcm)
 
-    Only ``TYPE_PCM`` payloads are enqueued (as raw PCM bytes); other types after
-    the handshake are logged and ignored. Terminates the queue with ``None`` on
-    EOF so consumers stop.
+
+def _parse_speaker_pcm(data: bytes) -> tuple[str, bytes] | None:
+    """Parse a ``TYPE_PCM_SPEAKER`` payload (after the type byte) → ``(speaker, pcm)``."""
+    if not data:
+        return None
+    name_len = data[0]
+    if len(data) < 1 + name_len:
+        return None
+    name = data[1 : 1 + name_len].decode("utf-8", errors="replace")
+    return name, data[1 + name_len :]
+
+
+async def _read_typed_frames_into(
+    reader: asyncio.StreamReader,
+    queue: asyncio.Queue[bytes | None],
+    speaker_queue: asyncio.Queue[tuple[str, bytes] | None] | None = None,
+) -> None:
+    """Decode type-tagged frames from ``reader`` until EOF.
+
+    ``TYPE_PCM`` payloads (the combined mix) are enqueued to ``queue`` as raw PCM
+    bytes. ``TYPE_PCM_SPEAKER`` payloads are enqueued to ``speaker_queue`` as
+    ``(speaker, pcm)`` tuples (dropped if no ``speaker_queue`` is given). Other
+    types after the handshake are logged and ignored. Both queues are terminated
+    with ``None`` on EOF so consumers stop.
     """
     try:
         while True:
@@ -266,6 +291,11 @@ async def _read_typed_frames_into(
             type_byte = payload[0]
             if type_byte == TYPE_PCM:
                 await queue.put(payload[1:])
+            elif type_byte == TYPE_PCM_SPEAKER:
+                if speaker_queue is not None:
+                    parsed = _parse_speaker_pcm(payload[1:])
+                    if parsed is not None:
+                        await speaker_queue.put(parsed)
             else:
                 # A stray handshake or unknown type mid-stream: ignore, don't die.
                 _log.debug("unexpected_frame_type", type=type_byte)
@@ -275,6 +305,8 @@ async def _read_typed_frames_into(
         _log.warning("transport_read_error", error=str(exc))
     finally:
         await queue.put(None)
+        if speaker_queue is not None:
+            await speaker_queue.put(None)
 
 
 async def _read_first_frame(reader: asyncio.StreamReader) -> tuple[int, bytes] | None:
@@ -331,15 +363,28 @@ class MeetingConnection:
         self._reader = reader
         self._writer: asyncio.StreamWriter | None = writer
         self._queue: asyncio.Queue[bytes | None] = asyncio.Queue()
+        self._speaker_queue: asyncio.Queue[tuple[str, bytes] | None] = asyncio.Queue()
         self._reader_task: asyncio.Task[None] = asyncio.create_task(
-            _read_typed_frames_into(reader, self._queue)
+            _read_typed_frames_into(reader, self._queue, self._speaker_queue)
         )
         self._closed = False
 
     async def frames(self) -> AsyncIterator[bytes]:
-        """Yield each inbound PCM frame (type ``0x00``) until the connection ends."""
+        """Yield each inbound combined PCM frame (type ``0x00``) until the connection ends."""
         while True:
             item = await self._queue.get()
+            if item is None:
+                return
+            yield item
+
+    async def speaker_frames(self) -> AsyncIterator[tuple[str, bytes]]:
+        """Yield each inbound per-speaker segment ``(speaker, pcm)`` (type ``0x02``).
+
+        Stays empty for legacy bots that only send the combined ``0x00`` stream,
+        so consumers degrade gracefully to no per-speaker attribution.
+        """
+        while True:
+            item = await self._speaker_queue.get()
             if item is None:
                 return
             yield item

@@ -92,16 +92,53 @@ def _load_turn_detector():
         return None
 
 
-def _load_deepgram_stt(s: Settings):
+def _load_deepgram_stt(s: Settings, *, keyterms: tuple[str, ...] = ()):
     """Cloud STT via Deepgram (native LiveKit plugin): streaming, runs on YOUR
     Deepgram account (DEEPGRAM_API_KEY) — no local CPU, not LiveKit Cloud. Matched
-    to 16 kHz (the bot tees meeting audio at 16 kHz)."""
+    to 16 kHz (the bot tees meeting audio at 16 kHz).
+
+    ``keyterms`` (nova-3 only) bias recognition toward the agent's wake name and
+    domain/participant terms so the combined transcript that drives decide() hears
+    the wake name instead of a soundalike ("Stuart"/"Steve Ward")."""
     from livekit.plugins import deepgram  # type: ignore  # lazy
 
+    # IMPORTANT: do NOT set endpointing_ms / interim_results here. This STT feeds the
+    # AgentSession turn detector, which owns end-of-turn timing (via turn_min_delay).
+    # Forcing a long Deepgram endpointing makes it wait for real silence before
+    # finalizing — with continuous room noise it may never finalize, so the turn
+    # hangs and the transcript arrives minutes late (or only when you speak again).
+    # Let Deepgram finalize fast; group finals into whole turns via turn_min_delay.
     kwargs: dict = {"model": s.deepgram_model, "sample_rate": SAMPLE_RATE}
     if s.deepgram_api_key:
         kwargs["api_key"] = s.deepgram_api_key
-    _log.info("stt_cloud_deepgram", model=s.deepgram_model)
+    if keyterms:
+        kwargs["keyterm"] = list(keyterms)
+    _log.info("stt_cloud_deepgram", model=s.deepgram_model, keyterms=len(keyterms))
+    return deepgram.STT(**kwargs)
+
+
+def make_deepgram_speaker_stt(s: Settings, keyterms: list[str]):
+    """A Deepgram nova-3 STREAMING STT for per-speaker transcription, keyterm-boosted.
+
+    Separate from ``_load_deepgram_stt`` (the AgentSession's STT): this is used to
+    open one streaming connection per speaker for the attributed transcript. nova-3
+    is required for ``keyterm`` boosting (names + "Steward").
+    """
+    from livekit.plugins import deepgram  # type: ignore  # lazy
+
+    kwargs: dict = {
+        "model": "nova-3",
+        "sample_rate": SAMPLE_RATE,
+        "interim_results": True,
+        # Silence before finalizing a line — the STT segmentation knob (NOT the
+        # AgentSession turn detector, which is a different path). Default 500ms
+        # groups words into sentences instead of the 25ms-default fragments.
+        "endpointing_ms": s.stt_endpointing_ms,
+    }
+    if s.deepgram_api_key:
+        kwargs["api_key"] = s.deepgram_api_key
+    if keyterms:
+        kwargs["keyterm"] = keyterms
     return deepgram.STT(**kwargs)
 
 
@@ -140,6 +177,10 @@ def build_session(
     llm_backend=None,  # noqa: ANN001 - optional pre-built LLMBackend to reuse
     tts_backend=None,  # noqa: ANN001 - optional pre-built TTSBackend to reuse
     gated: bool = False,
+    system: str | None = None,
+    keyterms: tuple[str, ...] | list[str] = (),
+    action_tools=None,  # noqa: ANN001 - OpenAI-format Composio schemas for live actions
+    tool_executor=None,  # noqa: ANN001 - async (slug, args) -> result dict
 ):
     """Construct a roomless ``AgentSession`` wired with our nodes + VAD + turn det.
 
@@ -161,14 +202,22 @@ def build_session(
     from stewardai.agent.nodes import build_llm_node, build_stt_node, build_tts_node
 
     # STT: cloud (Deepgram, native plugin — no local CPU) or our local wrapped backend.
+    # keyterms boost the agent's wake name + participant/domain terms so the combined
+    # STT (which drives decide) actually hears them (e.g. the wake name, not "Stuart").
     if s.stt_backend == "deepgram":
-        stt = _load_deepgram_stt(s)
+        stt = _load_deepgram_stt(s, keyterms=tuple(keyterms))
     else:
         stt = build_stt_node(
             stt_backend if stt_backend is not None else make_stt(s))
     _llm_backend = llm_backend if llm_backend is not None else make_llm(s)
     if gated:
-        llm = build_llm_node(_llm_backend, system=_MEETING_SYSTEM, gated=True)
+        llm = build_llm_node(
+            _llm_backend,
+            system=system or _MEETING_SYSTEM,
+            gated=True,
+            action_tools=action_tools,
+            tool_executor=tool_executor,
+        )
     else:
         llm = build_llm_node(_llm_backend)
     # TTS: cloud (Cartesia or Deepgram Aura, native plugins — no local CPU) or local.
@@ -208,12 +257,23 @@ def build_session(
         "tts": tts,
         "turn_handling": turn_handling,
     }
-    # Only pass when enabled, so we keep LiveKit's own default (NOT_GIVEN) otherwise.
-    # decide() needs the committed turn, not partials -> force preemptive off when gated.
-    if s.preemptive_generation and not gated:
+    # decide() needs the COMMITTED turn, not partials — AND our
+    # on_user_turn_completed relabels the message with the speaker name, which
+    # changes the chat context after any speculative generation. If preemptive
+    # generation is on, LiveKit warns "preemptive generation enabled but chat
+    # context ... changed" and can speak a reply built for the PREVIOUS/partial
+    # turn ("answers the last question"). Force it OFF explicitly for gated
+    # meetings — do NOT rely on the LiveKit default, which generates speculatively.
+    if gated:
+        kwargs["preemptive_generation"] = False
+    elif s.preemptive_generation:
         kwargs["preemptive_generation"] = True
 
     session = AgentSession(**kwargs)
+    # Expose the TTS plugin so the runner can warm its connection at session start
+    # (streaming TTS opens its websocket lazily — a cold first synth costs ~12s).
+    with contextlib.suppress(Exception):
+        session._steward_tts = tts
     _log.info(
         "session_built",
         stt=make_stt_name(stt),
@@ -246,21 +306,71 @@ def label_text(tracker, text: str) -> str:  # noqa: ANN001 - SpeakerTracker (duc
     return f"[{name}]: {text}" if name else f"[Speaker]: {text}"
 
 
-_MEETING_SYSTEM = (
-    "You are Steward, an assistant participating in a live multi-person meeting. "
-    "You receive a running transcript where each line is prefixed with the "
-    "speaker's name in brackets, e.g. '[Anique]: ...'. On each turn decide whether "
-    "to speak.\n"
-    "- Call speak ONLY when (a) someone directly addresses you by name (\"Steward\") "
-    "or clearly asks you something, OR (b) you notice a MATERIAL discrepancy: "
-    "something just said contradicts a decision or fact stated earlier in THIS "
-    "meeting. When flagging a discrepancy, name both sides (e.g. \"Earlier Anique "
-    "said Friday, but Sarah just said Monday — which is it?\"). Keep it to one or "
-    "two spoken sentences.\n"
-    "- Otherwise call stay_silent. Do NOT chime in on normal discussion, agreement, "
-    "small talk, or minor wording differences. Silence is the default.\n"
-    "- Never read the bracketed name prefixes aloud; they are only for your context."
+# Tool-availability notes appended to the meeting system prompt. {name} is the
+# agent's configured display name (the owner's bot_name) — NOT hardcoded "Steward".
+_TOOLS_AVAILABLE_NOTE = (
+    "\n\nYou also have access to external tools (e.g. Gmail, Google Calendar, "
+    "Notion, Slack). Use them ONLY when someone in the meeting directly addresses "
+    "you by name (e.g. '{name}, send…', '{name}, schedule…'). "
+    "NEVER call a tool on ambient conversation or when someone is not speaking to you.\n"
+    "- Before calling a tool you MUST have every required detail FROM THE USER — e.g. "
+    "the exact recipient email address, subject, and body for an email; the title, "
+    "date and time for a calendar event. If any required detail is missing, ASK the "
+    "user for it and WAIT for their answer. NEVER invent, guess, or use placeholder "
+    "values (e.g. 'test', 'test@example.com', 'recipient@example.com', "
+    "'[Recipient Name]') — a tool call with made-up details is never acceptable.\n"
+    "- For high-risk actions (sending an email, posting to Slack), first read back "
+    "what you're about to do and confirm verbally: say something like 'Want me to go "
+    "ahead and send that?' and wait for a yes before executing."
 )
+# Appended when NO tools are registered (Composio off, or blocked at setup). Stops
+# the agent from cheerfully claiming it's "checking your calendar" with no real tool.
+_NO_TOOLS_NOTE = (
+    "\n\nYou do NOT currently have access to any external tools (calendar, email, "
+    "Slack, etc.). If someone asks you to perform such an action (e.g. 'check my "
+    "calendar', 'send an email'), briefly tell them you can't do that right now — "
+    "do NOT say you are doing it, checking, or looking it up, and never imply an "
+    "action is in progress that you cannot actually perform."
+)
+
+
+def build_meeting_system(name: str = "Steward", *, tools_available: bool = False) -> str:
+    """The meeting system prompt, using the agent's DISPLAY NAME (owner's bot_name)
+    as its identity + wake word — not a hardcoded "Steward" — and a tool note that
+    matches whether external tools actually loaded."""
+    base = (
+        f"You are {name}, an assistant participating in a live multi-person meeting. "
+        "You receive a running transcript where each line is prefixed with the "
+        "speaker's name in brackets, e.g. '[Anique]: ...'. On each turn decide whether "
+        "to speak.\n"
+        f'- If someone addresses you by name ("{name}") or clearly directs a question '
+        "at you, you MUST speak and answer them. ALWAYS reply to something said "
+        "directly to you — even if it repeats an earlier question, or you already "
+        "answered something similar, or it is just a check like \"can you hear me?\". "
+        "A person talking to you by name expects a response every time.\n"
+        "- Also speak if you notice a MATERIAL discrepancy: something just said "
+        "contradicts a decision or fact stated earlier in THIS meeting. Name both "
+        'sides (e.g. "Earlier Anique said Friday, but Sarah just said Monday — which '
+        'is it?"). Keep spoken replies to one or two sentences.\n'
+        "- Otherwise call stay_silent: ambient discussion, people talking to EACH "
+        "OTHER (not to you), small talk, agreement, or minor wording differences. "
+        "Silence is the default only for talk that is NOT directed at you.\n"
+        "- You can see the ENTIRE conversation above and it is your memory of this "
+        "meeting — ALWAYS use it. NEVER say you don't remember, can't recall, or lack "
+        "memory of previous turns; you have the full transcript right here.\n"
+        "- Do NOT re-ask for something the speaker already told you. The transcript "
+        "may be imperfect (speech-to-text errors, split or repeated lines) — piece "
+        "together what they meant from context and use the details already given "
+        "instead of asking again.\n"
+        "- Never read the bracketed name prefixes aloud; they are only for your context."
+    )
+    note = _TOOLS_AVAILABLE_NOTE if tools_available else _NO_TOOLS_NOTE
+    return base + note.format(name=name)
+
+
+# Default prompt (name "Steward", no tools) for callers that don't pass one
+# (the ungated /pipeline demo, tests). Real meetings pass a name-specific prompt.
+_MEETING_SYSTEM = build_meeting_system()
 
 
 def build_meeting_agent(  # noqa: ANN001
@@ -270,7 +380,9 @@ def build_meeting_agent(  # noqa: ANN001
     transcript=None,
     on_summarize=None,
     transcript_path=None,
+    on_line=None,
     live_tools=None,
+    instructions=None,
     user_id: str | None = None,
 ):
     """Agent that labels each finalized user turn with the active speaker and
@@ -285,19 +397,24 @@ def build_meeting_agent(  # noqa: ANN001
     as it arrives, so the full raw transcript is persisted turn-by-turn and survives
     a stop/crash (the summary alone is not the transcript).
 
+    When ``on_line`` is provided, it is called with each finalized labeled line
+    ("[Speaker]: text") as it arrives — the runner uses this to persist the combined
+    (reliable) transcript to the portal live. It must be cheap/non-blocking (the
+    runner schedules the actual write); it runs on the turn hot path.
+
     When ``live_tools`` is provided (a list of LiveKit FunctionTool callables built by
     ``build_live_tool_functions``), they are registered on the agent so the LLM can
-    call Composio actions mid-meeting. The system prompt is extended with the
-    directed-only gate (tools only on explicit "Steward, ..." requests)."""
+    call Composio actions mid-meeting.
+
+    ``instructions`` is the system prompt (built by ``build_meeting_system`` with the
+    agent's display name + tool-availability note). If omitted, a default is derived
+    from ``live_tools`` so the agent still knows whether it can act."""
     from livekit.agents import Agent  # type: ignore
 
     from stewardai.agent.summary import append_transcript_line
 
-    # Extend system instructions with the tool-gate addendum when tools are available
-    instructions = _MEETING_SYSTEM
-    if live_tools:
-        from stewardai.agent.live_tools import TOOLS_SYSTEM_ADDENDUM
-        instructions = _MEETING_SYSTEM + TOOLS_SYSTEM_ADDENDUM
+    if instructions is None:
+        instructions = build_meeting_system(tools_available=bool(live_tools))
 
     class MeetingAgent(Agent):  # type: ignore[misc, valid-type]
         def __init__(self) -> None:
@@ -307,6 +424,7 @@ def build_meeting_agent(  # noqa: ANN001
             self._transcript = transcript if transcript is not None else []
             self._on_summarize = on_summarize
             self._transcript_path = transcript_path
+            self._on_line = on_line
 
         async def on_user_turn_completed(self, turn_ctx, new_message) -> None:  # noqa: ANN001
             # Prepend the active speaker's name so the decide LLM sees "[Name]: ..."
@@ -320,6 +438,10 @@ def build_meeting_agent(  # noqa: ANN001
                 if self._transcript_path:
                     with contextlib.suppress(Exception):
                         append_transcript_line(self._transcript_path, labeled)
+                # Live portal persistence rides this reliable combined transcript.
+                if self._on_line is not None:
+                    with contextlib.suppress(Exception):
+                        self._on_line(labeled)
                 # Explicit "summarize" request -> write the artifact now (transcript is
                 # complete through this turn). v1 heuristic: substring match.
                 if self._on_summarize is not None and "summariz" in raw.lower():

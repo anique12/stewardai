@@ -55,7 +55,7 @@ _ALLOW_LIST: dict[str, list[tuple[str, str]]] = {
         ("GMAIL_SEND_EMAIL", "high"),            # send email — outbound
     ],
     "googlecalendar": [
-        ("GOOGLECALENDAR_LIST_EVENTS", "low"),   # list upcoming events
+        ("GOOGLECALENDAR_EVENTS_LIST", "low"),   # list upcoming events (correct Composio slug)
         ("GOOGLECALENDAR_FIND_FREE_SLOTS", "low"),  # find free/busy windows
         ("GOOGLECALENDAR_CREATE_EVENT", "low"),  # create a calendar event (own cal)
         ("GOOGLECALENDAR_UPDATE_EVENT", "low"),  # edit own event
@@ -80,6 +80,57 @@ _RISK_MAP: dict[str, str] = {
 
 # Set of all allowed slugs for membership tests
 _ALLOWED_SLUGS: frozenset[str] = frozenset(_RISK_MAP)
+
+# Google Calendar event types that CANNOT have a Meet room or attendees — Google
+# rejects those with 'malformedFocusTimeEvent' / similar.
+_CAL_SPECIAL_EVENT_TYPES = {"focusTime", "outOfOffice", "workingLocation"}
+
+
+def _prepare_args(slug: str, args: dict, default_timezone: str = "UTC") -> dict:
+    """Fix provider constraints a tool's JSON schema can't express.
+
+    GOOGLECALENDAR_CREATE_EVENT defaults ``create_meeting_room=True``, which bolts a
+    Meet link + attendees onto every event. Google rejects that on focus-time /
+    out-of-office / working-location events, and an assistant shouldn't add a Meet
+    link to solo blocks anyway — only to real meetings (ones with attendees). The
+    tool also assumes UTC when no ``timezone`` is given, so a naive "4pm" is booked
+    as 4pm UTC. This normalizes the args at the execution boundary (timezone,
+    non-blank title, Meet-room rules) so the LLM doesn't have to know Google's
+    quirks; it's a targeted shim, not general arg-guessing.
+    """
+    if slug != "GOOGLECALENDAR_CREATE_EVENT" or not isinstance(args, dict):
+        return args
+    is_special = (
+        args.get("eventType") in _CAL_SPECIAL_EVENT_TYPES
+        or "focusTimeProperties" in args
+        or "outOfOfficeProperties" in args
+        or "workingLocationProperties" in args
+    )
+    out = dict(args)
+    if is_special:
+        # focusTime / outOfOffice / workingLocation are Workspace-ENTERPRISE-only
+        # (Google 400s them on personal/standard accounts) and reject Meet rooms +
+        # attendees. Downgrade to a normal blocking event so it works on ANY account
+        # — the user still gets the time blocked on their calendar.
+        for key in (
+            "focusTimeProperties",
+            "outOfOfficeProperties",
+            "workingLocationProperties",
+            "eventType",
+        ):
+            out.pop(key, None)
+        out["create_meeting_room"] = False
+        out.pop("attendees", None)
+    elif "create_meeting_room" not in out:
+        # Only auto-add a Meet room for actual meetings (attendees present).
+        out["create_meeting_room"] = bool(args.get("attendees"))
+    # Default the timezone (tool assumes UTC otherwise → wrong local time) and
+    # never create a blank-title event.
+    if not str(out.get("timezone") or "").strip():
+        out["timezone"] = default_timezone
+    if not str(out.get("summary") or "").strip():
+        out["summary"] = "Event"
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +268,8 @@ class ComposioService:
         user_id: str,
         action_slug: str,
         arguments: dict,
+        *,
+        default_timezone: str = "UTC",
     ) -> dict:
         """Execute an allowed action on behalf of a user.
 
@@ -240,6 +293,7 @@ class ComposioService:
                 f"Action {action_slug!r} is not on the allow-list. "
                 f"Allowed: {sorted(_ALLOWED_SLUGS)}"
             )
+        arguments = _prepare_args(action_slug, arguments, default_timezone)
         result = self._composio.tools.execute(
             slug=action_slug,
             arguments=arguments,

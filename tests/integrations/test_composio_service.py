@@ -99,7 +99,7 @@ class TestAllowList:
     def test_low_risk_actions(self):
         low = {s for s, r in _RISK_MAP.items() if r == "low"}
         assert "GMAIL_FETCH_EMAILS" in low
-        assert "GOOGLECALENDAR_LIST_EVENTS" in low
+        assert "GOOGLECALENDAR_EVENTS_LIST" in low
         assert "NOTION_SEARCH_NOTION_PAGE" in low
         assert "SLACK_LIST_CHANNELS" in low
 
@@ -344,3 +344,74 @@ def test_live_list_connected_and_toolkits():
     response = client.toolkits.list()
     items = getattr(response, "items", [])
     assert len(items) > 0, "Expected at least one toolkit from the Composio API"
+
+
+# ---------------------------------------------------------------------------
+# _prepare_args: Google Calendar constraint shim
+# ---------------------------------------------------------------------------
+
+from stewardai.integrations.composio_service import _prepare_args  # noqa: E402
+
+
+def test_prepare_args_focus_time_drops_meet_and_attendees():
+    args = {
+        "summary": "Focus",
+        "start_datetime": "2026-07-02T14:00:00",
+        "focusTimeProperties": {"autoDeclineMode": "declineAllConflictingInvitations"},
+        "attendees": ["a@x.com"],
+    }
+    out = _prepare_args("GOOGLECALENDAR_CREATE_EVENT", args)
+    assert out["create_meeting_room"] is False
+    assert "attendees" not in out
+    assert "focusTimeProperties" not in out  # downgraded to a normal event
+    assert "attendees" in args  # original not mutated
+
+
+def test_prepare_args_special_event_type():
+    out = _prepare_args("GOOGLECALENDAR_CREATE_EVENT", {"eventType": "outOfOffice"})
+    assert out["create_meeting_room"] is False
+    assert "eventType" not in out  # enterprise-only type downgraded
+
+
+def test_prepare_args_meeting_with_attendees_gets_meet_room():
+    out = _prepare_args(
+        "GOOGLECALENDAR_CREATE_EVENT", {"summary": "Sync", "attendees": ["a@x.com"]}
+    )
+    assert out["create_meeting_room"] is True
+
+
+def test_prepare_args_solo_event_no_meet_room():
+    out = _prepare_args("GOOGLECALENDAR_CREATE_EVENT", {"summary": "Block"})
+    assert out["create_meeting_room"] is False
+
+
+def test_prepare_args_explicit_flag_respected():
+    out = _prepare_args(
+        "GOOGLECALENDAR_CREATE_EVENT", {"summary": "x", "create_meeting_room": True}
+    )
+    assert out["create_meeting_room"] is True
+
+
+def test_prepare_args_other_slug_untouched():
+    args = {"foo": "bar"}
+    assert _prepare_args("GMAIL_SEND_EMAIL", args) is args
+
+
+def test_prepare_args_defaults_timezone_and_title():
+    out = _prepare_args(
+        "GOOGLECALENDAR_CREATE_EVENT",
+        {"start_datetime": "2026-07-01T16:00:00"},
+        "Asia/Karachi",
+    )
+    assert out["timezone"] == "Asia/Karachi"  # no more silent-UTC → wrong local time
+    assert out["summary"] == "Event"           # never blank
+
+
+def test_prepare_args_keeps_provided_timezone_and_title():
+    out = _prepare_args(
+        "GOOGLECALENDAR_CREATE_EVENT",
+        {"timezone": "America/New_York", "summary": "Standup", "attendees": ["a@x.com"]},
+        "Asia/Karachi",
+    )
+    assert out["timezone"] == "America/New_York"
+    assert out["summary"] == "Standup"

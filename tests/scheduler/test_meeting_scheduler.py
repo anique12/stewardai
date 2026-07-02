@@ -70,6 +70,53 @@ def _update_payloads(client):
     return [c.args[0] for c in client.table.return_value.update.call_args_list]
 
 
+# --- spawn_bot request body -------------------------------------------------
+
+
+async def test_spawn_bot_sends_alone_leave_override():
+    """spawn_bot must POST automatic_leave.max_time_left_alone so the bot leaves
+    promptly once it's alone (Vexa's default lingers 15 min)."""
+    captured = {}
+
+    class _Resp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"id": 1, "status": "requested"}
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, *, json, headers, timeout):  # noqa: A002
+            captured["json"] = json
+            return _Resp()
+
+    with patch.object(ms.httpx, "AsyncClient", lambda *a, **k: _Client()):
+        out = await ms.spawn_bot(_meeting(), _settings())
+
+    assert out == {"id": 1, "status": "requested"}
+    body = captured["json"]
+    assert body["bot_name"] == ms.BOT_NAME
+    assert body["meeting_url"] == "https://meet.google.com/abc-defg-hij"
+    assert body["automatic_leave"]["max_time_left_alone"] == ms.ALONE_LEAVE_MS
+
+
+async def test_bot_name_uses_profile_display_name():
+    client, _ = _mock_client([{"bot_name": "My Assistant"}])
+    assert await ms._bot_name_for(client, "u-1") == "My Assistant"
+
+
+async def test_bot_name_falls_back_to_default_when_unset():
+    client, _ = _mock_client([])  # no profile row
+    assert await ms._bot_name_for(client, "u-1") == ms.BOT_NAME
+    assert await ms._bot_name_for(client, None) == ms.BOT_NAME
+
+
 # --- get_due_meetings query -------------------------------------------------
 
 async def test_get_due_meetings_builds_filtered_query():

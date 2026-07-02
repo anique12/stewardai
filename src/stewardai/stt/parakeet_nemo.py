@@ -36,6 +36,10 @@ class ParakeetNeMoSTT:
         model = model.to(self._device)
         model.eval()
         self._model = model
+        # The NeMo model is not safe to run from multiple threads at once. This
+        # single backend instance is shared across every meeting's AgentSession STT
+        # AND the per-speaker transcriber, so serialize all inference through it.
+        self._lock = asyncio.Lock()
         _log.info("model_loaded", model=model_name, device=self._device)
 
     async def transcribe(
@@ -47,7 +51,8 @@ class ParakeetNeMoSTT:
         if audio.size == 0:
             return Transcript(text="", is_final=True, confidence=None, t_start_ms=0.0, t_end_ms=0.0)
 
-        text = await asyncio.to_thread(self._transcribe_sync, audio, sample_rate)
+        async with self._lock:
+            text = await asyncio.to_thread(self._transcribe_sync, audio, sample_rate)
         return Transcript(
             text=text,
             is_final=True,

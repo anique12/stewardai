@@ -31,6 +31,18 @@ class SpeakerTracker:
             with contextlib.suppress(ValueError):
                 self._open.remove(speaker)
 
+    def note_active(self, speaker: str) -> None:
+        """Mark ``speaker`` as the most-recently-active speaker.
+
+        Used when the only signal available is a per-speaker AUDIO stream that
+        carries the speaker's name (the bot publishes no explicit start/end
+        events on some platforms): whoever most recently emitted audio holds the
+        floor, which is what a turn finalizing right after them should be labeled.
+        """
+        speaker = (speaker or "").strip()
+        if speaker:
+            self.on_event(speaker, "start", 0)
+
     def current_speaker(self) -> str | None:
         return self._open[-1] if self._open else None
 

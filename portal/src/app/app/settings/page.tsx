@@ -11,6 +11,7 @@ export default function SettingsPage() {
   const supabase = createBrowserClient();
   const router = useRouter();
   const [botName, setBotName] = useState("");
+  const [timezone, setTimezone] = useState("");
   const [plan, setPlan] = useState("free");
   const [saving, setSaving] = useState(false);
   const [hasCalendar, setHasCalendar] = useState<boolean | null>(null);
@@ -20,19 +21,25 @@ export default function SettingsPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       const [{ data: profile }, { data: conn }] = await Promise.all([
-        supabase.from("profiles").select("bot_name,plan").eq("user_id", user.id).single(),
+        supabase.from("profiles").select("bot_name,plan,timezone").eq("user_id", user.id).single(),
         supabase.from("calendar_connections").select("id").eq("user_id", user.id).single(),
       ]);
-      if (profile) { setBotName(profile.bot_name); setPlan(profile.plan); }
+      if (profile) {
+        setBotName(profile.bot_name);
+        setPlan(profile.plan);
+        setTimezone(profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone);
+      }
       setHasCalendar(Boolean(conn));
     }
     load();
   }, [supabase]);
 
-  async function saveBotName() {
+  async function saveProfile() {
     setSaving(true);
     const { data: { user } } = await supabase.auth.getUser();
-    if (user) await supabase.from("profiles").update({ bot_name: botName }).eq("user_id", user.id);
+    if (user) {
+      await supabase.from("profiles").update({ bot_name: botName }).eq("user_id", user.id);
+    }
     setSaving(false);
   }
 
@@ -68,14 +75,20 @@ export default function SettingsPage() {
       </section>
 
       <section className="rounded-lg border border-border bg-card p-6 space-y-4">
-        <h2 className="font-semibold text-foreground">Bot name</h2>
-        <div className="flex items-end gap-3">
-          <div className="flex-1 space-y-1">
-            <Label htmlFor="bot-name">Display name in meetings</Label>
-            <Input id="bot-name" value={botName} onChange={(e) => setBotName(e.target.value)} />
-          </div>
-          <Button onClick={saveBotName} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
+        <h2 className="font-semibold text-foreground">Assistant</h2>
+        <div className="space-y-1">
+          <Label htmlFor="bot-name">Display name in meetings</Label>
+          <Input id="bot-name" value={botName} onChange={(e) => setBotName(e.target.value)} />
         </div>
+        <div className="space-y-1">
+          <Label>Timezone</Label>
+          <p className="text-sm text-foreground">{timezone || "Detecting…"}</p>
+          <p className="text-xs text-muted-foreground">
+            Detected automatically from your device — so calendar times like “4 PM”
+            mean your local time. No need to set it.
+          </p>
+        </div>
+        <Button onClick={saveProfile} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
       </section>
 
       <section className="rounded-lg border border-border bg-card p-6 space-y-4">

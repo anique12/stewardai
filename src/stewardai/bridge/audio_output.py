@@ -119,6 +119,7 @@ def _make_queue_audio_output():
         def __init__(self, label: str = "vexa") -> None:
             if has_livekit:
                 super().__init__(label=label, capabilities=capabilities)
+            self._out_label = label
             self._queue: asyncio.Queue = asyncio.Queue()
             # Barge-in hook: fired when the session interrupts and calls clear_buffer();
             # consumers (the web layer) use it to tell the client to flush its buffer.
@@ -130,11 +131,17 @@ def _make_queue_audio_output():
             self.on_segment_end = None
             # audio seconds sent in the current (not-yet-finished) segment
             self._seg_played: float = 0.0
+            # Diagnostics: whether the AgentSession has ever routed a TTS frame here.
+            # A silent bot with no capture means TTS output never reached this sink.
+            self._captured_any = False
 
         async def capture_frame(self, frame) -> None:  # noqa: ANN001 - rtc/AudioFrame or ours
             if has_livekit:
                 # base bookkeeping: counts a new playback segment on the first frame
                 await super().capture_frame(frame)
+            if not self._captured_any:
+                self._captured_any = True
+                _log.info("audio_out_first_capture", label=self._out_label)
             pcm = getattr(frame, "data", None)
             if pcm is not None:
                 # livekit rtc.AudioFrame: .data is a memoryview / array of int16.

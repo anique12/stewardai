@@ -286,88 +286,101 @@ async def test_reconnect_rebinds_instead_of_duplicating(patched_multiplexer):
 # ---------------------------------------------------------------------------
 
 
-async def test_session_build_passes_resolved_user_id_into_tool_build(monkeypatch):
-    """MeetingSession.build() calls build_live_tool_functions with the resolved user_id."""
+def _patch_build(monkeypatch):
+    """Patch build_session (capturing kwargs) + build_meeting_agent + audio I/O so
+    MeetingSession.build() runs without livekit. Returns the capture dict."""
     import stewardai.agent.assembly as assembly
-    import stewardai.agent.live_tools as live_tools
-    from stewardai.agent.meeting_runner import MeetingSession
-
-    captured: dict = {}
-
-    def _fake_build_live_tools(user_id, meeting_id, composio, writer):  # noqa: ANN001
-        captured["user_id"] = user_id
-        captured["meeting_id"] = meeting_id
-        return ["tool-a", "tool-b"]
+    import stewardai.bridge.audio_input as audio_input
+    import stewardai.bridge.audio_output as audio_output
 
     fake_session = MagicMock(name="session")
     fake_session.input = MagicMock()
     fake_session.output = MagicMock()
+    captured: dict = {"session": fake_session}
 
-    def _fake_build_session(*_a, **_k):
+    def _fake_build_session(*_a, **k):
+        captured["action_tools"] = k.get("action_tools")
+        captured["tool_executor"] = k.get("tool_executor")
         return fake_session
 
-    def _fake_build_agent(*_a, **_k):
-        return MagicMock(name="agent")
-
-    # audio_input._build_push_audio_input() -> factory returning a PushAudioInput.
-    import stewardai.bridge.audio_input as audio_input
-
     monkeypatch.setattr(assembly, "build_session", _fake_build_session)
-    monkeypatch.setattr(assembly, "build_meeting_agent", _fake_build_agent)
-    monkeypatch.setattr(
-        live_tools, "build_live_tool_functions", _fake_build_live_tools
-    )
+    monkeypatch.setattr(assembly, "build_meeting_agent", lambda *a, **k: MagicMock())
     monkeypatch.setattr(
         audio_input, "_build_push_audio_input", lambda: (lambda: MagicMock())
     )
-    # QueueAudioOutput is imported inside build(); a MagicMock instance is fine.
-    import stewardai.bridge.audio_output as audio_output
-
     monkeypatch.setattr(audio_output, "QueueAudioOutput", lambda label="": MagicMock())
+    return captured
 
-    conn = MagicMock()
+
+async def test_session_build_loads_action_tools_with_resolved_user_id(monkeypatch):
+    """build() loads the Composio action schemas via get_tools(user_id) and wires an
+    executor, handing both to build_session for the gated node's live tool-calling."""
+    from stewardai.agent.meeting_runner import MeetingSession
+
+    captured = _patch_build(monkeypatch)
+    composio = MagicMock()
+    composio.get_tools.return_value = [
+        {"type": "function", "function": {"name": "GOOGLECALENDAR_EVENTS_LIST"}}
+    ]
+
     s = Settings(composio_api_key="ck", redis_url="redis://localhost:6379")
     session = MeetingSession(
         s,
         meeting_id=11,
         native_meeting_id="native-11",
         user_id="u-42",
-        conn=conn,
+        conn=MagicMock(),
         stt_backend=MagicMock(),
         llm_backend=MagicMock(),
         tts_backend=MagicMock(),
-        composio_service=MagicMock(),
-        supabase_client=MagicMock(),
+        composio_service=composio,
+        # meetings row carries the id (uuid) so _resolve_meeting_uuid resolves.
+        supabase_client=_mock_supabase(
+            [{"id": "uuid-11", "bot_status": "in_meeting", "created_at": "2026-01-01"}]
+        ),
     )
     await session.build()
-    assert captured["user_id"] == "u-42"
-    assert captured["meeting_id"] == "11"
+    composio.get_tools.assert_called_once_with("u-42")
+    assert session._action_tools == composio.get_tools.return_value
+    assert session._tool_executor is not None
+    # handed to the gated node via build_session
+    assert captured["action_tools"] == composio.get_tools.return_value
+    assert captured["tool_executor"] is not None
 
 
-async def test_session_build_without_user_id_skips_tools(monkeypatch):
-    """No user_id -> build_live_tool_functions is never called (session still builds)."""
-    import stewardai.agent.assembly as assembly
-    import stewardai.agent.live_tools as live_tools
-    import stewardai.bridge.audio_input as audio_input
-    import stewardai.bridge.audio_output as audio_output
+async def test_session_build_skips_action_tools_when_meeting_uuid_unresolved(monkeypatch):
+    """No resolvable meetings.id UUID -> no action tools (agent_actions.meeting_id is a
+    uuid FK). Session still builds; get_tools is never called."""
     from stewardai.agent.meeting_runner import MeetingSession
 
-    called = {"n": 0}
+    _patch_build(monkeypatch)
+    composio = MagicMock()
 
-    def _fake_build_live_tools(*_a, **_k):
-        called["n"] += 1
-        return []
-
-    fake_session = MagicMock(name="session")
-    fake_session.input = MagicMock()
-    fake_session.output = MagicMock()
-    monkeypatch.setattr(assembly, "build_session", lambda *_a, **_k: fake_session)
-    monkeypatch.setattr(assembly, "build_meeting_agent", lambda *_a, **_k: MagicMock())
-    monkeypatch.setattr(live_tools, "build_live_tool_functions", _fake_build_live_tools)
-    monkeypatch.setattr(
-        audio_input, "_build_push_audio_input", lambda: (lambda: MagicMock())
+    s = Settings(composio_api_key="ck", redis_url="redis://localhost:6379")
+    session = MeetingSession(
+        s,
+        meeting_id=11,
+        native_meeting_id="native-11",
+        user_id="u-42",
+        conn=MagicMock(),
+        stt_backend=MagicMock(),
+        llm_backend=MagicMock(),
+        tts_backend=MagicMock(),
+        composio_service=composio,
+        supabase_client=_mock_supabase([]),  # no rows -> UUID unresolved
     )
-    monkeypatch.setattr(audio_output, "QueueAudioOutput", lambda label="": MagicMock())
+    await session.build()
+    composio.get_tools.assert_not_called()
+    assert session._action_tools is None
+    assert session._tool_executor is None
+
+
+async def test_session_build_skips_action_tools_without_user_id(monkeypatch):
+    """No user_id -> no action tools loaded; session still builds."""
+    from stewardai.agent.meeting_runner import MeetingSession
+
+    captured = _patch_build(monkeypatch)
+    composio = MagicMock()
 
     s = Settings(composio_api_key="ck", redis_url="redis://localhost:6379")
     session = MeetingSession(
@@ -379,9 +392,10 @@ async def test_session_build_without_user_id_skips_tools(monkeypatch):
         stt_backend=MagicMock(),
         llm_backend=MagicMock(),
         tts_backend=MagicMock(),
-        composio_service=MagicMock(),
+        composio_service=composio,
         supabase_client=MagicMock(),
     )
     await session.build()
-    assert called["n"] == 0  # tools skipped entirely
-    assert session._session is fake_session  # session still built
+    composio.get_tools.assert_not_called()
+    assert session._action_tools is None
+    assert session._session is captured["session"]  # session still built

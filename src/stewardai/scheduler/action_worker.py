@@ -119,3 +119,7 @@ async def run_forever(interval_s: int = 60) -> None:
         except Exception as exc:
             _log.warning("action_worker_cycle_error", error=str(exc))
         await asyncio.sleep(interval_s)
+
+
+if __name__ == "__main__":
+    asyncio.run(run_forever())

@@ -64,7 +64,11 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
           </TabsTrigger>
         </TabsList>
         <TabsContent value="transcript" className="mt-4">
-          <TranscriptPanel segments={segments ?? []} />
+          <TranscriptPanel
+            segments={segments ?? []}
+            meetingId={params.id}
+            live={meeting.bot_status === "in_meeting"}
+          />
         </TabsContent>
         <TabsContent value="summary" className="mt-4">
           <SummaryPanel summary={summary ?? null} />

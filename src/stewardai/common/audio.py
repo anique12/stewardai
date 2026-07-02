@@ -50,9 +50,16 @@ class Message:
 
 @dataclass(slots=True)
 class Decision:
-    """Outcome of the agent's per-utterance decide: stay silent, or speak `text`."""
+    """Outcome of the agent's per-utterance decide: stay silent, speak `text`, or
+    run a tool (``action_slug`` + ``action_args``) then speak its result.
+
+    When the gated LLM picks a Composio action tool instead of speak/stay_silent,
+    ``speak`` is True and ``action_slug`` is set; the caller executes the action and
+    phrases the result aloud (see ``agent.tool_turn.resolve_turn``)."""
     speak: bool
     text: str = ""
+    action_slug: str | None = None
+    action_args: dict | None = None
 
 
 @dataclass(slots=True)

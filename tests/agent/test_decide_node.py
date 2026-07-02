@@ -44,3 +44,20 @@ async def test_gated_node_speaks_when_decided(make_chat_ctx):
     node = build_llm_node(llm, gated=True)
     text = await _collect_text(node.chat(chat_ctx=make_chat_ctx("hey stewardai")))
     assert text == "Sure."
+
+
+@pytest.mark.asyncio
+async def test_gated_node_swallows_decide_failure(make_chat_ctx):
+    """A failing decide() (e.g. a transient Gemini connection Timeout) must NOT
+    propagate out of the node: the stream yields nothing so the turn completes and
+    the AgentSession never wedges ("speech scheduling is paused" -> frozen transcript)."""
+
+    class _BoomLLM(StubLLM):
+        async def decide_stream(self, messages, *, system=None, action_tools=None):  # noqa: ANN001
+            raise TimeoutError("Connection timed out")
+            yield  # pragma: no cover — makes this an async generator that raises
+
+    node = build_llm_node(_BoomLLM(), gated=True)
+    # Must not raise; must yield no speech.
+    text = await _collect_text(node.chat(chat_ctx=make_chat_ctx("hey stewardai")))
+    assert text == ""

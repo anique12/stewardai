@@ -10,18 +10,31 @@ from stewardai.agent.actions import extract_post_meeting_actions
 def _make_service(connected=None, risk_map=None):
     svc = MagicMock()
     svc.list_connected.return_value = connected or ["gmail"]
+    rm = risk_map or {
+        "GMAIL_SEND_EMAIL": "high",
+        "GMAIL_FETCH_EMAILS": "low",
+        "GMAIL_CREATE_EMAIL_DRAFT": "low",
+    }
 
     def _risk_of(slug):
-        rm = risk_map or {
-            "GMAIL_SEND_EMAIL": "high",
-            "GMAIL_FETCH_EMAILS": "low",
-            "GMAIL_CREATE_EMAIL_DRAFT": "low",
-        }
         if slug not in rm:
             raise KeyError(slug)
         return rm[slug]
 
     svc.risk_of.side_effect = _risk_of
+    # Extraction is now schema-driven: it reads tool schemas from get_tools and
+    # derives the allow-list from their names. Expose one schema per allowed slug.
+    svc.get_tools.return_value = [
+        {
+            "type": "function",
+            "function": {
+                "name": s,
+                "description": s,
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+        for s in rm
+    ]
     return svc
 
 

@@ -152,6 +152,15 @@ class Settings(BaseSettings):
     # STT + TTS bill against ONE Deepgram balance. Pick a voice via DEEPGRAM_TTS_MODEL
     # (e.g. aura-2-andromeda-en, aura-asteria-en, aura-orion-en).
     deepgram_tts_model: str = "aura-2-andromeda-en"
+    # Comma-separated domain vocabulary boosted in per-speaker Deepgram transcription
+    # (nova-3 keyterms) — e.g. company/product/people names. "Steward" is always
+    # included automatically. Participant names are added dynamically as they speak.
+    stt_keyterms: str = ""
+    # Silence (ms) Deepgram waits before finalizing a per-speaker transcript line.
+    # Lower = snappier but choppier; higher = fuller sentences. This is inherent to
+    # streaming STT segmentation (separate from the AgentSession turn detector, which
+    # governs when Steward *replies*, not how the transcript is chunked).
+    stt_endpointing_ms: int = 500
     cartesia_api_key: str | None = None
     cartesia_model: str = "sonic-3"
     cartesia_voice: str | None = None  # None -> Cartesia's default voice
