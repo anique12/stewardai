@@ -11,6 +11,7 @@ export function buildMeetingUpsert(userId: string, event: calendar_v3.Schema$Eve
     start_time: event.start?.dateTime ?? event.start?.date,
     end_time: event.end?.dateTime ?? event.end?.date,
     meet_url: videoEntry?.uri ?? null,
+    recurring_event_id: event.recurringEventId ?? null,
   };
 }
 
