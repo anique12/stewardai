@@ -3,21 +3,18 @@ import { AgentActionsPanel } from "@/components/meetings/AgentActionsPanel";
 import { StatusBadge } from "@/components/meetings/StatusBadge";
 import { SummaryPanel } from "@/components/meetings/SummaryPanel";
 import { TranscriptPanel } from "@/components/meetings/TranscriptPanel";
+import { requireUserPage } from "@/lib/auth-helpers";
 import { createServerClient } from "@/lib/supabase/server";
-import { createServiceClient } from "@/lib/supabase/service";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { notFound } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
 export default async function MeetingDetailPage({ params }: { params: { id: string } }) {
-  const supabase = createServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
+  const user = await requireUserPage();
+  const db = createServerClient(); // RLS-scoped reads
 
-  const service = createServiceClient();
-
-  const { data: meeting } = await service
+  const { data: meeting } = await db
     .from("meetings")
     .select("*")
     .eq("id", params.id)
@@ -27,10 +24,10 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
   if (!meeting) notFound();
 
   const [{ data: segments }, { data: summary }, { data: actionItems }, { data: agentActions }] = await Promise.all([
-    service.from("transcript_segments").select("*").eq("meeting_id", params.id).order("seq"),
-    service.from("summaries").select("*").eq("meeting_id", params.id).single(),
-    service.from("action_items").select("*").eq("meeting_id", params.id).order("created_at"),
-    service.from("agent_actions").select("*").eq("meeting_id", params.id).eq("user_id", user.id).order("created_at"),
+    db.from("transcript_segments").select("*").eq("meeting_id", params.id).order("seq"),
+    db.from("summaries").select("*").eq("meeting_id", params.id).single(),
+    db.from("action_items").select("*").eq("meeting_id", params.id).order("created_at"),
+    db.from("agent_actions").select("*").eq("meeting_id", params.id).eq("user_id", user.id).order("created_at"),
   ]);
 
   const start = new Date(meeting.start_time);
