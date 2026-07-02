@@ -107,6 +107,9 @@ def _rows_and_events(user_id: str, items: list) -> list[tuple[dict, dict]]:
                 {
                     "user_id": user_id,
                     "google_event_id": e["id"],
+                    # meetings.title is NOT NULL; a Google Calendar event can have no
+                    # summary, so fall back to a placeholder rather than sending null.
+                    "title": (e.get("summary") or "").strip() or "Untitled meeting",
                     "start_time": start,
                     "meet_url": meet,
                     "native_meeting_id": native,
