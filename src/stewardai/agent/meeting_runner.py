@@ -544,8 +544,17 @@ class MeetingSession:
         )
         # System prompt carries the display name AND whether external tools actually
         # loaded — so with no tools it won't promise "checking your calendar".
+        # The TTS voice can only be HEARD in certain languages; tell the prompt so the
+        # model never replies in a language it can't speak aloud (kokoro = English;
+        # Indic Parler-TTS/MMS also do Urdu + Hindi). Extend when adding a TTS backend.
+        _spoken = {
+            "indic_parler": "English, Urdu, or Hindi",
+            "mms": "English, Urdu, or Hindi",
+        }.get(self._s.tts_backend, "English")
         meeting_system = build_meeting_system(
-            self._bot_label, tools_available=bool(self._action_tools)
+            self._bot_label,
+            tools_available=bool(self._action_tools),
+            spoken_languages=_spoken,
         )
 
         # Shared backends passed through; build_session builds fresh nodes/plugins

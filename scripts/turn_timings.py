@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
-"""Per-turn STT / LLM-ttft / TTS-ttfb from the multiplexer log — ONE LINE PER TURN.
+"""Per-turn latency from the multiplexer log — ONE LINE PER SPOKEN REPLY.
 
 Unlike meeting_stats.py (which prints averages), this prints every turn so you can
 eyeball outliers:
 
-    stt=451ms  llmttft=468ms  tts=145ms   -> first-audio ~1064ms
+    3. stt=451ms  eou=180ms  llmttft=468ms  tts=145ms   total=793ms
 
-A "turn" = one spoken reply. It is delimited by each ``turn_stt`` event; the
-``turn_llm`` (ttft) and the FIRST ``turn_tts`` (ttfb) that follow belong to it.
-"first-audio" = stt + llmttft + tts = roughly how long after you stop talking
-until the bot starts speaking.
+It reads the combined ``turn_latency`` event the agent emits once per reply (fields
+stt_ms / eou_ms / llm_ttft_ms / tts_ttfb_ms / reply_total_ms). The agent also emits a
+follow-up ``turn_latency`` for each extra sentence of a reply (those have no llm/stt),
+so we keep only the real turn-start rows (llm_ttft_ms present).
+
+  stt     = whisper transcription time
+  eou     = end-of-utterance wait (turn detection)
+  llmttft = LLM time-to-first-token
+  tts     = TTS time-to-first-byte (first sentence)
+  total   = reply_total_ms = eou + llmttft + tts = stop-talking -> bot-starts-talking
 
 Usage:
     python3 scripts/turn_timings.py [MEETING_ID] [LOG_PATH]
@@ -22,8 +28,6 @@ from __future__ import annotations
 import json
 import sys
 
-_EVENTS = ("turn_stt", "turn_llm", "turn_tts")
-
 
 def main() -> None:
     want_mid = sys.argv[1] if len(sys.argv) > 1 else None
@@ -33,7 +37,7 @@ def main() -> None:
     try:
         with open(path) as f:
             for line in f:
-                if not any(f'"event": "{e}"' in line for e in _EVENTS):
+                if '"event": "turn_latency"' not in line:
                     continue
                 try:
                     rows.append(json.loads(line))
@@ -43,8 +47,11 @@ def main() -> None:
         print(f"log not found: {path}")
         return
 
+    # Keep only real turn-starts (a full reply row has the LLM timing). The extra
+    # per-sentence rows have llm_ttft_ms = None — drop them.
+    rows = [r for r in rows if r.get("llm_ttft_ms") is not None]
     if not rows:
-        print(f"no turn events in {path}")
+        print(f"no complete turns (turn_latency) in {path}")
         return
 
     if want_mid is None:
@@ -55,37 +62,18 @@ def main() -> None:
         print(f"no turns for meeting {want_mid}")
         return
 
-    # Group by turn_stt boundaries: a new turn_stt flushes the previous turn.
-    turns: list[dict] = []
-    cur: dict | None = None
-    for r in rows:
-        ev = r.get("event")
-        if ev == "turn_stt":
-            if cur is not None:
-                turns.append(cur)
-            cur = {"stt": r.get("duration_ms"), "llmttft": None, "tts": None}
-        elif ev == "turn_llm":
-            if cur is None:
-                cur = {"stt": None, "llmttft": None, "tts": None}
-            if cur["llmttft"] is None:
-                cur["llmttft"] = r.get("ttft_ms")
-        elif ev == "turn_tts":
-            if cur is None:
-                cur = {"stt": None, "llmttft": None, "tts": None}
-            if cur["tts"] is None:  # first sentence's time-to-first-byte
-                cur["tts"] = r.get("ttfb_ms")
-    if cur is not None:
-        turns.append(cur)
-
     def ms(v) -> str:
         return f"{int(v)}ms" if isinstance(v, (int, float)) else "-"
 
-    print(f"meeting {want_mid}: {len(turns)} turns\n")
-    for i, t in enumerate(turns, 1):
-        total = sum(v for v in (t["stt"], t["llmttft"], t["tts"]) if isinstance(v, (int, float)))
-        flag = "  <-- SLOW" if total > 3000 else ""
-        print(f"  {i:>3}. stt={ms(t['stt']):>7}  llmttft={ms(t['llmttft']):>7}  "
-              f"tts={ms(t['tts']):>7}   first-audio~{total}ms{flag}")
+    print(f"meeting {want_mid}: {len(rows)} turns\n")
+    for i, r in enumerate(rows, 1):
+        total = r.get("reply_total_ms")
+        flag = "  <-- SLOW" if isinstance(total, (int, float)) and total > 3000 else ""
+        print(
+            f"  {i:>3}. stt={ms(r.get('stt_ms')):>7}  eou={ms(r.get('eou_ms')):>7}  "
+            f"llmttft={ms(r.get('llm_ttft_ms')):>7}  tts={ms(r.get('tts_ttfb_ms')):>7}   "
+            f"total={ms(total)}{flag}"
+        )
 
 
 if __name__ == "__main__":

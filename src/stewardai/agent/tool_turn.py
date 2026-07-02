@@ -15,6 +15,7 @@ and returns the raw result; the runner supplies it (it holds composio + user + t
 """
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
@@ -56,11 +57,19 @@ async def resolve_turn(
         return  # plain spoken reply (already streamed) or stay-silent
 
     # --- live action: ack (if not already spoken) → execute → speak the result ------
+    # Start the tool IMMEDIATELY (before the ack) so it runs WHILE the ack is spoken.
+    # The await below yields control to the event loop, so the TTS can synthesize
+    # "One moment." during execution instead of leaving dead air and then bundling the
+    # ack together with the result at the very end.
     slug, args = action
+    task = asyncio.create_task(executor(slug, args))
     if not spoke:
         yield _ACTION_ACK
     try:
-        result = await executor(slug, args)
+        result = await task
+    except asyncio.CancelledError:
+        task.cancel()  # barge-in mid-action: don't leave the tool call dangling
+        raise
     except Exception as exc:  # noqa: BLE001 - a failed action must not kill the turn
         _log.warning("live_action_failed", slug=slug, error=str(exc))
         yield "Sorry, I couldn't do that just now."
