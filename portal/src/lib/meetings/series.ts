@@ -47,7 +47,7 @@ export function groupMeetings(meetings: MeetingListItem[], nowIso: string): Home
   }
 
   const entries: HomeEntry[] = [];
-  for (const [key, occ] of groups) {
+  for (const [key, occ] of Array.from(groups.entries())) {
     if (occ.length < 2) {
       entries.push({ kind: "single", meeting: occ[0] });
       continue;
