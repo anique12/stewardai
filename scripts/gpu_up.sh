@@ -39,6 +39,38 @@ if [ -f "$VEXA_DIR/.env" ]; then
     echo 'TRANSCRIPTION_SERVICE_TOKEN=ci-placeholder' >> "$VEXA_DIR/.env"
   fi
 fi
+# Persist the steward bot image in ~/vexa/.env so any later `make up`/recreate uses it.
+# A bare `export` does NOT survive a recreate — runtime-api then falls back to the stock
+# :latest bot (no full-duplex forwarder), which was the root cause of a long GPU debug.
+if [ -f "$VEXA_DIR/.env" ]; then
+  if grep -q '^BROWSER_IMAGE=' "$VEXA_DIR/.env"; then
+    sed -i 's|^BROWSER_IMAGE=.*|BROWSER_IMAGE=vexaai/vexa-bot:steward|' "$VEXA_DIR/.env"
+  else
+    echo 'BROWSER_IMAGE=vexaai/vexa-bot:steward' >> "$VEXA_DIR/.env"
+  fi
+fi
+# The steward compose override (host redis publish + profiles.yaml mount carrying the
+# bridge env) is required for the bot to reach the mux. Recreate it if a fresh clone is
+# missing it (it was historically gitignored) — else the base profiles.yaml with NO
+# bridge env gets mounted and the bot never connects to the mux.
+OVERRIDE_FILE="$VEXA_DIR/deploy/compose/docker-compose.override.yml"
+if [ ! -f "$OVERRIDE_FILE" ]; then
+  echo "   creating missing docker-compose.override.yml"
+  cat > "$OVERRIDE_FILE" <<'OVR'
+services:
+  redis:
+    ports:
+      - "6380:6379"
+  runtime-api:
+    user: "0:0"
+    environment:
+      - MIN_AUDIO_DURATION_SEC=${MIN_AUDIO_DURATION_SEC:-0.5}
+      - SUBMIT_INTERVAL_SEC=${SUBMIT_INTERVAL_SEC:-0.5}
+      - IDLE_TIMEOUT_SEC=${IDLE_TIMEOUT_SEC:-0.5}
+    volumes:
+      - ./profiles.yaml:/app/profiles.yaml:ro
+OVR
+fi
 # Use our freshly-built bot image (with the mic fix) instead of the DockerHub default.
 export BROWSER_IMAGE="vexaai/vexa-bot:steward"
 # Run up + init-db + setup-api-key, but NOT the final 'test' target — its
