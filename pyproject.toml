@@ -72,6 +72,14 @@ parakeet = [
 chatterbox = [
     "chatterbox-tts>=0.1",
 ]
+# Cloud STT/TTS plugins for the no-GPU deployment (STT_BACKEND=deepgram,
+# TTS_BACKEND=deepgram or cartesia). Kept OUT of cpu/cuda because those default to
+# LOCAL whisper/kokoro; install alongside a base extra for the cheap CPU + cloud-API
+# box:  pip install -e '.[cpu,cloud]'
+cloud = [
+    "livekit-plugins-deepgram>=1.0",
+    "livekit-plugins-cartesia>=1.0",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/stewardai"]
