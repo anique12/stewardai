@@ -99,6 +99,9 @@ def _rows_and_events(user_id: str, items: list) -> list[tuple[dict, dict]]:
         start = (e.get("start") or {}).get("dateTime")  # skip all-day
         if not start:
             continue
+        # meetings.end_time is also NOT NULL; use the event's end, falling back to start
+        # if the calendar omits it (never send null).
+        end = (e.get("end") or {}).get("dateTime") or start
         native = _native_id(meet)
         if not native:
             continue
@@ -111,6 +114,7 @@ def _rows_and_events(user_id: str, items: list) -> list[tuple[dict, dict]]:
                     # summary, so fall back to a placeholder rather than sending null.
                     "title": (e.get("summary") or "").strip() or "Untitled meeting",
                     "start_time": start,
+                    "end_time": end,
                     "meet_url": meet,
                     "native_meeting_id": native,
                     "opted_in": True,
