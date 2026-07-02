@@ -11,10 +11,33 @@ export function cadenceLabel(startTimesIso: string[]): string {
   gaps.sort((a, b) => a - b);
   const median = gaps[Math.floor(gaps.length / 2)];
 
-  // Check if all gaps are consistent with the detected cadence
-  if (median >= 0.5 && median <= 1.5 && gaps.every((g) => g >= 0.5 && g <= 1.5)) return "Daily";
-  if (median >= 6 && median <= 8 && gaps.every((g) => g >= 6 && g <= 8)) return "Weekly";
-  if (median >= 13 && median <= 15 && gaps.every((g) => g >= 13 && g <= 15)) return "Biweekly";
-  if (median >= 27 && median <= 31 && gaps.every((g) => g >= 27 && g <= 31)) return "Monthly";
+  // Pick a candidate band from the median, then confirm with a majority of gaps.
+  let label: string | null = null;
+  let lo = 0;
+  let hi = 0;
+  if (median >= 0.5 && median <= 1.5) {
+    label = "Daily";
+    lo = 0.5;
+    hi = 1.5;
+  } else if (median >= 6 && median <= 8) {
+    label = "Weekly";
+    lo = 6;
+    hi = 8;
+  } else if (median >= 13 && median <= 15) {
+    label = "Biweekly";
+    lo = 13;
+    hi = 15;
+  } else if (median >= 27 && median <= 31) {
+    label = "Monthly";
+    lo = 27;
+    hi = 31;
+  }
+  if (label === null) return "Recurring";
+
+  let matches = 0;
+  for (let i = 0; i < gaps.length; i++) {
+    if (gaps[i] >= lo && gaps[i] <= hi) matches++;
+  }
+  if (matches > gaps.length / 2) return label;
   return "Recurring";
 }

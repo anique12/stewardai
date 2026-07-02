@@ -13,4 +13,13 @@ describe("cadenceLabel", () => {
   it("detects monthly", () => expect(cadenceLabel(monthly)).toBe("Monthly"));
   it("falls back to Recurring for irregular gaps", () => expect(cadenceLabel(irregular)).toBe("Recurring"));
   it("falls back to Recurring for fewer than 2 times", () => expect(cadenceLabel(["2026-07-01T10:00:00Z"])).toBe("Recurring"));
+  it("detects weekly with one skipped occurrence (majority of gaps in band)", () =>
+    expect(
+      cadenceLabel([
+        "2026-07-01T10:00:00Z",
+        "2026-07-08T10:00:00Z",
+        "2026-07-22T10:00:00Z",
+        "2026-07-29T10:00:00Z",
+      ])
+    ).toBe("Weekly"));
 });
