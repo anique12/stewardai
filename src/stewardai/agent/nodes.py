@@ -192,6 +192,8 @@ def build_llm_node(
                 from stewardai.agent.tool_turn import resolve_turn
 
                 deltas = 0
+                # Was the bot directly addressed this turn? (only used if the LLM fails)
+                addressed = _addressed_by_name(self._system, messages)
                 try:
                     # Gate + (optionally) run a live Composio action. Streams chunks:
                     # a short "one moment" ack is yielded FIRST (spoken while the tool
@@ -221,6 +223,15 @@ def build_llm_node(
                         backend=self._inner.name,
                         error=str(exc),
                     )
+                    # If the bot was clearly addressed and nothing was spoken yet, say a
+                    # short apology aloud instead of silence — so a language-model outage
+                    # is audible, not confusing. Stay silent on ambient turns to avoid
+                    # blurting errors over normal conversation.
+                    if addressed and deltas == 0:
+                        self._event_ch.send_nowait(
+                            _make_chat_chunk(lk_llm, request_id, _LLM_ERROR_FALLBACK)
+                        )
+                        _log.info("llm_error_fallback_spoken", backend=self._inner.name)
                     return
                 if deltas:
                     _log.info("llm_done", backend=self._inner.name, deltas=deltas)
@@ -292,6 +303,33 @@ def build_llm_node(
             await self._inner.aclose()
 
     return StewardLLM(backend, system, temperature, gated, action_tools, tool_executor)
+
+
+# Spoken when the LLM API fails on a turn the bot was directly addressed on, so a
+# language-model outage produces a clear apology instead of confusing dead air.
+_LLM_ERROR_FALLBACK = "Sorry, I'm having trouble reaching my language model right now."
+
+
+def _addressed_by_name(system, messages) -> bool:  # noqa: ANN001
+    """True if the bot's wake name (parsed from the 'You are {name},' system prompt)
+    appears in the most recent user message — i.e. it was directly addressed. Lets us
+    speak an apology when the LLM fails on a directed turn, while staying silent on
+    ambient turns during an outage."""
+    import re
+
+    if not system:
+        return False
+    m = re.match(r"You are (.+?),", system)
+    if not m:
+        return False
+    name = m.group(1).strip().lower()
+    last_user = next(
+        (msg for msg in reversed(messages) if getattr(msg, "role", None) == "user"),
+        None,
+    )
+    if last_user is None:
+        return False
+    return name in str(getattr(last_user, "content", "")).lower()
 
 
 def _chat_ctx_to_messages(chat_ctx) -> list[Message]:  # noqa: ANN001
