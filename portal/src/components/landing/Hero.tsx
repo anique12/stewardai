@@ -3,8 +3,10 @@ import { ArrowRight, Check } from "lucide-react";
 import { Container } from "./primitives";
 import { VoiceDemoDialog } from "./VoiceDemoDialog";
 import { VoiceToWork } from "./VoiceToWork";
+import { landingCta } from "@/lib/landing-cta";
 
-export function Hero() {
+export function Hero({ isAuthed = false }: { isAuthed?: boolean }) {
+  const cta = landingCta(isAuthed);
   return (
     <section id="hero" className="relative overflow-hidden">
       {/* Ambient glow + grid */}
@@ -37,10 +39,10 @@ export function Hero() {
 
           <div className="reveal reveal-3 mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Link
-              href="/auth/login"
+              href={cta.href}
               className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
-              Start free
+              {cta.primaryLabel}
               <ArrowRight className="h-4 w-4" aria-hidden />
             </Link>
             <VoiceDemoDialog variant="outline" />

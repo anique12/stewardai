@@ -11,13 +11,22 @@ import { UseCases } from "@/components/landing/UseCases";
 import { Pricing } from "@/components/landing/Pricing";
 import { FinalCTA } from "@/components/landing/FinalCTA";
 import { LandingFooter } from "@/components/landing/Footer";
+import { createServerClient } from "@/lib/supabase/server";
 
-export default function HomePage() {
+export const dynamic = "force-dynamic";
+
+export default async function HomePage() {
+  const supabase = createServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const isAuthed = !!user;
+
   return (
     <>
-      <LandingNav />
+      <LandingNav isAuthed={isAuthed} />
       <main>
-        <Hero />
+        <Hero isAuthed={isAuthed} />
         <StatsBar />
         <ProductSuite />
         <Features />

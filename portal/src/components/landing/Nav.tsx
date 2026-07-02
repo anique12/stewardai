@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Container } from "./primitives";
 import { cn } from "@/lib/utils";
+import { landingCta } from "@/lib/landing-cta";
 
 const PRODUCTS = [
   {
@@ -48,10 +49,11 @@ const LINKS = [
   { name: "Company", href: "#footer" },
 ];
 
-export function LandingNav() {
+export function LandingNav({ isAuthed = false }: { isAuthed?: boolean }) {
   const [scrolled, setScrolled] = useState(false);
   const [productsOpen, setProductsOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const cta = landingCta(isAuthed);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
@@ -134,17 +136,19 @@ export function LandingNav() {
 
           {/* Desktop CTAs */}
           <div className="hidden items-center gap-2 lg:flex">
+            {cta.secondaryLabel ? (
+              <Link
+                href="/auth/login"
+                className="rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {cta.secondaryLabel}
+              </Link>
+            ) : null}
             <Link
-              href="/auth/login"
-              className="rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Sign in
-            </Link>
-            <Link
-              href="/auth/login"
+              href={cta.href}
               className="rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background transition-opacity hover:opacity-90"
             >
-              Start free
+              {cta.primaryLabel}
             </Link>
           </div>
 
@@ -196,17 +200,19 @@ export function LandingNav() {
               ))}
             </div>
             <div className="mt-4 flex flex-col gap-2">
+              {cta.secondaryLabel ? (
+                <Link
+                  href="/auth/login"
+                  className="rounded-lg border border-border px-4 py-2.5 text-center text-sm font-medium text-foreground"
+                >
+                  {cta.secondaryLabel}
+                </Link>
+              ) : null}
               <Link
-                href="/auth/login"
-                className="rounded-lg border border-border px-4 py-2.5 text-center text-sm font-medium text-foreground"
-              >
-                Sign in
-              </Link>
-              <Link
-                href="/auth/login"
+                href={cta.href}
                 className="rounded-lg bg-primary px-4 py-2.5 text-center text-sm font-semibold text-primary-foreground"
               >
-                Start free
+                {cta.primaryLabel}
               </Link>
             </div>
           </Container>
