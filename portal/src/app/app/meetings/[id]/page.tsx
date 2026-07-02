@@ -1,11 +1,8 @@
-import { ActionItemsPanel } from "@/components/meetings/ActionItemsPanel";
-import { AgentActionsPanel } from "@/components/meetings/AgentActionsPanel";
-import { StatusBadge } from "@/components/meetings/StatusBadge";
-import { SummaryPanel } from "@/components/meetings/SummaryPanel";
-import { TranscriptPanel } from "@/components/meetings/TranscriptPanel";
+import { MeetingHeader } from "@/components/meetings/MeetingHeader";
+import { MeetingSummary } from "@/components/meetings/MeetingSummary";
+import { MeetingTimeline } from "@/components/meetings/MeetingTimeline";
 import { requireUserPage } from "@/lib/auth-helpers";
 import { createServerClient } from "@/lib/supabase/server";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { notFound } from "next/navigation";
 
 export const dynamic = "force-dynamic";
@@ -23,60 +20,42 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
 
   if (!meeting) notFound();
 
-  const [{ data: segments }, { data: summary }, { data: actionItems }, { data: agentActions }] = await Promise.all([
-    db.from("transcript_segments").select("*").eq("meeting_id", params.id).order("seq"),
-    db.from("summaries").select("*").eq("meeting_id", params.id).maybeSingle(),
-    db.from("action_items").select("*").eq("meeting_id", params.id).order("created_at"),
-    db.from("agent_actions").select("*").eq("meeting_id", params.id).eq("user_id", user.id).order("created_at"),
-  ]);
+  const [{ data: segments }, { data: summary }, { data: actionItems }, { data: agentActions }, { data: profile }] =
+    await Promise.all([
+      db.from("transcript_segments").select("*").eq("meeting_id", params.id).order("seq"),
+      db.from("summaries").select("*").eq("meeting_id", params.id).maybeSingle(),
+      db.from("action_items").select("*").eq("meeting_id", params.id).order("created_at"),
+      db.from("agent_actions").select("*").eq("meeting_id", params.id).eq("user_id", user.id).order("created_at"),
+      db.from("profiles").select("bot_name").eq("user_id", user.id).maybeSingle(),
+    ]);
 
-  const start = new Date(meeting.start_time);
+  const botName = profile?.bot_name ?? "StewardAI";
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">{meeting.title}</h1>
-          <p className="text-muted-foreground">
-            {start.toLocaleDateString()} · {start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-            {meeting.meet_url && (
-              <a href={meeting.meet_url} target="_blank" rel="noopener noreferrer"
-                className="ml-2 text-primary hover:underline">Join</a>
-            )}
-          </p>
-        </div>
-        <StatusBadge status={meeting.bot_status} />
-      </div>
-
-      <Tabs defaultValue="transcript">
-        <TabsList>
-          <TabsTrigger value="transcript">Transcript</TabsTrigger>
-          <TabsTrigger value="summary">Summary</TabsTrigger>
-          <TabsTrigger value="actions">Action Items</TabsTrigger>
-          <TabsTrigger value="steward">
-            Steward&apos;s Actions
-            {(agentActions ?? []).some((a) => a.state === "proposed") && (
-              <span className="ml-1.5 inline-flex h-2 w-2 rounded-full bg-amber-400" />
-            )}
-          </TabsTrigger>
-        </TabsList>
-        <TabsContent value="transcript" className="mt-4">
-          <TranscriptPanel
-            segments={segments ?? []}
-            meetingId={params.id}
-            live={meeting.bot_status === "in_meeting"}
-          />
-        </TabsContent>
-        <TabsContent value="summary" className="mt-4">
-          <SummaryPanel summary={summary ?? null} />
-        </TabsContent>
-        <TabsContent value="actions" className="mt-4">
-          <ActionItemsPanel items={actionItems ?? []} />
-        </TabsContent>
-        <TabsContent value="steward" className="mt-4">
-          <AgentActionsPanel actions={agentActions ?? []} meetingId={params.id} />
-        </TabsContent>
-      </Tabs>
+      <MeetingHeader
+        title={meeting.title}
+        startTime={meeting.start_time}
+        endTime={meeting.end_time}
+        meetUrl={meeting.meet_url}
+        botStatus={meeting.bot_status}
+      />
+      <MeetingSummary
+        summary={summary ?? null}
+        actionItems={actionItems ?? []}
+        agentActions={agentActions ?? []}
+        meetingId={params.id}
+      />
+      <section>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Timeline</h2>
+        <MeetingTimeline
+          segments={segments ?? []}
+          actions={agentActions ?? []}
+          meetingId={params.id}
+          botName={botName}
+          live={meeting.bot_status === "in_meeting"}
+        />
+      </section>
     </div>
   );
 }
