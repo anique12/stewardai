@@ -1,11 +1,13 @@
 import type { User } from "@supabase/supabase-js";
 
 const getUserMock = jest.fn();
-const redirectMock = jest.fn((..._args: unknown[]) => {
-  throw new Error("REDIRECT");
+const redirectMock = jest.fn((path: string): never => {
+  throw new Error(`REDIRECT:${path}`);
 });
 
-jest.mock("next/navigation", () => ({ redirect: (...a: unknown[]) => redirectMock(...a) }));
+jest.mock("next/navigation", () => ({
+  redirect: (path: string) => redirectMock(path),
+}));
 jest.mock("@/lib/supabase/server", () => ({
   createServerClient: () => ({ auth: { getUser: getUserMock } }),
 }));
