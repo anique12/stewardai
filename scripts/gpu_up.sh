@@ -41,7 +41,10 @@ if [ -f "$VEXA_DIR/.env" ]; then
 fi
 # Use our freshly-built bot image (with the mic fix) instead of the DockerHub default.
 export BROWSER_IMAGE="vexaai/vexa-bot:steward"
-( cd "$VEXA_DIR" && make all )
+# Run up + init-db + setup-api-key, but NOT the final 'test' target — its
+# transcription self-test hits vexa.ai and 403s (we bypass Vexa transcription),
+# which would otherwise abort this script. These sub-targets are idempotent.
+( cd "$VEXA_DIR" && make -C deploy/compose up init-db setup-api-key )
 
 echo "== 3/4  activate venv + expose CUDA libs to CTranslate2 (faster-whisper) =="
 # shellcheck disable=SC1091
