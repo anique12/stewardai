@@ -93,6 +93,45 @@ export function StateBadge({ state }: { state: AgentAction["state"] }) {
   }
 }
 
+const TOOLKIT_LABEL: Record<string, string> = {
+  gmail: "Gmail",
+  googlecalendar: "Google Calendar",
+  notion: "Notion",
+  slack: "Slack",
+};
+
+function toolkitLabel(t: string | null): string {
+  if (!t) return "";
+  return TOOLKIT_LABEL[t.toLowerCase()] ?? t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+function humanKey(k: string): string {
+  return k.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// A short, human-readable preview of an action's args — no raw JSON. Skips empty
+// values and long blobs, capped so the card stays scannable.
+function argPreview(args: Record<string, unknown>): [string, string][] {
+  const out: [string, string][] = [];
+  for (const [k, v] of Object.entries(args ?? {})) {
+    if (v == null || v === "") continue;
+    let s =
+      typeof v === "string"
+        ? v
+        : Array.isArray(v)
+        ? v.join(", ")
+        : typeof v === "object"
+        ? ""
+        : String(v);
+    s = s.trim();
+    if (!s) continue;
+    if (s.length > 140) s = s.slice(0, 137) + "…";
+    out.push([humanKey(k), s]);
+    if (out.length >= 4) break;
+  }
+  return out;
+}
+
 export function ActionStepCard({
   action,
   meetingId,
@@ -161,90 +200,72 @@ export function ActionStepCard({
     );
   }
 
+  const preview = argPreview(action.args);
+
   return (
-    <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+    <div className="rounded-lg border border-border bg-card p-3.5 space-y-2.5">
       <div className="flex items-start gap-3">
         <ToolkitIcon toolkit={toolkit} />
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="font-medium text-foreground truncate">
-              {action.title ?? slug ?? "Unnamed action"}
-            </p>
-            {action.risk === "high" && (
-              <Badge variant="destructive" className="text-xs">High risk</Badge>
-            )}
-          </div>
-          {(toolkit || slug) && (
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {[toolkit, slug].filter(Boolean).join(" · ")}
-            </p>
-          )}
+          <p className="text-sm font-medium text-foreground">
+            {action.title ?? slug ?? "Unnamed action"}
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {toolkitLabel(toolkit)}
+            {action.risk === "high" ? " · High risk" : ""}
+          </p>
         </div>
         <StateBadge state={action.state} />
       </div>
 
-      {/* Edit affordance for proposed rows */}
-      {action.state === "proposed" && editing && (
-        <div className="space-y-2 pl-10">
-          {Object.entries(editedArgs).map(([key, val]) => (
-            <div key={key} className="flex items-center gap-2">
-              <label className="text-xs text-muted-foreground w-24 shrink-0">{key}</label>
-              <Input
-                className="h-7 text-xs"
-                value={String(val ?? "")}
-                onChange={(e) =>
-                  setEditedArgs((prev) => ({ ...prev, [key]: e.target.value }))
-                }
-              />
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Controls for proposed rows */}
+      {/* Proposed: a human-readable preview of what will happen + controls */}
       {action.state === "proposed" && (
-        <div className="flex items-center gap-2 pl-10">
-          <Button
-            size="sm"
-            variant="default"
-            disabled={busy}
-            onClick={handleApprove}
-          >
-            Approve
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={busy}
-            onClick={handleDismiss}
-          >
-            Dismiss
-          </Button>
-          {Object.keys(action.args ?? {}).length > 0 && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-muted-foreground"
-              onClick={() => setEditing((v) => !v)}
-            >
-              {editing ? "Cancel edit" : "Edit"}
-            </Button>
+        <div className="space-y-2 pl-9">
+          {editing ? (
+            <div className="space-y-2">
+              {Object.entries(editedArgs).map(([key, val]) => (
+                <div key={key} className="flex items-center gap-2">
+                  <label className="w-24 shrink-0 text-xs text-muted-foreground">{humanKey(key)}</label>
+                  <Input
+                    className="h-7 text-xs"
+                    value={String(val ?? "")}
+                    onChange={(e) => setEditedArgs((prev) => ({ ...prev, [key]: e.target.value }))}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : (
+            preview.length > 0 && (
+              <dl className="space-y-1">
+                {preview.map(([k, v]) => (
+                  <div key={k} className="flex gap-2 text-xs">
+                    <dt className="w-24 shrink-0 text-muted-foreground">{k}</dt>
+                    <dd className="min-w-0 flex-1 truncate text-foreground/90">{v}</dd>
+                  </div>
+                ))}
+              </dl>
+            )
           )}
+          <div className="flex items-center gap-2">
+            <Button size="sm" disabled={busy} onClick={handleApprove}>Approve</Button>
+            <Button size="sm" variant="outline" disabled={busy} onClick={handleDismiss}>Dismiss</Button>
+            {Object.keys(action.args ?? {}).length > 0 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-muted-foreground"
+                onClick={() => setEditing((v) => !v)}
+              >
+                {editing ? "Cancel" : "Edit"}
+              </Button>
+            )}
+          </div>
         </div>
       )}
 
-      {/* Done: show result summary */}
-      {action.state === "done" && action.result && (
-        <p className="pl-10 text-xs text-green-400/80">
-          {typeof action.result === "object"
-            ? JSON.stringify(action.result).slice(0, 120)
-            : String(action.result)}
-        </p>
-      )}
-
-      {/* Failed: show error (but not when it's just a dismissal) */}
+      {/* Failed: human error only — never a raw payload */}
       {action.state === "failed" && action.error && action.error !== "dismissed by user" && (
-        <p className="pl-10 text-xs text-red-400/80">{action.error}</p>
+        <p className="pl-9 text-xs text-red-400/80">{action.error}</p>
       )}
     </div>
   );
