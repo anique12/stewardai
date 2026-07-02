@@ -63,6 +63,7 @@ class AgentActionsWriter:
         state: str,
         result: dict[str, Any] | None = None,
         error: str | None = None,
+        source_seq: int | None = None,
     ) -> str | None:
         """Insert a new agent_actions row, return the row id (or None on error)."""
         row: dict[str, Any] = {
@@ -76,6 +77,8 @@ class AgentActionsWriter:
             "title": title,
             "state": state,
         }
+        if source_seq is not None:
+            row["source_seq"] = source_seq
         if result is not None:
             row["result"] = result
         if error is not None:
