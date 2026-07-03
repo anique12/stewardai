@@ -18,7 +18,7 @@ export default async function SpacesPage() {
       db.from("spaces").select("id,name,parent_id,kind,status").eq("user_id", user.id).eq("status", "active"),
       db.from("meetings").select("space_id").eq("user_id", user.id).not("space_id", "is", null),
       db.from("space_facts").select("space_id").eq("user_id", user.id).is("superseded_by", null),
-      db.from("meetings").select("id").eq("user_id", user.id).in("space_source", ["suggested", "unfiled"]),
+      db.from("meetings").select("id").eq("user_id", user.id).or("space_source.in.(suggested,unfiled),space_id.is.null"),
     ]);
 
   const meetingCounts = new Map<string, number>();

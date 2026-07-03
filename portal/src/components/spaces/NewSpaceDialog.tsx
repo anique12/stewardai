@@ -14,6 +14,7 @@ export function NewSpaceDialog() {
   const [busy, setBusy] = useState(false);
 
   async function create() {
+    if (busy) return;
     if (!name.trim()) return;
     setBusy(true);
     try {

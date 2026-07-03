@@ -14,7 +14,7 @@ export default async function UnfiledPage() {
   const [{ data: meetings }, { data: spaces }] = await Promise.all([
     db.from("meetings")
       .select("id,title,start_time,space_id,space_source")
-      .eq("user_id", user.id).in("space_source", ["suggested", "unfiled"])
+      .eq("user_id", user.id).or("space_source.in.(suggested,unfiled),space_id.is.null")
       .order("start_time", { ascending: false }),
     db.from("spaces").select("id,name").eq("user_id", user.id).eq("status", "active").order("name"),
   ]);
