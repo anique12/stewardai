@@ -1,0 +1,228 @@
+"""Composio external-tool wrappers for agentic chat.
+
+Lists a user's allow-listed, connected Composio actions (Gmail / Google
+Calendar / Notion / Slack -- see :mod:`stewardai.integrations.composio_service`)
+and wraps each one as a gated LangChain ``StructuredTool``, reusing the exact
+patterns already proven by :mod:`stewardai.agent.live_tools` (schema-driven
+tool construction) and :mod:`stewardai.agent.chat.write_tools` (the
+gate-then-mutate executor shape):
+
+1. Every Composio action name is unknown to
+   :data:`stewardai.agent.chat.permissions.TIER`, so
+   :func:`stewardai.agent.chat.permissions.gate` classifies all of them as
+   ``"outward"`` -- calling one always raises a ``kind="permission"``
+   interrupt (unless the user has "always allow"-ed that exact action slug),
+   which the WS surfaces as ``permission_request`` with an args preview.
+2. On "auto"/"approve", the action executes via ``ComposioService.execute``.
+   ``ComposioService.get_tools`` already filters to the user's *connected*
+   toolkits, so this should rarely see a disconnected app -- but a connection
+   can be revoked between listing and execution (or a stale tool list is
+   reused across a long chat session), so execution is still defended: a
+   :class:`composio.exceptions.ConnectedAccountError` (covers
+   ``ConnectedAccountNotFoundError``, an ACL-denied shared connection, etc.)
+   or an unsuccessful result whose error text mentions the connection is
+   treated as "not connected" and raises a second, ``kind="connect"``
+   interrupt so the WS surfaces ``connect_required`` for that app. Resuming
+   with the ``"retry"`` decision (``web/app.py`` maps a ``connect_done``
+   client message to that) re-attempts execution exactly once more.
+
+Building the tool list itself (``composio_service is None``, an API error
+while listing) is fully defensive -- it degrades to ``[]`` rather than ever
+raising into the chat graph, so chat still works with read+write tools only.
+"""
+from __future__ import annotations
+
+import asyncio
+from typing import Any
+
+from langchain_core.tools import StructuredTool
+from langgraph.types import interrupt
+
+from stewardai.agent.chat.permissions import gate
+from stewardai.common.logging import get_logger
+
+_log = get_logger("agent.chat.composio_tools")
+
+_SKIPPED: dict = {"skipped": True}
+_RESULT_PREVIEW_LEN = 2000
+_MAX_ATTEMPTS = 2  # first attempt + exactly one retry after a "connect" interrupt
+
+
+def _toolkit_of(slug: str) -> str:
+    """Derive the toolkit slug from an action slug (prefix before first `_`).
+
+    All allow-listed toolkits (gmail, googlecalendar, notion, slack) happen to
+    equal their action slugs' lowercased first segment, so no lookup table is
+    needed (contrast ``live_tools._slug_to_toolkit``, which keeps one anyway).
+    """
+    return slug.split("_")[0].lower()
+
+
+def _mentions_connection_issue(text: str) -> bool:
+    t = text.lower()
+    return "connect" in t or "no active" in t or ("account" in t and "not found" in t)
+
+
+def _is_not_connected(exc: BaseException | None, result: dict | None) -> bool:
+    """Best-effort detection of a Composio "app not connected" signal.
+
+    Two shapes are recognized:
+    - a raised ``composio.exceptions.ConnectedAccountError`` (or any
+      exception whose class name / message otherwise mentions a connection
+      problem -- covers SDK versions that raise a plainer error), and
+    - a returned-but-unsuccessful ``execute()`` result dict whose error text
+      mentions one.
+    """
+    if exc is not None:
+        try:
+            from composio.exceptions import ConnectedAccountError
+
+            if isinstance(exc, ConnectedAccountError):
+                return True
+        except ImportError:  # pragma: no cover - composio is a hard dependency
+            pass
+        if "ConnectedAccount" in type(exc).__name__:
+            return True
+        if _mentions_connection_issue(str(exc)):
+            return True
+    if result is not None and not result.get("successful", True):
+        if _mentions_connection_issue(str(result.get("error") or "")):
+            return True
+    return False
+
+
+def _trim_result(result: Any) -> dict:
+    """Trim a Composio execute() result so a large payload doesn't blow up
+    the LLM's context; always returns a plain dict."""
+    if not isinstance(result, dict):
+        return {"result": str(result)[:_RESULT_PREVIEW_LEN]}
+    out = dict(result)
+    data = out.get("data")
+    if isinstance(data, (dict, list)):
+        text = str(data)
+        if len(text) > _RESULT_PREVIEW_LEN:
+            out["data"] = text[:_RESULT_PREVIEW_LEN] + "...(truncated)"
+    return out
+
+
+def build_composio_tools(*, user_id: str, composio_service: Any, client: Any = None) -> list:
+    """Build one gated LangChain tool per the user's allow-listed, connected
+    Composio action.
+
+    Returns ``[]`` gracefully when ``composio_service`` is ``None`` (Composio
+    disabled / unavailable) or when listing the user's tools fails for any
+    reason -- chat still runs fine with read+write tools only.
+
+    Parameters
+    ----------
+    user_id:
+        Supabase user UUID / Composio entity id.
+    composio_service:
+        A :class:`stewardai.integrations.composio_service.ComposioService`
+        instance, or ``None``.
+    client:
+        The Supabase client used by :func:`gate` for the "always allow"
+        allowlist check. May be ``None`` -- ``gate`` degrades to "not
+        allowlisted" and gates normally (see ``store.is_allowed``).
+    """
+    if composio_service is None:
+        return []
+
+    try:
+        schemas = composio_service.get_tools(user_id)
+    except Exception as exc:  # noqa: BLE001 - listing failure must not break chat
+        _log.warning("composio_tools_list_failed", user_id=user_id, error=str(exc))
+        return []
+
+    tools: list = []
+    for schema in schemas or []:
+        fn_def = (schema or {}).get("function", {})
+        slug: str = fn_def.get("name", "")
+        if not slug:
+            continue
+        description: str = fn_def.get("description") or slug
+        parameters: dict = fn_def.get("parameters") or {"type": "object", "properties": {}}
+        tool = _make_tool(
+            slug=slug,
+            description=description,
+            parameters=parameters,
+            user_id=user_id,
+            composio_service=composio_service,
+            client=client,
+        )
+        if tool is not None:
+            tools.append(tool)
+
+    _log.info("composio_tools_built", user_id=user_id, count=len(tools))
+    return tools
+
+
+def _make_tool(
+    *,
+    slug: str,
+    description: str,
+    parameters: dict,
+    user_id: str,
+    composio_service: Any,
+    client: Any,
+) -> Any | None:
+    app = _toolkit_of(slug)
+
+    async def _run(**kwargs: Any) -> dict:
+        # NOTE: deliberately NOT wrapped in try/except -- gate() (and the
+        # connect-flow interrupt below) raise langgraph's GraphInterrupt
+        # (a plain Exception subclass) to pause the turn; catching broadly
+        # here would swallow that and silently break the permission/connect
+        # flow instead of surfacing it. The graph engine itself intercepts
+        # GraphInterrupt (turning it into a stream `__interrupt__` chunk --
+        # see ChatSession._drive), and ChatSession._drive's own try/except
+        # is the right place to catch any other genuine error.
+        decision = await gate(
+            client,
+            user_id=user_id,
+            tool_name=slug,
+            payload={"app": app, "action": slug, "args": kwargs},
+        )
+        if decision not in ("auto", "approve"):
+            return dict(_SKIPPED)
+        return await _execute_with_connect_gate(
+            slug=slug, app=app, kwargs=kwargs, user_id=user_id, composio_service=composio_service,
+        )
+
+    has_props = isinstance(parameters, dict) and parameters.get("properties")
+    args_schema = parameters if has_props else None
+    try:
+        return StructuredTool.from_function(
+            coroutine=_run, name=slug, description=description, args_schema=args_schema,
+        )
+    except Exception as exc:  # noqa: BLE001 - a malformed schema shouldn't break other tools
+        _log.warning("composio_tool_build_failed", slug=slug, error=str(exc))
+        return None
+
+
+async def _execute_with_connect_gate(
+    *, slug: str, app: str, kwargs: dict, user_id: str, composio_service: Any
+) -> dict:
+    """Execute ``slug`` via ``composio_service``; on a "not connected" signal,
+    interrupt with ``kind="connect"`` and retry exactly once if resumed with
+    ``"retry"``."""
+    for attempt in range(_MAX_ATTEMPTS):
+        exc: Exception | None = None
+        result: dict | None = None
+        try:
+            result = await asyncio.to_thread(composio_service.execute, user_id, slug, kwargs)
+        except Exception as e:  # noqa: BLE001 - inspected below, not re-raised
+            exc = e
+
+        if not _is_not_connected(exc, result):
+            if exc is not None:
+                _log.warning("composio_tool_exec_failed", slug=slug, error=str(exc))
+                return {"ok": False, "error": str(exc)}
+            return _trim_result(result)
+
+        decision = interrupt({"kind": "connect", "app": app, "tool": slug})
+        if decision == "retry" and attempt < _MAX_ATTEMPTS - 1:
+            continue
+        return {"connect_required": True, "app": app, "tool": slug}
+
+    return {"connect_required": True, "app": app, "tool": slug}  # pragma: no cover - unreachable

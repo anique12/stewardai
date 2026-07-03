@@ -30,6 +30,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from stewardai.agent.chat.composio_tools import build_composio_tools
 from stewardai.agent.chat.session import ChatSession
 from stewardai.agent.chat.store import (
     append_message,
@@ -111,6 +112,17 @@ async def lifespan(app: FastAPI):
         app.state.supabase = await create_service_client(settings)
     except Exception as exc:  # noqa: BLE001 - Ask is optional; don't block startup
         log.warning("supabase_client_unavailable", error=str(exc))
+    # Composio (Gmail/Calendar/Notion/Slack chat tools) is optional: only built
+    # when COMPOSIO_API_KEY is set, and never allowed to block startup. Same
+    # guarded-construction pattern as meeting_runner.run_multiplexer.
+    app.state.composio_service = None
+    if settings.composio_enabled:
+        try:
+            from stewardai.integrations.composio_service import ComposioService
+
+            app.state.composio_service = ComposioService()
+        except Exception as exc:  # noqa: BLE001 - chat still works without it
+            log.warning("composio_service_unavailable", error=str(exc))
     log.info(
         "web_startup",
         stt=app.state.stt.name if app.state.stt is not None else f"{settings.stt_backend} (cloud)",
@@ -532,7 +544,14 @@ async def ws_chat(ws: WebSocket) -> None:
                     tools = build_read_tools(
                         app.state.supabase, app.state.llm, user_id=user_id
                     ) + build_write_tools(app.state.supabase, user_id=user_id)
-                    # TODO(C2-T5): + build_composio_tools(user_id=user_id)
+                    try:
+                        tools += build_composio_tools(
+                            user_id=user_id,
+                            composio_service=getattr(app.state, "composio_service", None),
+                            client=app.state.supabase,
+                        )
+                    except Exception as exc:  # noqa: BLE001 - chat still works without Composio
+                        log.warning("composio_tools_unavailable", error=str(exc))
                     session = ChatSession(
                         app.state.supabase, app.state.llm,
                         user_id=user_id, thread_id=thread_id, tools=tools,
