@@ -23,19 +23,23 @@ import asyncio
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from stewardai.agent.kb.ask import answer_question
 from stewardai.common.audio import SAMPLE_RATE
 from stewardai.common.logging import TurnTimer, configure_logging, get_logger
 from stewardai.config import get_settings
 from stewardai.factory import make_llm, make_stt, make_tts
+from stewardai.integrations.supabase_client import create_service_client
 from stewardai.llm.warmup import warmup_llm
 from stewardai.turn.endpointer import SilenceEndpointer
 
 from .demo_auth import verify_demo_token
+from .kb_auth import user_id_from_bearer
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -92,6 +96,11 @@ async def lifespan(app: FastAPI):
     app.state.stt = None if _is_cloud(settings.stt_backend) else make_stt(settings)
     app.state.tts = None if _is_cloud(settings.tts_backend) else make_tts(settings)
     app.state.llm = make_llm(settings)
+    app.state.supabase = None
+    try:
+        app.state.supabase = await create_service_client(settings)
+    except Exception as exc:  # noqa: BLE001 - Ask is optional; don't block startup
+        log.warning("supabase_client_unavailable", error=str(exc))
     log.info(
         "web_startup",
         stt=app.state.stt.name if app.state.stt is not None else f"{settings.stt_backend} (cloud)",
@@ -113,6 +122,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="StewardAI test pages", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+_origins = [o.strip() for o in get_settings().ask_cors_origins.split(",") if o.strip()]
+if _origins:
+    app.add_middleware(
+        CORSMiddleware, allow_origins=_origins, allow_methods=["POST"],
+        allow_headers=["authorization", "content-type"],
+    )
 
 
 def _page(name: str) -> FileResponse:
@@ -166,6 +182,25 @@ async def api_tts(req: TTSRequest):
             yield frame.pcm
 
     return StreamingResponse(gen(), media_type="application/octet-stream")
+
+
+class AskRequest(BaseModel):
+    query: str
+    space_id: str | None = None
+
+
+@app.post("/api/ask")
+async def api_ask(req: AskRequest, request: Request):
+    user_id = await user_id_from_bearer(
+        request.headers.get("authorization"), app.state.supabase
+    )
+    if not user_id:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    result = await answer_question(
+        app.state.supabase, app.state.llm,
+        user_id=user_id, query=req.query, space_id=req.space_id,
+    )
+    return JSONResponse(result)
 
 
 def _new_endpointer() -> SilenceEndpointer:
