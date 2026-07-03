@@ -30,13 +30,15 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from stewardai.agent.chat.graph import run_chat_turn
+from stewardai.agent.chat.session import ChatSession
 from stewardai.agent.chat.store import (
     append_message,
     create_thread,
     get_thread_messages,
     thread_owned,
 )
+from stewardai.agent.chat.tools import build_read_tools
+from stewardai.agent.chat.write_tools import build_write_tools
 from stewardai.agent.kb.ask import answer_question
 from stewardai.common.audio import SAMPLE_RATE
 from stewardai.common.logging import TurnTimer, configure_logging, get_logger
@@ -422,13 +424,22 @@ async def ws_pipeline(ws: WebSocket) -> None:
 @app.websocket("/ws/chat")
 async def ws_chat(ws: WebSocket) -> None:
     """Agentic chat over a websocket: streamed token/activity events ending in
-    ``done``, backed by T5's ``run_chat_turn`` LangGraph agent.
+    ``done`` -- or, mid-turn, in ``permission_request``/``connect_required``
+    when a write tool interrupts for a human decision -- backed by C2's
+    :class:`~stewardai.agent.chat.session.ChatSession`.
 
     Browsers can't set headers on a websocket, so auth rides a ``?token=``
     query param instead (same Supabase-bearer resolution as ``/api/ask``).
     Threads/messages are persisted via the chat store, which is itself
     best-effort (swallows DB errors) -- the per-turn try/except below is a
     second guard so a lost store or agent error never kills the connection.
+
+    A ``ChatSession`` is built fresh on every ``user_message`` (its full
+    history is reloaded from the store each time, same as C1), but the
+    interrupt/resume protocol needs the *same* session object that raised the
+    interrupt, so ``sessions`` keeps the most recent session per thread_id and
+    ``suspended`` remembers which thread (if any) is paused awaiting a
+    ``permission_decision``/``connect_done`` from the client.
     """
     await ws.accept()
 
@@ -446,6 +457,32 @@ async def ws_chat(ws: WebSocket) -> None:
             await ws.close(code=1008)  # policy violation
         return
 
+    sessions: dict[str, ChatSession] = {}
+    suspended: tuple[str, str | None] | None = None
+
+    async def _drain(stream, thread_id: str) -> tuple[str, str | None] | None:
+        """Forward every event from a ``stream_turn``/``resume`` stream to the
+        client. Returns a new ``suspended`` marker if the turn paused on a
+        permission/connect interrupt (and stops consuming right there,
+        without persisting an assistant message), or ``None`` if it ran to
+        ``done`` (in which case the assistant message is persisted here).
+        """
+        async for ev in stream:
+            await ws.send_json(ev)
+            ev_type = ev.get("type")
+            if ev_type in ("permission_request", "connect_required"):
+                return (thread_id, ev.get("call_id"))
+            if ev_type == "done":
+                await append_message(
+                    app.state.supabase, user_id=user_id, thread_id=thread_id,
+                    role="assistant",
+                    parts=[
+                        {"type": "text", "text": ev.get("answer", "")},
+                        {"type": "citation_group", "citations": ev.get("citations", [])},
+                    ],
+                )
+        return None
+
     try:
         while True:
             try:
@@ -453,66 +490,80 @@ async def ws_chat(ws: WebSocket) -> None:
             except json.JSONDecodeError:
                 await _safe_send(ws, {"type": "error", "text": "could not parse message"})
                 continue
-            if msg.get("type") != "user_message":
-                continue
-            text = (msg.get("text") or "").strip()
-            if not text:
-                continue
-            try:
-                thread_id = msg.get("thread_id")
-                if thread_id and not await thread_owned(
-                    app.state.supabase, user_id=user_id, thread_id=thread_id
-                ):
-                    thread_id = None
-                if not thread_id:
-                    thread_id = await create_thread(
-                        app.state.supabase, user_id=user_id, title=text[:60]
+
+            msg_type = msg.get("type")
+
+            if msg_type == "user_message":
+                text = (msg.get("text") or "").strip()
+                if not text:
+                    continue
+                try:
+                    thread_id = msg.get("thread_id")
+                    if thread_id and not await thread_owned(
+                        app.state.supabase, user_id=user_id, thread_id=thread_id
+                    ):
+                        thread_id = None
+                    if not thread_id:
+                        thread_id = await create_thread(
+                            app.state.supabase, user_id=user_id, title=text[:60]
+                        )
+                        await _safe_send(ws, {"type": "thread", "id": thread_id})
+
+                    stored = await get_thread_messages(
+                        app.state.supabase, user_id=user_id, thread_id=thread_id
                     )
-                    await _safe_send(ws, {"type": "thread", "id": thread_id})
+                    history = [
+                        {
+                            "role": m["role"],
+                            "content": "".join(
+                                part.get("text", "")
+                                for part in (m.get("parts") or [])
+                                if isinstance(part, dict) and part.get("type") == "text"
+                            ),
+                        }
+                        for m in stored
+                    ]
 
-                stored = await get_thread_messages(
-                    app.state.supabase, user_id=user_id, thread_id=thread_id
-                )
-                history = [
-                    {
-                        "role": m["role"],
-                        "content": "".join(
-                            part.get("text", "")
-                            for part in (m.get("parts") or [])
-                            if isinstance(part, dict) and part.get("type") == "text"
-                        ),
-                    }
-                    for m in stored
-                ]
+                    await append_message(
+                        app.state.supabase, user_id=user_id, thread_id=thread_id,
+                        role="user", parts=[{"type": "text", "text": text}],
+                    )
 
-                await append_message(
-                    app.state.supabase, user_id=user_id, thread_id=thread_id,
-                    role="user", parts=[{"type": "text", "text": text}],
-                )
+                    tools = build_read_tools(
+                        app.state.supabase, app.state.llm, user_id=user_id
+                    ) + build_write_tools(app.state.supabase, user_id=user_id)
+                    # TODO(C2-T5): + build_composio_tools(user_id=user_id)
+                    session = ChatSession(
+                        app.state.supabase, app.state.llm,
+                        user_id=user_id, thread_id=thread_id, tools=tools,
+                    )
+                    sessions[thread_id] = session
 
-                answer = ""
-                citations: list = []
-                async for ev in run_chat_turn(
-                    app.state.supabase, app.state.llm,
-                    user_id=user_id, history=history, message=text,
-                ):
-                    await ws.send_json(ev)
-                    if ev.get("type") == "done":
-                        answer = ev.get("answer", "")
-                        citations = ev.get("citations", [])
+                    suspended = await _drain(session.stream_turn(text, history), thread_id)
+                except Exception as exc:  # noqa: BLE001 - keep the socket alive across a bad turn
+                    log.warning("chat_turn_error", error=str(exc))
+                    await _safe_send(
+                        ws, {"type": "error", "text": "something went wrong on this turn"}
+                    )
 
-                await append_message(
-                    app.state.supabase, user_id=user_id, thread_id=thread_id,
-                    role="assistant",
-                    parts=[
-                        {"type": "text", "text": answer},
-                        {"type": "citation_group", "citations": citations},
-                    ],
-                )
-            except Exception as exc:  # noqa: BLE001 - keep the socket alive across a bad turn
-                log.warning("chat_turn_error", error=str(exc))
-                await _safe_send(
-                    ws, {"type": "error", "text": "something went wrong on this turn"}
-                )
+            elif msg_type in ("permission_decision", "connect_done"):
+                if suspended is None:
+                    continue
+                thread_id, _call_id = suspended
+                session = sessions.get(thread_id)
+                if session is None:
+                    suspended = None
+                    continue
+                decision = msg.get("decision") if msg_type == "permission_decision" else "retry"
+                try:
+                    suspended = await _drain(session.resume(decision), thread_id)
+                except Exception as exc:  # noqa: BLE001 - keep the socket alive across a bad turn
+                    log.warning("chat_turn_error", error=str(exc))
+                    await _safe_send(
+                        ws, {"type": "error", "text": "something went wrong on this turn"}
+                    )
+
+            else:
+                continue
     except WebSocketDisconnect:
         return
