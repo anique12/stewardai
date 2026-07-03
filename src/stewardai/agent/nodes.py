@@ -148,6 +148,7 @@ def build_llm_node(
     system: str | None = None,
     temperature: float = 0.4,
     gated: bool = False,
+    native_tools: bool = False,
     action_tools=None,  # noqa: ANN001 - OpenAI-format Composio tool schemas (gated live actions)
     tool_executor=None,  # noqa: ANN001 - async (slug, args) -> result dict
 ):
@@ -173,7 +174,7 @@ def build_llm_node(
 
         def __init__(  # noqa: ANN001
             self, llm, *, chat_ctx, tools, conn_options, inner, system, temperature,
-            gated, action_tools, tool_executor
+            gated, native_tools, action_tools, tool_executor
         ):
             super().__init__(
                 llm, chat_ctx=chat_ctx, tools=tools or [], conn_options=conn_options
@@ -183,12 +184,68 @@ def build_llm_node(
             self._system = system
             self._temperature = temperature
             self._gated = gated
+            self._native_tools = native_tools
+            self._tools_list = tools or []  # agent's registered tools (native path)
             self._action_tools = action_tools
             self._tool_executor = tool_executor
 
         async def _run(self) -> None:
             messages = _chat_ctx_to_messages(self._chat_ctx)
             request_id = _gen_id()
+            if self._native_tools:
+                # NATIVE meeting path: let LiveKit own the tool loop. We stream content
+                # (spoken as it arrives) + emit tool-call chunks; the framework runs the
+                # registered tools (Composio actions + stay_silent) and re-invokes chat()
+                # with the results for the follow-up spoken reply. This gives correct
+                # utterance boundaries (preamble spoken BEFORE the tool runs, result after)
+                # and uses stay_silent(→StopResponse) as the "stay quiet" gate.
+                from stewardai.agent.native_tools import (
+                    chat_ctx_to_oai_messages,
+                    tools_to_litellm,
+                )
+
+                items = list(getattr(self._chat_ctx, "items", None) or [])
+                oai_messages = chat_ctx_to_oai_messages(items, system=self._system)
+                oai_tools = tools_to_litellm(self._tools_list)
+                addressed = _addressed_by_name_oai(self._system, oai_messages)
+                self._steward_llm._turn_seq += 1
+                my_seq = self._steward_llm._turn_seq
+                n = 0
+                try:
+                    async for kind, payload in self._inner.chat_with_tools(
+                        oai_messages, tools=oai_tools
+                    ):
+                        if self._steward_llm._turn_seq != my_seq:
+                            _log.info(
+                                "turn_superseded", backend=self._inner.name, deltas=n
+                            )
+                            return
+                        if kind == "text":
+                            if payload:
+                                self._event_ch.send_nowait(
+                                    _make_chat_chunk(lk_llm, request_id, payload)
+                                )
+                                n += 1
+                        elif kind == "tool_call":
+                            self._event_ch.send_nowait(
+                                _make_tool_call_chunk(lk_llm, request_id, payload)
+                            )
+                            n += 1
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001 - a transient LLM failure must
+                    # not wedge the session; stay quiet (or apologize if addressed).
+                    _log.warning(
+                        "llm_native_failed", backend=self._inner.name, error=str(exc)
+                    )
+                    if addressed and n == 0:
+                        self._event_ch.send_nowait(
+                            _make_chat_chunk(lk_llm, request_id, _LLM_ERROR_FALLBACK)
+                        )
+                        _log.info("llm_error_fallback_spoken", backend=self._inner.name)
+                    return
+                _log.info("llm_native_done", backend=self._inner.name, deltas=n)
+                return
             if self._gated:
                 from stewardai.agent.tool_turn import resolve_turn
 
@@ -301,6 +358,7 @@ def build_llm_node(
 
         def __init__(
             self, inner: LLMBackend, system: str | None, temperature: float, gated: bool,
+            native_tools: bool = False,
             action_tools=None, tool_executor=None,  # noqa: ANN001
         ) -> None:
             super().__init__()
@@ -308,6 +366,7 @@ def build_llm_node(
             self._system = system
             self._temperature = temperature
             self._gated = gated
+            self._native_tools = native_tools
             self._action_tools = action_tools
             self._tool_executor = tool_executor
             # Monotonic per-session turn counter; each turn's stream stamps itself and
@@ -337,6 +396,7 @@ def build_llm_node(
                 system=self._system,
                 temperature=self._temperature,
                 gated=self._gated,
+                native_tools=self._native_tools,
                 action_tools=self._action_tools,
                 tool_executor=self._tool_executor,
             )
@@ -344,7 +404,9 @@ def build_llm_node(
         async def aclose(self) -> None:  # type: ignore[override]
             await self._inner.aclose()
 
-    return StewardLLM(backend, system, temperature, gated, action_tools, tool_executor)
+    return StewardLLM(
+        backend, system, temperature, gated, native_tools, action_tools, tool_executor
+    )
 
 
 # Spoken when the LLM API fails on a turn the bot was directly addressed on, so a
@@ -352,11 +414,9 @@ def build_llm_node(
 _LLM_ERROR_FALLBACK = "Sorry, I'm having trouble reaching my language model right now."
 
 
-def _addressed_by_name(system, messages) -> bool:  # noqa: ANN001
+def _name_in(system, text) -> bool:  # noqa: ANN001
     """True if the bot's wake name (parsed from the 'You are {name},' system prompt)
-    appears in the most recent user message — i.e. it was directly addressed. Lets us
-    speak an apology when the LLM fails on a directed turn, while staying silent on
-    ambient turns during an outage."""
+    appears in ``text``."""
     import re
 
     if not system:
@@ -364,14 +424,30 @@ def _addressed_by_name(system, messages) -> bool:  # noqa: ANN001
     m = re.match(r"You are (.+?),", system)
     if not m:
         return False
-    name = m.group(1).strip().lower()
+    return m.group(1).strip().lower() in (text or "").lower()
+
+
+def _addressed_by_name(system, messages) -> bool:  # noqa: ANN001
+    """True if the bot was directly addressed in the most recent user message (our
+    ``Message`` list form). Lets us speak an apology when the LLM fails on a directed
+    turn, while staying silent on ambient turns during an outage."""
     last_user = next(
         (msg for msg in reversed(messages) if getattr(msg, "role", None) == "user"),
         None,
     )
     if last_user is None:
         return False
-    return name in str(getattr(last_user, "content", "")).lower()
+    return _name_in(system, str(getattr(last_user, "content", "")))
+
+
+def _addressed_by_name_oai(system, oai_messages) -> bool:  # noqa: ANN001
+    """``_addressed_by_name`` for OpenAI-format message dicts (native path)."""
+    last_user = next(
+        (m for m in reversed(oai_messages) if m.get("role") == "user"), None
+    )
+    if last_user is None:
+        return False
+    return _name_in(system, str(last_user.get("content") or ""))
 
 
 def _chat_ctx_to_messages(chat_ctx) -> list[Message]:  # noqa: ANN001
@@ -422,6 +498,29 @@ def _make_chat_chunk(lk_llm, request_id: str, delta: str):  # noqa: ANN001
     return lk_llm.ChatChunk(
         id=request_id,
         delta=lk_llm.ChoiceDelta(role="assistant", content=delta),
+    )
+
+
+def _make_tool_call_chunk(lk_llm, request_id: str, call: dict):  # noqa: ANN001
+    """Build a ``ChatChunk`` carrying a function tool-call (native path).
+
+    ``call`` = {name, arguments (json str), call_id}. The framework reads
+    ``delta.tool_calls`` and dispatches the registered tool; ``call_id`` round-trips
+    to the FunctionCallOutput so the result matches its call.
+    """
+    return lk_llm.ChatChunk(
+        id=request_id,
+        delta=lk_llm.ChoiceDelta(
+            role="assistant",
+            tool_calls=[
+                lk_llm.FunctionToolCall(
+                    type="function",
+                    name=call["name"],
+                    arguments=call["arguments"],
+                    call_id=call["call_id"],
+                )
+            ],
+        ),
     )
 
 

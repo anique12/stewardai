@@ -242,6 +242,57 @@ class LiteLLMClient:
             action_slug=chosen, streamed_chars=text_chars,
         )
 
+    async def chat_with_tools(self, oai_messages, *, tools=None):  # noqa: ANN001
+        """Streaming chat in OpenAI shape for the NATIVE meeting path (LiveKit owns
+        the tool loop). ``oai_messages`` and ``tools`` are already OpenAI-format
+        (built by ``agent.native_tools``). Yields, in order:
+
+          ('text', delta)                         — content to speak (streamed, so a
+                                                    preamble is spoken before a tool runs)
+          ('tool_call', {name, arguments, call_id}) — after the stream, each tool the
+                                                    model chose (LiveKit executes it)
+
+        Unlike ``decide_stream`` this preserves ``call_id`` and accepts tool-result
+        messages, so the framework's speak→tool→speak follow-up pass works."""
+        import litellm  # lazy
+
+        from stewardai.agent.native_tools import (
+            accumulate_tool_call_deltas,
+            finish_tool_calls,
+        )
+
+        kwargs: dict = {
+            "model": self.model,
+            "messages": oai_messages,
+            "temperature": 0.0,
+            "timeout": self._s.llm_timeout_s,
+            "num_retries": 2,
+            "stream": True,
+            "fallbacks": self._fallbacks,
+        }
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = "auto"
+        response = await litellm.acompletion(**kwargs)
+        acc: dict[int, dict] = {}
+        text_chars = 0
+        async for chunk in response:
+            delta = chunk.choices[0].delta
+            content = getattr(delta, "content", None)
+            if content:
+                text_chars += len(content)
+                yield ("text", content)
+            accumulate_tool_call_deltas(acc, getattr(delta, "tool_calls", None) or [])
+        calls = finish_tool_calls(acc)
+        for call in calls:
+            yield ("tool_call", call)
+        _log.info(
+            "llm_chat_with_tools",
+            backend=self.name,
+            streamed_chars=text_chars,
+            tool_calls=[c["name"] for c in calls],
+        )
+
     async def phrase_result_stream(self, messages, *, system=None, slug=None, result=None):  # noqa: ANN001
         """Streaming version of ``phrase_result`` — yields the spoken outcome text as
         it's generated so TTS starts immediately after an action."""
