@@ -75,7 +75,8 @@ export async function GET() {
     const { data: existing } = await db
       .from("connected_apps")
       .select("app,status,connected_account_id,connected_at,updated_at")
-      .eq("user_id", user.id);
+      .eq("user_id", user.id)
+      .in("app", [...SUPPORTED_TOOLKITS]);
     return NextResponse.json({
       apps: (existing ?? []).map((r) => ({ ...r, account_label: null })),
     });
@@ -104,7 +105,8 @@ export async function GET() {
   const { data: rows } = await db
     .from("connected_apps")
     .select("app,status,connected_account_id,connected_at,updated_at")
-    .eq("user_id", user.id);
+    .eq("user_id", user.id)
+    .in("app", [...SUPPORTED_TOOLKITS]);
 
   const withLabels = (rows ?? []).map((r) => ({
     ...r,
