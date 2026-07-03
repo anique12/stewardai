@@ -78,6 +78,9 @@ class Settings(BaseSettings):
     # not available via embedContent on current Gemini API keys.)
     embedding_model: str = "gemini/gemini-embedding-001"
     embedding_dim: int = 768
+    # Agentic chat (Plan C1+): per-role models, all via litellm (any provider swappable).
+    chat_reasoning_model: str = "gemini/gemini-2.5-flash"
+    chat_utility_model: str = "gemini/gemini-2.5-flash-lite"
     # Ask (RAG) retrieval depth + allowed browser origins for the /api/ask endpoint.
     ask_top_k: int = 8
     ask_cors_origins: str = ""  # comma-separated portal origins; empty = no CORS added
