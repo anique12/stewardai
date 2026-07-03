@@ -72,6 +72,12 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-2.0-flash"
     llm_model: str | None = None  # explicit override; else derived from gemini_model
+    # KB embeddings (Plan B): single-provider Gemini embedding model, 768-dim.
+    embedding_model: str = "gemini/text-embedding-004"
+    embedding_dim: int = 768
+    # Ask (RAG) retrieval depth + allowed browser origins for the /api/ask endpoint.
+    ask_top_k: int = 8
+    ask_cors_origins: str = ""  # comma-separated portal origins; empty = no CORS added
     # Backstop so a stalled LLM stream can't silently hang a turn forever (the agent
     # would produce no reply and no error). Surfaces as an error instead.
     llm_timeout_s: float = 20.0

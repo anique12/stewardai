@@ -319,3 +319,24 @@ class LiteLLMClient:
 
     async def aclose(self) -> None:
         return None
+
+    async def aembed(self, texts: list[str], *, query: bool = False) -> list[list[float]]:
+        """Embed texts with the configured Gemini embedding model (768-dim).
+
+        Asymmetric task types improve retrieval: index side embeds as
+        RETRIEVAL_DOCUMENT, the query side as RETRIEVAL_QUERY. Order-preserving:
+        the i-th vector corresponds to the i-th input.
+        """
+        if not texts:
+            return []
+        import litellm  # lazy
+
+        task_type = "RETRIEVAL_QUERY" if query else "RETRIEVAL_DOCUMENT"
+        resp = await litellm.aembedding(
+            model=self._s.embedding_model,
+            input=texts,
+            task_type=task_type,
+            timeout=self._s.llm_timeout_s,
+        )
+        # litellm normalizes to an OpenAI-shaped response: resp.data[i]["embedding"].
+        return [row["embedding"] for row in resp.data]
