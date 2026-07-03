@@ -82,3 +82,21 @@ async def test_dedupes_within_one_call():
         {"kind": "company", "name": "Acme", "email": None},
     ])
     assert len(ids) == 1 and len(client.table("entities").inserted) == 1
+
+
+async def test_matches_existing_by_name_kind_no_email():
+    client = _Client(seed=[{"id": "e2", "user_id": "u1", "kind": "company",
+                            "name": "Acme", "email": None}])
+    ids = await resolve_entities(client, user_id="u1",
+                                 extracted=[{"kind": "company", "name": "Acme", "email": None}])
+    assert ids == ["e2"]
+    assert client.table("entities").inserted == []  # no new row created
+
+
+async def test_case_insensitive_email_match():
+    client = _Client(seed=[{"id": "e3", "user_id": "u1", "kind": "person",
+                            "name": "Jane", "email": "jane@acme.com"}])
+    ids = await resolve_entities(client, user_id="u1",
+                                 extracted=[{"kind": "person", "name": "Jane", "email": "Jane@ACME.com"}])
+    assert ids == ["e3"]
+    assert client.table("entities").inserted == []  # no new row created

@@ -1,6 +1,6 @@
 """Resolve extracted people/companies to existing global entities, or create them.
 
-Match order: exact email (case-insensitive) -> exact name+kind (case-insensitive).
+Match order: exact email (case-insensitive) -> exact name+kind (exact case).
 No fuzzy matching in v1 (spec risk: merging the wrong 'John' — stay conservative).
 """
 from __future__ import annotations
@@ -34,7 +34,7 @@ async def resolve_entities(client, *, user_id: str, extracted: list[dict]) -> li
         if email:
             resp = await (
                 client.table("entities").select("id")
-                .eq("user_id", user_id).eq("kind", kind).eq("email", email).limit(1).execute()
+                .eq("user_id", user_id).eq("kind", kind).eq("email", email.lower()).limit(1).execute()
             )
             if resp.data:
                 row_id = resp.data[0]["id"]
@@ -48,9 +48,10 @@ async def resolve_entities(client, *, user_id: str, extracted: list[dict]) -> li
         if row_id is None:
             resp = await client.table("entities").insert({
                 "user_id": user_id, "kind": kind, "name": name,
-                "email": email, "domain": _domain_of(email),
+                "email": email.lower() if email else None, "domain": _domain_of(email),
             }).execute()
             row_id = resp.data[0]["id"]
+            _log.info("entity_created", kind=kind, has_email=bool(email))
 
         seen_keys[key] = row_id
         resolved.append(row_id)
