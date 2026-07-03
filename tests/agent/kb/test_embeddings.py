@@ -1,4 +1,6 @@
 # tests/agent/kb/test_embeddings.py
+import json
+
 import litellm
 
 from stewardai.agent.kb.embeddings import index_meeting_chunks
@@ -103,7 +105,7 @@ async def test_index_meeting_chunks_deletes_then_inserts_with_embeddings():
     assert _ops(c, "kb_chunks", "delete") != []
     rows = _ops(c, "kb_chunks", "insert")[0]
     assert all(r["user_id"] == "u1" and r["meeting_id"] == "m1" for r in rows)
-    assert all(len(r["embedding"]) == 768 for r in rows)
+    assert all(len(json.loads(r["embedding"])) == 768 for r in rows)
     assert any(r["kind"] == "summary" and r["text"] == "Shipped the thing." for r in rows)
     assert any(r["kind"] == "fact" and r["source_seq"] == 1 for r in rows)
 

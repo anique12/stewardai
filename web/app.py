@@ -191,6 +191,8 @@ class AskRequest(BaseModel):
 
 @app.post("/api/ask")
 async def api_ask(req: AskRequest, request: Request):
+    if app.state.supabase is None:
+        return JSONResponse({"error": "ask unavailable"}, status_code=503)
     user_id = await user_id_from_bearer(
         request.headers.get("authorization"), app.state.supabase
     )

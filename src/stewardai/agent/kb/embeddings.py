@@ -7,6 +7,8 @@ re-ingest replaces cleanly. space_id may be None (unfiled meeting) — still ind
 """
 from __future__ import annotations
 
+import json
+
 from stewardai.agent.kb.chunking import build_chunks
 from stewardai.common.logging import get_logger
 
@@ -42,7 +44,9 @@ async def index_meeting_chunks(client, llm, *, user_id: str, space_id: str | Non
     rows = [{
         "user_id": user_id, "space_id": space_id, "meeting_id": meeting_id,
         "kind": c["kind"], "source_seq": c["source_seq"], "text": c["text"],
-        "embedding": vec,
+        # vector as text (symmetric w/ retrieval); pgvector parses "[...]", dodges
+        # PostgREST array-serialization
+        "embedding": json.dumps(vec),
     } for c, vec in zip(chunks, vectors, strict=True)]
 
     # Idempotent replace: drop any prior chunks for this meeting, then insert.

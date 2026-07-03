@@ -7,6 +7,7 @@ from __future__ import annotations
 from stewardai.agent.kb.retrieval import retrieve
 from stewardai.common.audio import Message
 from stewardai.common.logging import get_logger
+from stewardai.config import get_settings
 
 _log = get_logger("agent.kb.ask")
 
@@ -29,7 +30,8 @@ def _snippet(text: str, limit: int = 160) -> str:
 
 async def answer_question(client, llm, *, user_id: str, query: str,
                           space_id: str | None = None) -> dict:
-    rows = await retrieve(client, llm, user_id=user_id, query=query, space_id=space_id)
+    rows = await retrieve(client, llm, user_id=user_id, query=query, space_id=space_id,
+                          k=get_settings().ask_top_k)
     if not rows:
         return {"answer": _NO_CONTEXT, "citations": []}
 
