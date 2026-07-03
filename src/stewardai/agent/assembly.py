@@ -177,6 +177,7 @@ def build_session(
     llm_backend=None,  # noqa: ANN001 - optional pre-built LLMBackend to reuse
     tts_backend=None,  # noqa: ANN001 - optional pre-built TTSBackend to reuse
     gated: bool = False,
+    native_tools: bool = False,
     system: str | None = None,
     keyterms: tuple[str, ...] | list[str] = (),
     action_tools=None,  # noqa: ANN001 - OpenAI-format Composio schemas for live actions
@@ -210,7 +211,14 @@ def build_session(
         stt = build_stt_node(
             stt_backend if stt_backend is not None else make_stt(s))
     _llm_backend = llm_backend if llm_backend is not None else make_llm(s)
-    if gated:
+    if native_tools:
+        # Native meeting path: LiveKit owns the speak→tool→speak loop; the agent's
+        # registered tools (Composio actions + stay_silent gate) are executed by the
+        # framework. No hand-rolled decide/executor here.
+        llm = build_llm_node(
+            _llm_backend, system=system or _MEETING_SYSTEM, native_tools=True
+        )
+    elif gated:
         llm = build_llm_node(
             _llm_backend,
             system=system or _MEETING_SYSTEM,
@@ -264,7 +272,7 @@ def build_session(
     # context ... changed" and can speak a reply built for the PREVIOUS/partial
     # turn ("answers the last question"). Force it OFF explicitly for gated
     # meetings — do NOT rely on the LiveKit default, which generates speculatively.
-    if gated:
+    if gated or native_tools:
         kwargs["preemptive_generation"] = False
     elif s.preemptive_generation:
         kwargs["preemptive_generation"] = True

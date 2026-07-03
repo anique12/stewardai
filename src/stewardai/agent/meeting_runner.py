@@ -191,8 +191,14 @@ class MeetingSession:
         self._actions_writer = None
         # Live tool-calling: Composio action schemas offered to the gated decide, and
         # the executor that runs a chosen action. None when Composio is off/blocked.
+        # (Legacy gated path; the meeting now uses native_tools — see self._live_tools.)
         self._action_tools = None
         self._tool_executor = None
+        # Native meeting tools registered on the agent (stay_silent gate + Composio
+        # live actions); LiveKit executes them. _has_action_tools tracks whether any
+        # real (non-gate) action tools loaded, for the prompt's tool-availability note.
+        self._live_tools: list = []
+        self._has_action_tools = False
         self._session = None
         self._agent = None
         self._audio_in = None
@@ -490,11 +496,25 @@ class MeetingSession:
         # Owner's bot display name + timezone (for transcript label + calendar actions).
         await self._resolve_profile()
 
-        # Composio live tools (only when we resolved a user_id + Composio is enabled).
+        # Native meeting tools (LiveKit executes them directly, managing the
+        # speak→tool→speak utterance boundaries). The stay_silent gate is ALWAYS
+        # registered — under the native flow it's how the agent stays quiet on ambient
+        # talk. Composio live actions are added when we resolved a user_id + Composio is
+        # enabled + we have the meetings.id UUID (agent_actions.meeting_id FK).
+        from stewardai.agent.live_tools import (
+            build_live_tool_functions,
+            build_stay_silent_tool,
+        )
+
+        self._live_tools = []
+        _ss = build_stay_silent_tool()
+        if _ss is not None:
+            self._live_tools.append(_ss)
+        self._has_action_tools = False
         _composio_ready = s.composio_enabled and self.user_id and self._composio is not None
         if _composio_ready and not self._meeting_uuid:
             # agent_actions.meeting_id is a uuid FK — without the resolved meetings.id
-            # UUID every insert would violate it, so skip live tools (and log) rather
+            # UUID every insert would violate it, so skip live actions (log) rather
             # than write the Vexa int and fail silently.
             _log.warning(
                 "live_tools_skipped_no_meeting_uuid",
@@ -510,27 +530,29 @@ class MeetingSession:
                     user_id=self.user_id,
                     client=self._supabase,
                 )
-                # OpenAI-format tool schemas the gated decide() can pick from to run a
-                # LIVE action (e.g. check calendar) when directly addressed. Paired
-                # with self._tool_executor which actually runs the chosen action.
-                self._action_tools = self._composio.get_tools(self.user_id)
-                self._tool_executor = self._run_live_action
+                _actions = build_live_tool_functions(
+                    self.user_id,
+                    self._meeting_uuid,
+                    self._composio,
+                    self._actions_writer,
+                    default_timezone=self._user_timezone,
+                )
+                self._live_tools.extend(_actions)
+                self._has_action_tools = bool(_actions)
                 _log.info(
-                    "composio_action_tools_ready",
+                    "composio_live_tools_ready",
                     meeting_id=self._mid,
                     user_id=self.user_id,
-                    count=len(self._action_tools or []),
+                    count=len(_actions),
                 )
-            except Exception as exc:  # noqa: BLE001 - meeting continues without tools
+            except Exception as exc:  # noqa: BLE001 - meeting continues without actions
                 # Composio off/blocked (e.g. WAF) -> no live actions; the prompt's
                 # no-tools note keeps the agent from promising actions it can't do.
                 _log.warning(
-                    "composio_action_tools_setup_failed",
+                    "composio_live_tools_setup_failed",
                     meeting_id=self._mid,
                     error=str(exc),
                 )
-                self._action_tools = None
-                self._tool_executor = None
 
         # Agent identity + wake word = the owner's DISPLAY NAME (self._bot_label),
         # never a hardcoded "Steward". These keyterms bias the STT toward the wake
@@ -565,26 +587,24 @@ class MeetingSession:
             _today = f"{_now.strftime('%A, %B %d, %Y, %I:%M %p')} UTC"
         meeting_system = build_meeting_system(
             self._bot_label,
-            tools_available=bool(self._action_tools),
+            tools_available=self._has_action_tools,
             spoken_languages=_spoken,
             today=_today,
         )
 
         # Shared backends passed through; build_session builds fresh nodes/plugins
         # around them per session (see run_multiplexer's sharing note).
-        # decide() needs the committed turn, not partials -> preemptive off (gated).
-        # action_tools + tool_executor give the gated decide the ability to run a live
-        # action (calendar/email/…) when directly addressed and speak the result.
+        # native_tools=True: LiveKit owns the tool loop; the agent's registered tools
+        # (Composio actions + stay_silent gate, wired below) are executed by the
+        # framework, which speaks a preamble BEFORE the tool and the result after.
         self._session = build_session(
             s,
             stt_backend=self._stt,
             llm_backend=self._llm,
             tts_backend=self._tts,
-            gated=True,
+            native_tools=True,
             system=meeting_system,
             keyterms=self._keyterms,
-            action_tools=self._action_tools,
-            tool_executor=self._tool_executor,
         )
 
         async def _write_summary(trigger: str) -> None:
@@ -662,9 +682,10 @@ class MeetingSession:
             # Persist each finalized human turn to the portal live (fire-and-forget so
             # a Supabase round-trip never adds latency to the turn hot path).
             on_line=lambda labeled: loop.create_task(self._persist_live_line(labeled)),
-            # Same name-aware, tool-availability-aware prompt as the decide gate.
-            # Live tool-calling runs through the gated node (action_tools/tool_executor
-            # on build_session), NOT the agent's registered tools — so none here.
+            # Native tool-calling: register the Composio live actions + the stay_silent
+            # gate on the agent so LiveKit runs them (speak→tool→speak with correct
+            # utterance boundaries). Same name/tool-availability-aware prompt.
+            live_tools=self._live_tools,
             instructions=meeting_system,
             user_id=self.user_id,
         )

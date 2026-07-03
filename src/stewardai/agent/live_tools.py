@@ -29,6 +29,41 @@ _log = get_logger("agent.live_tools")
 # so it's consistent across the decide gate and the agent and never hardcodes a name.
 
 
+def build_stay_silent_tool() -> Any | None:
+    """A native LiveKit function-tool the model calls to say NOTHING this turn.
+
+    Its handler raises ``StopResponse``, which makes the framework generate no reply
+    for the turn (and not even persist the call). Under the native-tools meeting flow
+    this REPLACES the old ``decide_stream`` gate: the model calls ``stay_silent`` for
+    ambient/undirected talk, and simply speaks (or calls an action tool) otherwise.
+
+    Returns ``None`` when livekit is not installed (so import stays safe).
+    """
+    try:
+        from livekit.agents.llm import StopResponse, function_tool  # type: ignore
+    except ImportError:
+        _log.warning("livekit_not_installed_stay_silent_disabled")
+        return None
+
+    @function_tool(
+        raw_schema={
+            "name": "stay_silent",
+            "description": (
+                "Respond with NOTHING this turn. Call this BY DEFAULT whenever the "
+                "latest speech is ambient, is between other people, or is not directed "
+                "at you and there is no material discrepancy to flag. If you should "
+                "respond, just speak your reply (or call an action tool) instead of "
+                "calling this."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        }
+    )
+    async def stay_silent(raw_arguments: dict[str, Any]) -> None:  # noqa: ANN401
+        raise StopResponse()
+
+    return stay_silent
+
+
 def build_live_tool_functions(
     user_id: str,
     meeting_id: str,
