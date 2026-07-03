@@ -1,6 +1,7 @@
 import { InstantJoin } from "@/components/meetings/InstantJoin";
 import { MeetingRow } from "@/components/meetings/MeetingRow";
 import { SeriesCard } from "@/components/meetings/SeriesCard";
+import { PageHeader } from "@/components/app-shell/PageHeader";
 import { requireUserPage } from "@/lib/auth-helpers";
 import { createServerClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -20,7 +21,8 @@ export default async function AppPage() {
 
   if (!conn) {
     return (
-      <div className="space-y-8">
+      <div className="space-y-6">
+        <PageHeader title="Meetings" subtitle="Your upcoming and past meetings." />
         <InstantJoin />
         <div className="rounded-lg border border-border bg-card p-8 text-center">
           <h2 className="text-xl font-semibold text-foreground">Connect your calendar</h2>
@@ -97,6 +99,7 @@ export default async function AppPage() {
 
   return (
     <div className="space-y-6">
+      <PageHeader title="Meetings" subtitle="Your recurring series and one-off meetings." />
       <InstantJoin />
       {entries.length ? (
         <div className="space-y-2">

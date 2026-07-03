@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppCard, type CardStatus } from "@/components/integrations/AppCard";
+import { PageHeader } from "@/components/app-shell/PageHeader";
 import { CATALOG, filterCatalog, type AppCategory, type CatalogApp } from "@/lib/integrations/catalog";
 
 type StatusRow = { app: string; status: CardStatus; account_label: string | null; connected_at: string | null };
@@ -96,12 +97,10 @@ export default function ConnectionsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Connected Apps</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Connect services so Steward can act on your behalf.
-        </p>
-      </div>
+      <PageHeader
+        title="Connected Apps"
+        subtitle="Connect services so Steward can act on your behalf."
+      />
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <input
