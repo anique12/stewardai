@@ -119,6 +119,10 @@ async def spawn_bot(
         "bot_name": bot_name,
         # Leave promptly once everyone else has gone (Vexa default is 15 min).
         "automatic_leave": {"max_time_left_alone": ALONE_LEAVE_MS},
+        # Authenticated join (logged-in Google account) so Google's anti-bot doesn't
+        # remove the anonymous bot ~13s after admission. meeting-api injects the
+        # userdataS3Path + MinIO config; the bot restores the staged session cookies.
+        "authenticated": settings.vexa_bot_authenticated,
     }
     async with httpx.AsyncClient() as http:
         resp = await http.post(

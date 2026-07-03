@@ -111,6 +111,12 @@ class Settings(BaseSettings):
     # POST {vexa_gateway_url}/bots call via the X-API-Key header.
     vexa_api_key: str | None = None
     vexa_gateway_url: str = "http://localhost:8056"
+    # Request an AUTHENTICATED bot (joins Google Meet logged in as the dedicated
+    # Steward Google account) instead of the anonymous bot, which Google anti-bot
+    # removes ~13s after admission. Requires the account's session cookies staged in
+    # MinIO at users/<vexa_user>/browser-userdata (see project_authenticated_bot).
+    # Toggle off (VEXA_BOT_AUTHENTICATED=false) to fall back to the anonymous bot.
+    vexa_bot_authenticated: bool = True
     # rate the Vexa bot should paplay our PCM at; our pipeline is 16 kHz end-to-end (SAMPLE_RATE).
     playback_sample_rate: int = 16000
 
