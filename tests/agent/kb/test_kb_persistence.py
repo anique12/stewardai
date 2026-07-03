@@ -95,8 +95,8 @@ async def test_insert_facts_coerces_vague_due_to_none():
     """Vague LLM due dates like 'Friday' should coerce to None, not raise."""
     c = _Client()
     n = await kbp.insert_facts(c, user_id="u1", space_id="s1", meeting_id="m1", facts=[
-        {"kind": "task", "text": "Review contract", "source_line": 2, "due": "Friday"},
-        {"kind": "task", "text": "Follow up", "source_line": 5, "due": "next week"},
+        {"kind": "action_item", "text": "Review contract", "source_line": 2, "due": "Friday"},
+        {"kind": "action_item", "text": "Follow up", "source_line": 5, "due": "next week"},
     ])
     assert n == 2
     rows = _ops(c, "space_facts", "insert")[0]
@@ -109,7 +109,7 @@ async def test_insert_facts_preserves_valid_iso_dates():
     """Valid YYYY-MM-DD dates should pass through unchanged."""
     c = _Client()
     n = await kbp.insert_facts(c, user_id="u1", space_id="s1", meeting_id="m1", facts=[
-        {"kind": "reminder", "text": "Contract expires", "source_line": 10, "due": "2026-07-31"},
+        {"kind": "date", "text": "Contract expires", "source_line": 10, "due": "2026-07-31"},
     ])
     assert n == 1
     rows = _ops(c, "space_facts", "insert")[0]
@@ -120,12 +120,28 @@ async def test_insert_facts_coerces_source_line_and_none():
     """source_line coercion: None → None, int → int, string digits → int."""
     c = _Client()
     n = await kbp.insert_facts(c, user_id="u1", space_id="s1", meeting_id="m1", facts=[
-        {"kind": "note", "text": "No line number", "source_line": None, "due": None},
-        {"kind": "note", "text": "Valid line", "source_line": 42, "due": None},
-        {"kind": "note", "text": "String line", "source_line": "123", "due": None},
+        {"kind": "open_question", "text": "No line number", "source_line": None, "due": None},
+        {"kind": "open_question", "text": "Valid line", "source_line": 42, "due": None},
+        {"kind": "open_question", "text": "String line", "source_line": "123", "due": None},
     ])
     assert n == 3
     rows = _ops(c, "space_facts", "insert")[0]
     assert rows[0]["source_seq"] is None
     assert rows[1]["source_seq"] == 42
     assert rows[2]["source_seq"] == 123
+
+
+async def test_insert_facts_drops_invalid_kinds():
+    """Invalid kinds (e.g., 'todo', 'task', 'note') are silently dropped; valid ones are inserted."""
+    c = _Client()
+    n = await kbp.insert_facts(c, user_id="u1", space_id="s1", meeting_id="m1", facts=[
+        {"kind": "decision", "text": "Approved budget", "source_line": 1, "due": None},
+        {"kind": "todo", "text": "This kind is invalid", "source_line": 2, "due": None},  # dropped
+        {"kind": "risk", "text": "Regulatory exposure", "source_line": 3, "due": None},
+    ])
+    # Only 2 facts are inserted (decision and risk); 'todo' is dropped
+    assert n == 2
+    rows = _ops(c, "space_facts", "insert")[0]
+    assert len(rows) == 2
+    assert rows[0]["kind"] == "decision"
+    assert rows[1]["kind"] == "risk"

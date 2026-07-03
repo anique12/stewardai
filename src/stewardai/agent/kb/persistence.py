@@ -15,6 +15,9 @@ _log = get_logger("agent.kb.persistence")
 # LLM often emits vague strings ("Friday", "next week") which must become NULL.
 _ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
+# space_facts.kind has a DB CHECK constraint; only these values are allowed.
+_FACT_KINDS = frozenset({"action_item", "decision", "date", "risk", "open_question"})
+
 
 def _coerce_due(value: Any) -> str | None:
     """Keep only real YYYY-MM-DD values; everything else → None (date column)."""
@@ -70,7 +73,7 @@ async def insert_facts(client, *, user_id, space_id, meeting_id, facts) -> int:
         "user_id": user_id, "space_id": space_id, "meeting_id": meeting_id,
         "kind": f.get("kind"), "text": f.get("text"),
         "source_seq": _coerce_seq(f.get("source_line")), "due": _coerce_due(f.get("due")),
-    } for f in facts if f.get("kind") and f.get("text")]
+    } for f in facts if f.get("kind") in _FACT_KINDS and f.get("text")]
     if not rows:
         return 0
     await client.table("space_facts").insert(rows).execute()

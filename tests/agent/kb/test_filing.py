@@ -1,5 +1,7 @@
 from stewardai.agent.kb.filing import (
-    HIGH_CONFIDENCE, LOW_CONFIDENCE, SpaceCandidate, decide_filing, score_candidates,
+    SpaceCandidate,
+    decide_filing,
+    score_candidates,
 )
 
 
