@@ -8,7 +8,37 @@ def _llm_yielding(text):
     class _LLM:
         async def complete(self, messages, *, system=None, temperature=0.4):
             yield text
+
+        async def aembed(self, texts, *, query=False):
+            return [[0.0] * 768 for _ in texts]
     return _LLM()
+
+
+class _Resp:
+    def __init__(self, data):
+        self.data = data
+
+
+class _Query:
+    def select(self, *_a):
+        return self
+
+    def insert(self, _payload):
+        return self
+
+    def delete(self):
+        return self
+
+    def eq(self, *_a):
+        return self
+
+    async def execute(self):
+        return _Resp([])
+
+
+class _FakeClient:
+    def table(self, _name):
+        return _Query()
 
 
 async def test_high_confidence_domain_files_into_existing_space():
@@ -18,7 +48,7 @@ async def test_high_confidence_domain_files_into_existing_space():
 
     llm = _llm_yielding('{"entities":[{"kind":"company","name":"Acme","email":null}],'
                         '"tags":["pricing"],"facts":[{"kind":"decision","text":"D","source_line":1,"due":null}]}')
-    client = object()
+    client = _FakeClient()
     with patch("stewardai.agent.kb.ingest.resolve_entities", AsyncMock(return_value=["e1"])), \
          patch("stewardai.agent.kb.ingest._hint_scores", side_effect=fake_hint_scores), \
          patch("stewardai.agent.kb.ingest.kbp") as kbp:
@@ -53,7 +83,7 @@ async def test_new_thread_auto_creates_space_named_from_company():
         kbp.set_meeting_tags = AsyncMock()
         kbp.insert_facts = AsyncMock(return_value=0)
         kbp.record_filing_hints = AsyncMock()
-        await ingest_meeting_kb(object(), llm, user_id="u1", meeting_id="m1",
+        await ingest_meeting_kb(_FakeClient(), llm, user_id="u1", meeting_id="m1",
                                 transcript=["[a]: hi"],
                                 meta=MeetingMeta(None, ["x@globex.io"], "Globex intro"))
         kbp.create_space.assert_awaited_once()
@@ -66,7 +96,8 @@ async def test_low_confidence_leaves_meeting_unfiled_no_facts():
     async def no_hints(client, *, user_id, attendee_emails, domains):
         return {}
 
-    llm = _llm_yielding('{"entities":[],"tags":[],"facts":[{"kind":"risk","text":"r","source_line":0,"due":null}]}')
+    llm = _llm_yielding('{"entities":[],"tags":[],'
+                        '"facts":[{"kind":"risk","text":"r","source_line":0,"due":null}]}')
     with patch("stewardai.agent.kb.ingest.resolve_entities", AsyncMock(return_value=[])), \
          patch("stewardai.agent.kb.ingest._hint_scores", side_effect=no_hints), \
          patch("stewardai.agent.kb.ingest.kbp") as kbp:
@@ -76,7 +107,7 @@ async def test_low_confidence_leaves_meeting_unfiled_no_facts():
         kbp.set_meeting_tags = AsyncMock()
         kbp.insert_facts = AsyncMock(return_value=0)
         kbp.record_filing_hints = AsyncMock()
-        await ingest_meeting_kb(object(), llm, user_id="u1", meeting_id="m1",
+        await ingest_meeting_kb(_FakeClient(), llm, user_id="u1", meeting_id="m1",
                                 transcript=["[a]: hi"], meta=MeetingMeta(None, [], "Sync"))
         # no company + no hints -> unfiled: no space set, no facts, no hints recorded
         kbp.create_space.assert_not_awaited()

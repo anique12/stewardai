@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from stewardai.agent.kb import persistence as kbp
+from stewardai.agent.kb.embeddings import index_meeting_chunks
 from stewardai.agent.kb.entities import resolve_entities
 from stewardai.agent.kb.extraction import extract_entities_and_facts
 from stewardai.agent.kb.filing import decide_filing, score_candidates
@@ -47,7 +48,8 @@ def _new_thread_name(extracted: dict) -> str | None:
     return None
 
 
-async def _hint_scores(client, *, user_id: str, attendee_emails: list[str], domains: list[str]) -> dict:
+async def _hint_scores(client, *, user_id: str, attendee_emails: list[str],
+                       domains: list[str]) -> dict:
     """Aggregate filing_hints into {space_id: score in [0,1]}.
 
     Sum matched hint weights per space, normalized by the number of signals we
@@ -71,7 +73,8 @@ async def _hint_scores(client, *, user_id: str, attendee_emails: list[str], doma
     return {sid: min(1.0, w / denom) for sid, w in totals.items()}
 
 
-async def _recurring_space_id(client, *, user_id: str, recurring_event_id: str | None) -> str | None:
+async def _recurring_space_id(client, *, user_id: str,
+                              recurring_event_id: str | None) -> str | None:
     if not recurring_event_id:
         return None
     resp = await (
@@ -88,9 +91,12 @@ async def ingest_meeting_kb(client, llm, *, user_id: str, meeting_id: str,
                             transcript: list[str], meta: MeetingMeta) -> None:
     try:
         extracted = await extract_entities_and_facts(llm, transcript)
-        entity_ids = await resolve_entities(client, user_id=user_id, extracted=extracted["entities"])
-        await kbp.link_meeting_entities(client, user_id=user_id, meeting_id=meeting_id, entity_ids=entity_ids)
-        await kbp.set_meeting_tags(client, user_id=user_id, meeting_id=meeting_id, tags=extracted["tags"])
+        entity_ids = await resolve_entities(client, user_id=user_id,
+                                            extracted=extracted["entities"])
+        await kbp.link_meeting_entities(client, user_id=user_id, meeting_id=meeting_id,
+                                        entity_ids=entity_ids)
+        await kbp.set_meeting_tags(client, user_id=user_id, meeting_id=meeting_id,
+                                   tags=extracted["tags"])
 
         domains = _domains(meta.attendee_emails)
         recurring = await _recurring_space_id(client, user_id=user_id,
@@ -116,6 +122,13 @@ async def ingest_meeting_kb(client, llm, *, user_id: str, meeting_id: str,
             if decision.action in ("auto", "auto_created", "recurring"):
                 await kbp.record_filing_hints(client, user_id=user_id, space_id=space_id,
                                               attendee_emails=meta.attendee_emails, domains=domains)
+
+        # L1: embed this meeting's content for Ask/RAG. Runs even when unfiled
+        # (space_id is None) so the meeting is still searchable globally.
+        await index_meeting_chunks(client, llm, user_id=user_id, space_id=space_id,
+                                   meeting_id=meeting_id, transcript=transcript,
+                                   facts=extracted["facts"])
+
         _log.info("kb_ingested", meeting_id=meeting_id, action=decision.action,
                   space_id=space_id, facts=len(extracted["facts"]), entities=len(entity_ids))
     except Exception as exc:  # noqa: BLE001 - KB ingest must never break teardown
