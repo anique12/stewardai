@@ -2,10 +2,15 @@
 
 ``build_chat_agent`` wires T1's chat model (:func:`stewardai.agent.chat.models.
 make_chat_llm`) and T2's read-only tools (:func:`stewardai.agent.chat.tools.
-build_read_tools`) into a ReAct-style tool-calling agent. ``run_chat_turn`` runs
-one turn of that agent, streaming typed client events (via T3's
-:func:`stewardai.agent.chat.events.map_stream_event`) and ending in a terminal
-``done`` event carrying the final answer + any knowledge-base citations used.
+build_read_tools`) into a ReAct-style tool-calling agent. ``run_chat_turn`` is
+now a thin, back-compat wrapper (Plan C2): it builds a one-shot
+:class:`stewardai.agent.chat.session.ChatSession` scoped to a fresh
+``thread_id`` and read-only tools, then delegates to its
+``stream_turn`` -- so callers that only ever ran a single, non-resumable turn
+(``scripts/chat_smoke.py``, the C1 tests) keep working unchanged. Anything
+that needs write tools, permission interrupts, or multi-turn resume (the C2
+``/ws/chat`` orchestration) should build and hold onto a ``ChatSession``
+itself instead of calling this function.
 
 **Agent API choice:** LangGraph v1.0 deprecates ``langgraph.prebuilt.
 create_react_agent`` in favor of ``langchain.agents.create_agent`` (confirmed
@@ -30,8 +35,6 @@ from langchain_core.messages import ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.prebuilt import create_react_agent
 
-from stewardai.agent.chat.events import map_stream_event
-from stewardai.agent.chat.models import make_chat_llm
 from stewardai.agent.chat.tools import build_read_tools
 
 SYSTEM = (
@@ -132,42 +135,27 @@ async def run_chat_turn(
 
     ``llm_reasoning`` is the app's ``LiteLLMClient``, used for embeddings
     inside ``kb_search``'s ``retrieve()`` call (T2) -- it is *not* the chat
-    model itself, which is built here via T1's ``make_chat_llm("reasoning",
-    tools=...)``.
+    model itself, which is built (via T1's ``make_chat_llm("reasoning",
+    tools=...)``) inside the :class:`~stewardai.agent.chat.session.ChatSession`
+    this delegates to.
 
     ``history`` is a list of ``{"role","content"}`` dicts prepended to the new
-    user ``message`` as the agent's input. Each turn gets a fresh LangGraph
-    thread id (in-memory checkpointing is per-process/per-turn here; the
-    caller is responsible for persisting/re-supplying ``history`` across
-    turns).
+    user ``message`` as the agent's input. Each call builds a one-shot session
+    scoped to a fresh LangGraph thread id and read-only tools only (in-memory
+    checkpointing is per-session here; the caller is responsible for
+    persisting/re-supplying ``history`` across turns) -- so this never itself
+    resumes an interrupt. Callers that need writes/permissions/resume should
+    build a ``ChatSession`` directly instead.
     """
+    # Local import: session.py imports this module at top level (so it can
+    # resolve ``build_chat_agent``/``_collect_citations`` off the live module
+    # object -- see session.py's module docstring), so importing ChatSession
+    # back here at module level would be a circular import.
+    from stewardai.agent.chat.session import ChatSession
+
     tools = build_read_tools(client, llm_reasoning, user_id=user_id)
-    chat_llm = make_chat_llm("reasoning", tools=tools)
-    agent = build_chat_agent(chat_llm, tools)
-
-    messages = [*history, {"role": "user", "content": message}]
-    config = {"configurable": {"thread_id": str(uuid.uuid4())}}
-
-    citations: list[dict] = []
-    seen_citations: dict[tuple, int] = {}
-    accumulated = ""
-    async for mode, chunk in agent.astream(
-        {"messages": messages}, config, stream_mode=["updates", "messages"]
-    ):
-        _collect_citations(mode, chunk, citations, seen_citations)
-        for event in map_stream_event(mode, chunk):
-            if event.get("type") == "token":
-                accumulated += event.get("delta", "")
-            yield event
-
-    answer = accumulated
-    try:
-        state = await agent.aget_state(config)
-        last_message = state.values["messages"][-1]
-        content = last_message.content
-        if isinstance(content, str) and content:
-            answer = content
-    except Exception:
-        pass
-
-    yield {"type": "done", "answer": answer, "citations": citations}
+    session = ChatSession(
+        client, llm_reasoning, user_id=user_id, thread_id=str(uuid.uuid4()), tools=tools
+    )
+    async for event in session.stream_turn(message, history):
+        yield event
