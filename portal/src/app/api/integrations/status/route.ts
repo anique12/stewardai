@@ -23,6 +23,21 @@ function localStatus(composioStatus: string | undefined): string {
   }
 }
 
+// Best-effort human label for a connected account (email/username), or null.
+function accountLabel(account: Record<string, unknown>): string | null {
+  const data = (account.data ?? account.params ?? {}) as Record<string, unknown>;
+  const candidates = [
+    (data as { email?: unknown }).email,
+    (data as { username?: unknown }).username,
+    (data as { login?: unknown }).login,
+    (account as { email?: unknown }).email,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim()) return c.trim();
+  }
+  return null;
+}
+
 export async function GET() {
   const { user, response } = await requireUserRoute();
   if (!user) return response;
@@ -33,7 +48,7 @@ export async function GET() {
   // Fetch all Composio connected accounts for this entity (user). The list
   // items carry `id`, `status`, and `toolkit.slug` (no userId echo — we filter
   // by userIds on input, so every item belongs to this user).
-  const byApp = new Map<string, { id: string; status: string }>();
+  const byApp = new Map<string, { id: string; status: string; label: string | null }>();
   try {
     const composio = getComposio();
     const response = await composio.connectedAccounts.list({
@@ -46,7 +61,11 @@ export async function GET() {
       // Prefer the ACTIVE account if multiple exist for the same toolkit.
       const current = byApp.get(slug);
       if (!current || account.status === "ACTIVE") {
-        byApp.set(slug, { id: account.id, status: account.status });
+        byApp.set(slug, {
+          id: account.id,
+          status: account.status,
+          label: accountLabel(account as unknown as Record<string, unknown>),
+        });
       }
     }
   } catch (err) {
@@ -57,7 +76,9 @@ export async function GET() {
       .from("connected_apps")
       .select("app,status,connected_account_id,connected_at,updated_at")
       .eq("user_id", user.id);
-    return NextResponse.json({ apps: existing ?? [] });
+    return NextResponse.json({
+      apps: (existing ?? []).map((r) => ({ ...r, account_label: null })),
+    });
   }
 
   // Reconcile our local table to match Composio's truth for the 4 apps.
@@ -85,5 +106,9 @@ export async function GET() {
     .select("app,status,connected_account_id,connected_at,updated_at")
     .eq("user_id", user.id);
 
-  return NextResponse.json({ apps: rows ?? [] });
+  const withLabels = (rows ?? []).map((r) => ({
+    ...r,
+    account_label: byApp.get(r.app)?.label ?? null,
+  }));
+  return NextResponse.json({ apps: withLabels });
 }
