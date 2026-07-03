@@ -4,9 +4,34 @@ for link tables, each guarded by the caller. No ORM.
 """
 from __future__ import annotations
 
+import re
+from typing import Any
+
 from stewardai.common.logging import get_logger
 
 _log = get_logger("agent.kb.persistence")
+
+# space_facts.due is a DATE column — only accept real ISO calendar dates; the
+# LLM often emits vague strings ("Friday", "next week") which must become NULL.
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _coerce_due(value: Any) -> str | None:
+    """Keep only real YYYY-MM-DD values; everything else → None (date column)."""
+    if isinstance(value, str) and _ISO_DATE_RE.match(value.strip()):
+        return value.strip()
+    return None
+
+
+def _coerce_seq(value: Any) -> int | None:
+    """Keep only real integer transcript indices; everything else → None."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().lstrip("-").isdigit():
+        return int(value.strip())
+    return None
 
 
 async def create_space(client, *, user_id: str, name: str) -> str:
@@ -44,7 +69,7 @@ async def insert_facts(client, *, user_id, space_id, meeting_id, facts) -> int:
     rows = [{
         "user_id": user_id, "space_id": space_id, "meeting_id": meeting_id,
         "kind": f.get("kind"), "text": f.get("text"),
-        "source_seq": f.get("source_line"), "due": f.get("due"),
+        "source_seq": _coerce_seq(f.get("source_line")), "due": _coerce_due(f.get("due")),
     } for f in facts if f.get("kind") and f.get("text")]
     if not rows:
         return 0

@@ -89,3 +89,43 @@ async def test_set_meeting_space_updates_meeting_row():
                                space_id="s1", confidence=0.9, source="auto")
     assert _ops(c, "meetings", "update")[0] == {
         "space_id": "s1", "space_confidence": 0.9, "space_source": "auto"}
+
+
+async def test_insert_facts_coerces_vague_due_to_none():
+    """Vague LLM due dates like 'Friday' should coerce to None, not raise."""
+    c = _Client()
+    n = await kbp.insert_facts(c, user_id="u1", space_id="s1", meeting_id="m1", facts=[
+        {"kind": "task", "text": "Review contract", "source_line": 2, "due": "Friday"},
+        {"kind": "task", "text": "Follow up", "source_line": 5, "due": "next week"},
+    ])
+    assert n == 2
+    rows = _ops(c, "space_facts", "insert")[0]
+    # Both vague dates should coerce to None, no exception raised
+    assert rows[0]["due"] is None
+    assert rows[1]["due"] is None
+
+
+async def test_insert_facts_preserves_valid_iso_dates():
+    """Valid YYYY-MM-DD dates should pass through unchanged."""
+    c = _Client()
+    n = await kbp.insert_facts(c, user_id="u1", space_id="s1", meeting_id="m1", facts=[
+        {"kind": "reminder", "text": "Contract expires", "source_line": 10, "due": "2026-07-31"},
+    ])
+    assert n == 1
+    rows = _ops(c, "space_facts", "insert")[0]
+    assert rows[0]["due"] == "2026-07-31"
+
+
+async def test_insert_facts_coerces_source_line_and_none():
+    """source_line coercion: None → None, int → int, string digits → int."""
+    c = _Client()
+    n = await kbp.insert_facts(c, user_id="u1", space_id="s1", meeting_id="m1", facts=[
+        {"kind": "note", "text": "No line number", "source_line": None, "due": None},
+        {"kind": "note", "text": "Valid line", "source_line": 42, "due": None},
+        {"kind": "note", "text": "String line", "source_line": "123", "due": None},
+    ])
+    assert n == 3
+    rows = _ops(c, "space_facts", "insert")[0]
+    assert rows[0]["source_seq"] is None
+    assert rows[1]["source_seq"] == 42
+    assert rows[2]["source_seq"] == 123
