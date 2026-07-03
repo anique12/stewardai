@@ -135,6 +135,33 @@ async def test_append_message_noop_on_relation_error():
     assert len(inserts) == 0
 
 
+async def test_thread_owned_true_when_thread_belongs_to_user():
+    """thread_owned returns True once a thread has been created (the fake
+    client's select ignores filters but returns the previously inserted row,
+    which is enough to exercise the found-a-row path)."""
+    c = _Client()
+    tid = await store.create_thread(c, user_id="u1", title="First chat")
+    owned = await store.thread_owned(c, user_id="u1", thread_id=tid)
+    assert owned is True
+
+
+async def test_thread_owned_false_when_no_matching_thread():
+    """thread_owned returns False when the select finds nothing (e.g. the
+    thread_id doesn't exist, or exists but isn't this user's)."""
+    c = _Client()
+    owned = await store.thread_owned(c, user_id="u1", thread_id="not-a-real-thread")
+    assert owned is False
+
+
+async def test_thread_owned_returns_false_on_error():
+    """thread_owned swallows DB errors and reports not-owned rather than
+    raising, so callers can safely fall back to creating a fresh thread."""
+    c = _Client()
+    c.set_raise_on_execute(Exception("relation \"chat_threads\" does not exist"))
+    owned = await store.thread_owned(c, user_id="u1", thread_id="t1")
+    assert owned is False
+
+
 async def test_list_threads_returns_empty_on_relation_error():
     """When DB raises 'relation does not exist', list_threads returns empty list."""
     c = _Client()

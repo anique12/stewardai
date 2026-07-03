@@ -129,7 +129,7 @@ async def test_yields_token_events_then_terminal_done(monkeypatch):
         "type": "done",
         "answer": "final answer",
         "citations": [
-            {"meeting_id": "m1", "source_seq": 3, "kind": "fact", "text": "ship July 17"}
+            {"n": 1, "meeting_id": "m1", "source_seq": 3, "kind": "fact", "text": "ship July 17"}
         ],
     }
 
@@ -169,7 +169,108 @@ async def test_done_falls_back_to_accumulated_text_if_state_fetch_fails(monkeypa
     assert out[-1]["type"] == "done"
     assert out[-1]["answer"] == "The answer is 42."
     assert out[-1]["citations"] == [
-        {"meeting_id": "m1", "source_seq": 3, "kind": "fact", "text": "ship July 17"}
+        {"n": 1, "meeting_id": "m1", "source_seq": 3, "kind": "fact", "text": "ship July 17"}
+    ]
+
+
+async def test_citations_are_globally_numbered_and_deduped_across_kb_search_calls(monkeypatch):
+    """Two kb_search calls in one turn: each call numbers its own passages
+    n=1..k, which must be ignored/renumbered globally (1, 2, 3... across the
+    whole turn), and a passage repeated across calls (same meeting_id +
+    source_seq) must be deduped onto its first n rather than getting a new
+    citation."""
+    events = [
+        (
+            "updates",
+            {
+                "agent": {
+                    "messages": [
+                        AIMessage(content="", tool_calls=[_tool_call("kb_search", "call_1")])
+                    ]
+                }
+            },
+        ),
+        (
+            "updates",
+            {
+                "tools": {
+                    "messages": [
+                        ToolMessage(
+                            content=json.dumps(
+                                {
+                                    "passages": [
+                                        {
+                                            "n": 1,
+                                            "meeting_id": "m1",
+                                            "source_seq": 3,
+                                            "kind": "fact",
+                                            "text": "ship July 17",
+                                        }
+                                    ]
+                                }
+                            ),
+                            name="kb_search",
+                            tool_call_id="call_1",
+                        )
+                    ]
+                }
+            },
+        ),
+        (
+            "updates",
+            {
+                "agent": {
+                    "messages": [
+                        AIMessage(content="", tool_calls=[_tool_call("kb_search", "call_2")])
+                    ]
+                }
+            },
+        ),
+        (
+            "updates",
+            {
+                "tools": {
+                    "messages": [
+                        ToolMessage(
+                            content=json.dumps(
+                                {
+                                    "passages": [
+                                        {
+                                            # Same passage as call_1 -- kb_search's own
+                                            # per-call n=1 here must NOT collide with /
+                                            # overwrite the earlier citation's n=1.
+                                            "n": 1,
+                                            "meeting_id": "m1",
+                                            "source_seq": 3,
+                                            "kind": "fact",
+                                            "text": "ship July 17 (again)",
+                                        },
+                                        {
+                                            "n": 2,
+                                            "meeting_id": "m2",
+                                            "source_seq": 7,
+                                            "kind": "fact",
+                                            "text": "launch Aug 1",
+                                        },
+                                    ]
+                                }
+                            ),
+                            name="kb_search",
+                            tool_call_id="call_2",
+                        )
+                    ]
+                }
+            },
+        ),
+    ]
+    _install_fake_agent(monkeypatch, events, final_content="Answer with [1][2].")
+
+    out = await _collect()
+
+    assert out[-1]["type"] == "done"
+    assert out[-1]["citations"] == [
+        {"n": 1, "meeting_id": "m1", "source_seq": 3, "kind": "fact", "text": "ship July 17"},
+        {"n": 2, "meeting_id": "m2", "source_seq": 7, "kind": "fact", "text": "launch Aug 1"},
     ]
 
 

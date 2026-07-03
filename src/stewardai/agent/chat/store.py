@@ -52,6 +52,24 @@ async def append_message(
         # No-op on error; don't raise
 
 
+async def thread_owned(client, *, user_id: str, thread_id: str) -> bool:
+    """Check whether ``thread_id`` belongs to ``user_id``. Best-effort: any DB
+    error (including a missing table or a malformed/nonexistent thread_id) is
+    treated as "not owned" rather than raised, so callers can safely fall back
+    to creating a fresh thread instead of trusting a client-supplied id."""
+    try:
+        resp = await client.table("chat_threads").select("id").eq(
+            "id", thread_id
+        ).eq("user_id", user_id).execute()
+        return bool(resp.data)
+    except Exception as e:
+        if "relation" in str(e) or "does not exist" in str(e):
+            _log.warning("chat_store_unavailable", exc_info=e)
+        else:
+            _log.exception("chat_store_error")
+        return False
+
+
 async def list_threads(client, *, user_id: str) -> list:
     """List all threads for a user. On DB failure, return empty list."""
     try:

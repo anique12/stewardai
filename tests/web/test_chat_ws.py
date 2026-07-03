@@ -14,7 +14,7 @@ async def _fake_run_chat_turn(client, llm, *, user_id, history, message):
     yield {"type": "done", "answer": "Hi", "citations": []}
 
 
-def _client(monkeypatch, *, user_id):
+def _client(monkeypatch, *, user_id, owned_thread_ids=frozenset()):
     async def fake_user_id_from_bearer(authorization, client):
         return user_id
 
@@ -27,11 +27,15 @@ def _client(monkeypatch, *, user_id):
     async def fake_append_message(client, *, user_id, thread_id, role, parts):
         return None
 
+    async def fake_thread_owned(client, *, user_id, thread_id):
+        return thread_id in owned_thread_ids
+
     monkeypatch.setattr(webapp, "user_id_from_bearer", fake_user_id_from_bearer)
     monkeypatch.setattr(webapp, "run_chat_turn", _fake_run_chat_turn)
     monkeypatch.setattr(webapp, "create_thread", fake_create_thread)
     monkeypatch.setattr(webapp, "get_thread_messages", fake_get_thread_messages)
     monkeypatch.setattr(webapp, "append_message", fake_append_message)
+    monkeypatch.setattr(webapp, "thread_owned", fake_thread_owned)
 
     app = webapp.app
     app.state.supabase = object()
@@ -63,3 +67,86 @@ def test_ws_chat_rejects_missing_or_invalid_token(monkeypatch):
             assert "unauthorized" in msg["text"].lower()
     except WebSocketDisconnect:
         pass
+
+
+def test_ws_chat_malformed_frame_does_not_close_socket(monkeypatch):
+    """A non-JSON text frame must not tear down the connection: the client
+    gets an error event and the socket stays usable for the next message."""
+    client = _client(monkeypatch, user_id="u1")
+    with client.websocket_connect("/ws/chat?token=x") as ws:
+        ws.send_text("this is not json")
+        err = ws.receive_json()
+        assert err == {"type": "error", "text": "could not parse message"}
+
+        # The socket is still alive: a valid message right after still works.
+        ws.send_json({"type": "user_message", "text": "hello"})
+        messages = [ws.receive_json(), ws.receive_json(), ws.receive_json()]
+
+    assert [m["type"] for m in messages][-1] == "done"
+
+
+def test_ws_chat_ignores_thread_id_not_owned_by_user(monkeypatch):
+    """A client-supplied thread_id that doesn't belong to this user must be
+    treated as absent -- a fresh thread is created instead of writing into it."""
+    seen_thread_ids: list = []
+    client = _client(monkeypatch, user_id="u1", owned_thread_ids=set())
+
+    async def capturing_get_thread_messages(c, *, user_id, thread_id):
+        seen_thread_ids.append(thread_id)
+        return []
+
+    monkeypatch.setattr(webapp, "get_thread_messages", capturing_get_thread_messages)
+
+    with client.websocket_connect("/ws/chat?token=x") as ws:
+        ws.send_json(
+            {"type": "user_message", "text": "hello", "thread_id": "someone-elses-thread"}
+        )
+        messages = [ws.receive_json(), ws.receive_json(), ws.receive_json()]
+
+    types = [m["type"] for m in messages]
+    assert "thread" in types  # a fresh thread was created
+    thread_event = next(m for m in messages if m["type"] == "thread")
+    assert thread_event["id"] == "t1"  # fake create_thread's id, never the untrusted one
+    assert seen_thread_ids == ["t1"]
+
+
+def test_ws_chat_uses_owned_thread_id_as_is(monkeypatch):
+    """A client-supplied thread_id that IS owned by this user is used
+    directly -- no new thread is created."""
+    seen_thread_ids: list = []
+    client = _client(monkeypatch, user_id="u1", owned_thread_ids={"my-thread"})
+
+    async def capturing_get_thread_messages(c, *, user_id, thread_id):
+        seen_thread_ids.append(thread_id)
+        return []
+
+    monkeypatch.setattr(webapp, "get_thread_messages", capturing_get_thread_messages)
+
+    with client.websocket_connect("/ws/chat?token=x") as ws:
+        ws.send_json({"type": "user_message", "text": "hello", "thread_id": "my-thread"})
+        messages = [ws.receive_json(), ws.receive_json()]
+
+    types = [m["type"] for m in messages]
+    assert "thread" not in types
+    assert types[-1] == "done"
+    assert seen_thread_ids == ["my-thread"]
+
+
+def test_ws_chat_turn_error_sends_generic_text_not_raw_exception(monkeypatch):
+    """An exception mid-turn must not leak its raw text to the client."""
+
+    async def _raising_run_chat_turn(client, llm, *, user_id, history, message):
+        raise RuntimeError("supabase: relation chat_messages leaked detail")
+        yield  # pragma: no cover - unreachable; keeps this an async generator
+
+    client = _client(monkeypatch, user_id="u1")
+    monkeypatch.setattr(webapp, "run_chat_turn", _raising_run_chat_turn)
+
+    with client.websocket_connect("/ws/chat?token=x") as ws:
+        ws.send_json({"type": "user_message", "text": "hello"})
+        messages = [ws.receive_json(), ws.receive_json()]
+
+    err = next(m for m in messages if m["type"] == "error")
+    assert err["text"] == "something went wrong on this turn"
+    assert "supabase" not in err["text"]
+    assert "leaked detail" not in err["text"]

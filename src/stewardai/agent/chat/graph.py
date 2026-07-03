@@ -65,10 +65,27 @@ def _parse_kb_passages(content: object) -> list[dict] | None:
     return passages if isinstance(passages, list) else None
 
 
-def _collect_citations(mode: str, chunk: object, citations: list[dict]) -> None:
+def _collect_citations(
+    mode: str,
+    chunk: object,
+    citations: list[dict],
+    seen: dict[tuple, int],
+) -> None:
     """Scan one ``(mode, chunk)`` item from ``agent.astream(...,
     stream_mode=["updates", ...])`` for a completed ``kb_search`` tool call and
-    append its passages to ``citations`` in place. Defensive: never raises."""
+    append its passages to ``citations`` in place. Defensive: never raises.
+
+    ``kb_search`` numbers the passages it returns ``n=1..k`` *per call*, which
+    is meaningless once a turn makes more than one ``kb_search`` call -- those
+    per-call numbers collide and can't be mapped back to the ``[n]`` markers
+    the model writes in its answer. So the passage's own ``n`` is ignored here
+    and each collected citation is instead assigned a stable, globally-unique
+    ``n`` via ``len(citations) + 1`` at collection time (1, 2, 3... over the
+    whole turn, across every ``kb_search`` call). ``seen`` maps
+    ``(meeting_id, source_seq)`` -> the ``n`` it was first assigned, so a
+    passage retrieved again (e.g. by a second, overlapping ``kb_search`` call)
+    is deduped onto its original citation instead of getting a new number.
+    """
     try:
         if mode != "updates" or not isinstance(chunk, dict):
             return
@@ -85,8 +102,14 @@ def _collect_citations(mode: str, chunk: object, citations: list[dict]) -> None:
                 for p in passages:
                     if not isinstance(p, dict):
                         continue
+                    key = (p.get("meeting_id"), p.get("source_seq"))
+                    if key in seen:
+                        continue
+                    n = len(citations) + 1
+                    seen[key] = n
                     citations.append(
                         {
+                            "n": n,
                             "meeting_id": p.get("meeting_id"),
                             "source_seq": p.get("source_seq"),
                             "kind": p.get("kind"),
@@ -126,11 +149,12 @@ async def run_chat_turn(
     config = {"configurable": {"thread_id": str(uuid.uuid4())}}
 
     citations: list[dict] = []
+    seen_citations: dict[tuple, int] = {}
     accumulated = ""
     async for mode, chunk in agent.astream(
         {"messages": messages}, config, stream_mode=["updates", "messages"]
     ):
-        _collect_citations(mode, chunk, citations)
+        _collect_citations(mode, chunk, citations, seen_citations)
         for event in map_stream_event(mode, chunk):
             if event.get("type") == "token":
                 accumulated += event.get("delta", "")

@@ -20,6 +20,7 @@ each ``/pipeline`` connection builds a session that REUSES those shared backends
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
@@ -30,7 +31,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from stewardai.agent.chat.graph import run_chat_turn
-from stewardai.agent.chat.store import append_message, create_thread, get_thread_messages
+from stewardai.agent.chat.store import (
+    append_message,
+    create_thread,
+    get_thread_messages,
+    thread_owned,
+)
 from stewardai.agent.kb.ask import answer_question
 from stewardai.common.audio import SAMPLE_RATE
 from stewardai.common.logging import TurnTimer, configure_logging, get_logger
@@ -442,7 +448,11 @@ async def ws_chat(ws: WebSocket) -> None:
 
     try:
         while True:
-            msg = await ws.receive_json()
+            try:
+                msg = await ws.receive_json()
+            except json.JSONDecodeError:
+                await _safe_send(ws, {"type": "error", "text": "could not parse message"})
+                continue
             if msg.get("type") != "user_message":
                 continue
             text = (msg.get("text") or "").strip()
@@ -450,6 +460,10 @@ async def ws_chat(ws: WebSocket) -> None:
                 continue
             try:
                 thread_id = msg.get("thread_id")
+                if thread_id and not await thread_owned(
+                    app.state.supabase, user_id=user_id, thread_id=thread_id
+                ):
+                    thread_id = None
                 if not thread_id:
                     thread_id = await create_thread(
                         app.state.supabase, user_id=user_id, title=text[:60]
@@ -497,6 +511,8 @@ async def ws_chat(ws: WebSocket) -> None:
                 )
             except Exception as exc:  # noqa: BLE001 - keep the socket alive across a bad turn
                 log.warning("chat_turn_error", error=str(exc))
-                await _safe_send(ws, {"type": "error", "text": str(exc)})
+                await _safe_send(
+                    ws, {"type": "error", "text": "something went wrong on this turn"}
+                )
     except WebSocketDisconnect:
         return
