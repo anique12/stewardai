@@ -37,12 +37,16 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any
 
+from langgraph.errors import GraphBubbleUp
 from langgraph.types import Command
 
 from stewardai.agent.chat import graph as chat_graph
 from stewardai.agent.chat.events import map_stream_event
 from stewardai.agent.chat.models import make_chat_llm
 from stewardai.agent.chat.tools import build_read_tools
+from stewardai.common.logging import get_logger
+
+_log = get_logger("agent.chat.session")
 
 
 class ChatSession:
@@ -131,8 +135,13 @@ class ChatSession:
                     if event.get("type") == "token":
                         accumulated += event.get("delta", "")
                     yield event
+        except GraphBubbleUp:
+            # interrupt()/subgraph control-flow signals MUST propagate to LangGraph
+            # (they drive the permission pause) — never swallow them as an error.
+            raise
         except Exception as exc:  # never let a mid-stream error kill the caller
-            yield {"type": "error", "message": str(exc)}
+            _log.warning("chat_stream_error", error=str(exc))
+            yield {"type": "error", "message": "something went wrong on this turn"}
             return
 
         answer = accumulated
