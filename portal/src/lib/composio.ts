@@ -11,8 +11,9 @@ import { Composio } from "@composio/core";
 export const SUPPORTED_TOOLKITS = [
   "gmail",
   "googlecalendar",
-  "notion",
-  "slack",
+  "googledrive",
+  "googledocs",
+  "googlesheets",
 ] as const;
 export type SupportedToolkit = (typeof SUPPORTED_TOOLKITS)[number];
 
