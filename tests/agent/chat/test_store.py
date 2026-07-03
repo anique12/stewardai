@@ -21,6 +21,10 @@ class _Query:
         self._op, self._payload = "insert", payload
         return self
 
+    def upsert(self, payload, on_conflict=None):
+        self._op, self._payload = "upsert", payload
+        return self
+
     def select(self, *_args, count=None, **_k):
         self._op, self._count_mode = "select", count
         return self
@@ -31,16 +35,19 @@ class _Query:
     def order(self, *_a, **_k):
         return self
 
+    def limit(self, *_a):
+        return self
+
     async def execute(self):
         if self._raise_on_execute:
             raise self._raise_on_execute
         self._log.append({"table": self._t, "op": self._op, "payload": self._payload})
         if self._op == "select":
-            # Return all previously inserted rows for this table
+            # Return all previously inserted/upserted rows for this table
             inserted = [
                 c["payload"]
                 for c in self._log
-                if c["table"] == self._t and c["op"] == "insert"
+                if c["table"] == self._t and c["op"] in ("insert", "upsert")
             ]
             if not inserted:
                 return _Resp([], count=0)
@@ -176,3 +183,65 @@ async def test_get_thread_messages_returns_empty_on_relation_error():
     c.set_raise_on_execute(Exception("relation \"chat_messages\" does not exist"))
     messages = await store.get_thread_messages(c, user_id="u1", thread_id="t1")
     assert messages == []
+
+
+# --- tool_permissions allowlist -----------------------------------------
+
+
+async def test_is_allowed_true_when_row_present():
+    """is_allowed returns True once set_allowed has recorded a row."""
+    c = _Client()
+    await store.set_allowed(c, user_id="u1", tool_name="send_email")
+    allowed = await store.is_allowed(c, user_id="u1", tool_name="send_email")
+    assert allowed is True
+
+
+async def test_is_allowed_false_when_empty():
+    """is_allowed returns False when no permission row exists."""
+    c = _Client()
+    allowed = await store.is_allowed(c, user_id="u1", tool_name="send_email")
+    assert allowed is False
+
+
+async def test_is_allowed_false_on_relation_error():
+    """is_allowed swallows DB errors (e.g. missing table) and returns False
+    rather than raising."""
+    c = _Client()
+    c.set_raise_on_execute(Exception("relation \"tool_permissions\" does not exist"))
+    allowed = await store.is_allowed(c, user_id="u1", tool_name="send_email")
+    assert allowed is False
+
+
+async def test_set_allowed_upserts_row():
+    """set_allowed upserts a row with allowed=True for the given user/tool."""
+    c = _Client()
+    await store.set_allowed(c, user_id="u1", tool_name="send_email")
+    upserts = _ops(c, "tool_permissions", "upsert")
+    assert upserts == [
+        {"user_id": "u1", "tool_name": "send_email", "scope": None, "allowed": True}
+    ]
+
+
+async def test_set_allowed_no_raise_on_error():
+    """set_allowed swallows DB errors rather than raising."""
+    c = _Client()
+    c.set_raise_on_execute(Exception("relation \"tool_permissions\" does not exist"))
+    # Should not raise
+    await store.set_allowed(c, user_id="u1", tool_name="send_email")
+
+
+async def test_get_allowlist_returns_rows():
+    """get_allowlist returns previously set rows for a user."""
+    c = _Client()
+    await store.set_allowed(c, user_id="u1", tool_name="send_email")
+    rows = await store.get_allowlist(c, user_id="u1")
+    assert len(rows) == 1
+    assert rows[0]["tool_name"] == "send_email"
+
+
+async def test_get_allowlist_returns_empty_on_relation_error():
+    """When DB raises 'relation does not exist', get_allowlist returns empty list."""
+    c = _Client()
+    c.set_raise_on_execute(Exception("relation \"tool_permissions\" does not exist"))
+    rows = await store.get_allowlist(c, user_id="u1")
+    assert rows == []

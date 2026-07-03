@@ -102,3 +102,55 @@ async def get_thread_messages(
         else:
             _log.exception("chat_store_error")
         return []
+
+
+async def is_allowed(client, *, user_id: str, tool_name: str) -> bool:
+    """Check whether ``user_id`` has "always allow"-ed ``tool_name``. Best-effort:
+    any DB error (including a missing table) is treated as not-allowed rather
+    than raised."""
+    try:
+        resp = await client.table("tool_permissions").select("id").eq(
+            "user_id", user_id
+        ).eq("tool_name", tool_name).eq("allowed", True).limit(1).execute()
+        return bool(resp.data)
+    except Exception as e:
+        if "relation" in str(e) or "does not exist" in str(e):
+            _log.warning("chat_store_unavailable", exc_info=e)
+        else:
+            _log.exception("chat_store_error")
+        return False
+
+
+async def set_allowed(client, *, user_id: str, tool_name: str) -> None:
+    """Record that ``user_id`` always allows ``tool_name``. Best-effort no-op
+    on DB failure."""
+    try:
+        await client.table("tool_permissions").upsert(
+            {
+                "user_id": user_id,
+                "tool_name": tool_name,
+                "scope": None,
+                "allowed": True,
+            },
+            on_conflict="user_id,tool_name,scope",
+        ).execute()
+    except Exception as e:
+        if "relation" in str(e) or "does not exist" in str(e):
+            _log.warning("chat_store_unavailable", exc_info=e)
+        else:
+            _log.exception("chat_store_error")
+
+
+async def get_allowlist(client, *, user_id: str) -> list:
+    """List all tool permission rows for a user. On DB failure, return empty list."""
+    try:
+        resp = await client.table("tool_permissions").select(
+            "id, tool_name, scope, allowed, created_at"
+        ).eq("user_id", user_id).execute()
+        return resp.data or []
+    except Exception as e:
+        if "relation" in str(e) or "does not exist" in str(e):
+            _log.warning("chat_store_unavailable", exc_info=e)
+        else:
+            _log.exception("chat_store_error")
+        return []
