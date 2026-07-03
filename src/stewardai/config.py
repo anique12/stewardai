@@ -72,8 +72,11 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-2.0-flash"
     llm_model: str | None = None  # explicit override; else derived from gemini_model
-    # KB embeddings (Plan B): single-provider Gemini embedding model, 768-dim.
-    embedding_model: str = "gemini/text-embedding-004"
+    # KB embeddings (Plan B): single-provider Gemini embedding model. gemini-embedding-001
+    # defaults to 3072 dims but supports Matryoshka truncation to embedding_dim (768) via
+    # litellm's `dimensions` param, matching the vector(768) column. (text-embedding-004 is
+    # not available via embedContent on current Gemini API keys.)
+    embedding_model: str = "gemini/gemini-embedding-001"
     embedding_dim: int = 768
     # Ask (RAG) retrieval depth + allowed browser origins for the /api/ask endpoint.
     ask_top_k: int = 8

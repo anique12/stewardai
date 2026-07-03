@@ -25,8 +25,9 @@ async def test_aembed_returns_one_vector_per_input_and_sets_task_type(monkeypatc
 
     docs = await client.aembed(["a", "b"], query=False)
     assert len(docs) == 2 and len(docs[0]) == 768
-    assert "text-embedding-004" in seen["model"]
+    assert "gemini-embedding-001" in seen["model"]
     assert seen["kwargs"].get("task_type") == "RETRIEVAL_DOCUMENT"
+    assert seen["kwargs"].get("dimensions") == 768  # 768 to match the vector(768) column
 
     await client.aembed(["q"], query=True)
     assert seen["kwargs"].get("task_type") == "RETRIEVAL_QUERY"

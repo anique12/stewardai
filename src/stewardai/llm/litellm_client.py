@@ -335,6 +335,11 @@ class LiteLLMClient:
         resp = await litellm.aembedding(
             model=self._s.embedding_model,
             input=texts,
+            # gemini-embedding-001 defaults to 3072 dims; request embedding_dim (768) via
+            # litellm's `dimensions` (maps to Gemini output_dimensionality) to match the
+            # vector(768) column. Cosine (pgvector <=>) is scale-invariant, so the
+            # un-normalized sub-3072 vectors are fine for retrieval.
+            dimensions=self._s.embedding_dim,
             task_type=task_type,
             timeout=self._s.llm_timeout_s,
         )
