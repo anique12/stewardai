@@ -188,11 +188,27 @@ sources) each get their own spec → plan → implementation cycle when reached.
 - **Meetings that genuinely span two threads** — resolved by one home Space +
   tag the other; revisit a multi-home model only if it proves necessary (YAGNI).
 
+## L1 / L2 retrieval stack (decided 2026-07-03)
+
+Confirmed greenfield — no embeddings/pgvector/RAG exist today. The stack for
+Plan B:
+
+- **Vector store:** `pgvector` in the existing Supabase Postgres (no new infra;
+  reuses RLS + Spaces; a separate vector DB is overkill at single-user scale).
+- **Embeddings:** `google/text-embedding-004` (**768-dim**) via `litellm.aembedding`
+  — single-provider (respects the Gemini-only constraint), swappable later
+  (dimension change = re-embed migration). The pgvector column is `vector(768)`.
+- **Retrieval:** metadata-scoped first (filter to Space / entity / tag), then
+  cosine top-k. Optional Postgres full-text (`tsvector`) hybrid lane for exact
+  terms — add only if recall proves weak (YAGNI for the first cut).
+- **What gets embedded:** transcript segments + summaries + facts, each carrying
+  `space_id` / `meeting_id` / `source_seq` metadata for citable, scoped chunks.
+- **Synthesis (Ask):** `litellm` `complete()` over retrieved chunks, answering
+  with citations back to `meeting_id` / `source_seq` provenance.
+- **Reranking:** out of v1; add a cross-encoder only if scoped top-k is noisy.
+
 ## Open questions for planning
 
 - Exact confidence thresholds for auto-file vs. auto-create vs. Unfiled (tune
   empirically against real meetings).
 - Whether the v1 "Ask" surface lives in the existing portal or as a new view.
-- Reuse vs. extend the existing embeddings/persona machinery for L1 (to be
-  checked at planning time against the current code — deliberately not assumed
-  here).
