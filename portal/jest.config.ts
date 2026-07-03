@@ -4,7 +4,6 @@ const config: Config = {
   testEnvironment: "node",
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/src/$1",
-    "^@composio/core$": "<rootDir>/src/lib/__mocks__/composio-core.ts",
   },
 };
 export default config;

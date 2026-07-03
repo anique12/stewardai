@@ -1,3 +1,5 @@
+jest.mock("@composio/core", () => ({ Composio: class {} }));
+
 import { CATALOG, filterCatalog, type CatalogApp } from "@/lib/integrations/catalog";
 import { SUPPORTED_TOOLKITS } from "@/lib/composio";
 
