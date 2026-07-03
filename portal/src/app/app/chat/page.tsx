@@ -2,18 +2,22 @@
 
 import { useChat } from "@/hooks/useChat";
 import { ChatMessages } from "@/components/chat/ChatMessages";
+import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { Composer } from "@/components/chat/Composer";
 
 export default function ChatPage() {
-  const { messages, streaming, connected, reason, send } = useChat();
+  const { messages, streaming, connected, reason, send, decide, connectDone } = useChat();
+
+  function handleNewChat() {
+    // Simplest v1 reset: reload the page to drop in-memory state; the next
+    // message opens a fresh socket/thread.
+    window.location.reload();
+  }
 
   return (
     <div className="flex h-full min-h-[calc(100vh-8rem)] gap-6">
-      {/* Placeholder left rail — Task 3 replaces this with the real thread list. */}
       <aside className="hidden w-56 shrink-0 lg:block">
-        <div className="rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">
-          Chat threads coming soon.
-        </div>
+        <ChatSidebar onNewChat={handleNewChat} />
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -25,7 +29,13 @@ export default function ChatPage() {
 
         <div className="flex-1 overflow-y-auto">
           <div className="mx-auto flex h-full max-w-3xl flex-col">
-            <ChatMessages messages={messages} streaming={streaming} />
+            <ChatMessages
+              messages={messages}
+              streaming={streaming}
+              onDecide={decide}
+              onConnect={connectDone}
+              onSkip={connectDone}
+            />
           </div>
         </div>
 

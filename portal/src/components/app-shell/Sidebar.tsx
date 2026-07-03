@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarClock, Blocks, Settings, Menu, X, Layers, MessageCircle } from "lucide-react";
+import { CalendarClock, Blocks, Settings, Menu, X, Layers, MessageCircle, MessageSquare } from "lucide-react";
 import { UserMenu } from "./UserMenu";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +15,7 @@ type NavItem = {
 };
 
 const NAV: NavItem[] = [
+  { href: "/app/chat", label: "Chat", icon: MessageSquare, isActive: (p) => p.startsWith("/app/chat") },
   { href: "/app", label: "Meetings", icon: CalendarClock, isActive: (p) => p === "/app" || p.startsWith("/app/meetings") },
   { href: "/app/ask", label: "Ask", icon: MessageCircle, isActive: (p) => p.startsWith("/app/ask") },
   { href: "/app/spaces", label: "Spaces", icon: Layers, isActive: (p) => p.startsWith("/app/spaces") },

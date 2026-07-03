@@ -2,16 +2,17 @@
 
 // Renders the message list: user turns as a right-aligned soft-grey bubble,
 // assistant turns as a full-width block with quiet/expandable activity lines,
-// the streamed answer (with [n] citation chips), a sources strip, and a
-// pending permission/connect placeholder (Task 3 replaces the placeholder
-// with the real action cards). Mirrors the approved mockup's hierarchy:
-// the answer is loud, activity is quiet.
+// the streamed answer (with [n] citation chips), a sources strip, and — when
+// the run is paused — the permission/connect action card.
 
 import { Fragment } from "react";
 import Link from "next/link";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 import type { Activity, Citation as CitationType, Message } from "@/lib/chat/types";
+import type { PermissionDecision } from "@/hooks/useChat";
 import { Citation } from "./Citation";
+import { ConnectCard } from "./ConnectCard";
+import { PermissionCard } from "./PermissionCard";
 import { cn } from "@/lib/utils";
 
 type AnswerPart = { type: "text"; value: string } | { type: "cite"; n: number };
@@ -98,7 +99,19 @@ function UserTurn({ message }: { message: Message }) {
   );
 }
 
-function AssistantTurn({ message, streaming }: { message: Message; streaming: boolean }) {
+function AssistantTurn({
+  message,
+  streaming,
+  onDecide,
+  onConnect,
+  onSkip,
+}: {
+  message: Message;
+  streaming: boolean;
+  onDecide: (decision: PermissionDecision) => void;
+  onConnect: () => void;
+  onSkip: () => void;
+}) {
   const citationsByN = new Map(message.citations.map((c) => [c.n, c]));
   const parts = parseAnswer(message.text);
   const sources = groupCitationsByMeeting(message.citations);
@@ -134,15 +147,11 @@ function AssistantTurn({ message, streaming }: { message: Message; streaming: bo
         </div>
       )}
 
-      {message.pending === "permission" && (
-        <div className="rounded-lg border border-primary/40 bg-primary/5 px-4 py-3 text-sm text-foreground">
-          Awaiting approval…
-        </div>
+      {message.pending === "permission" && message.permission && (
+        <PermissionCard permission={message.permission} onDecide={onDecide} />
       )}
-      {message.pending === "connect" && (
-        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-foreground">
-          Connect required
-        </div>
+      {message.pending === "connect" && message.connect && (
+        <ConnectCard connect={message.connect} onConnect={onConnect} onSkip={onSkip} />
       )}
 
       {message.error && (
@@ -185,7 +194,19 @@ function AssistantTurn({ message, streaming }: { message: Message; streaming: bo
   );
 }
 
-export function ChatMessages({ messages, streaming }: { messages: Message[]; streaming: boolean }) {
+export function ChatMessages({
+  messages,
+  streaming,
+  onDecide,
+  onConnect,
+  onSkip,
+}: {
+  messages: Message[];
+  streaming: boolean;
+  onDecide: (decision: PermissionDecision) => void;
+  onConnect: () => void;
+  onSkip: () => void;
+}) {
   if (messages.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 py-24 text-center">
@@ -205,7 +226,14 @@ export function ChatMessages({ messages, streaming }: { messages: Message[]; str
         return message.role === "user" ? (
           <UserTurn key={i} message={message} />
         ) : (
-          <AssistantTurn key={i} message={message} streaming={streaming && isLast} />
+          <AssistantTurn
+            key={i}
+            message={message}
+            streaming={streaming && isLast}
+            onDecide={onDecide}
+            onConnect={onConnect}
+            onSkip={onSkip}
+          />
         );
       })}
     </div>
