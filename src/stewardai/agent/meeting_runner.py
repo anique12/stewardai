@@ -551,10 +551,23 @@ class MeetingSession:
             "indic_parler": "English, Urdu, or Hindi",
             "mms": "English, Urdu, or Hindi",
         }.get(self._s.tts_backend, "English")
+        # Current date/time in the OWNER's timezone, so the model resolves "today",
+        # "tomorrow", "next Monday", "in an hour" correctly (without this it has no
+        # date reference and scheduled events in its training-prior year, e.g. 2024).
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        try:
+            _now = datetime.now(ZoneInfo(self._user_timezone))
+            _today = f"{_now.strftime('%A, %B %d, %Y, %I:%M %p')} {self._user_timezone}"
+        except Exception:  # noqa: BLE001 - bad/unknown tz string must not break setup
+            _now = datetime.now(ZoneInfo("UTC"))
+            _today = f"{_now.strftime('%A, %B %d, %Y, %I:%M %p')} UTC"
         meeting_system = build_meeting_system(
             self._bot_label,
             tools_available=bool(self._action_tools),
             spoken_languages=_spoken,
+            today=_today,
         )
 
         # Shared backends passed through; build_session builds fresh nodes/plugins

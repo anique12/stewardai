@@ -339,6 +339,7 @@ def build_meeting_system(
     *,
     tools_available: bool = False,
     spoken_languages: str = "English",
+    today: str | None = None,
 ) -> str:
     """The meeting system prompt, using the agent's DISPLAY NAME (owner's bot_name)
     as its identity + wake word — not a hardcoded "Steward" — and a tool note that
@@ -347,6 +348,11 @@ def build_meeting_system(
     ``spoken_languages`` = the language(s) the TTS voice can actually SPEAK, so the
     model never replies in a language it can't be heard in. Update it when the TTS
     backend changes (kokoro → "English"; Indic Parler-TTS → "English, Urdu, or Hindi").
+
+    ``today`` = a human-readable current date/time in the owner's timezone (e.g.
+    "Friday, July 03, 2026, 2:41 PM PKT"). When set, the prompt anchors every
+    time-relative request to it — without this the model has NO date reference and
+    resolves "today"/"tomorrow" to its training prior (it scheduled events in 2024).
     """
     base = (
         f"You are {name}, an assistant participating in a live multi-person meeting. "
@@ -388,6 +394,13 @@ def build_meeting_system(
         "instead of asking again.\n"
         "- Never read the bracketed name prefixes aloud; they are only for your context."
     )
+    if today:
+        base += (
+            f"\n- IMPORTANT — Today's date is {today}. Resolve EVERY time-relative "
+            'request ("today", "tonight", "tomorrow", "this Friday", "next Monday", '
+            '"in an hour") from this exact date and time. NEVER assume a different '
+            "year or date, and if someone asks what day or date it is, answer from this."
+        )
     note = _TOOLS_AVAILABLE_NOTE if tools_available else _NO_TOOLS_NOTE
     return base + note.format(name=name)
 
