@@ -14,12 +14,13 @@ Usage (run with the project venv):
   ./.venv/bin/python scripts/seed_kb_test_meeting.py --user-id <auth.users uuid>
   ./.venv/bin/python scripts/seed_kb_test_meeting.py --ask "when do we ship Acme?"
 """
+# ruff: noqa: E501 — intentional long dialogue + print lines in this test-seed script
 from __future__ import annotations
 
 import argparse
 import asyncio
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from stewardai.agent.kb.ask import answer_question
 from stewardai.agent.kb.teardown import run_kb_ingest
@@ -84,7 +85,7 @@ async def main() -> None:
     print(f"user_id: {user_id}")
 
     # 1) The meeting row.
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     meeting_row = {
         "user_id": user_id,
         "google_event_id": f"kb-seed-{uuid.uuid4()}",
