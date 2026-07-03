@@ -7,6 +7,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from stewardai.agent.kb._shared import FACT_KINDS, coerce_seq
 from stewardai.common.logging import get_logger
 
 _log = get_logger("agent.kb.persistence")
@@ -15,25 +16,11 @@ _log = get_logger("agent.kb.persistence")
 # LLM often emits vague strings ("Friday", "next week") which must become NULL.
 _ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
-# space_facts.kind has a DB CHECK constraint; only these values are allowed.
-_FACT_KINDS = frozenset({"action_item", "decision", "date", "risk", "open_question"})
-
 
 def _coerce_due(value: Any) -> str | None:
     """Keep only real YYYY-MM-DD values; everything else → None (date column)."""
     if isinstance(value, str) and _ISO_DATE_RE.match(value.strip()):
         return value.strip()
-    return None
-
-
-def _coerce_seq(value: Any) -> int | None:
-    """Keep only real integer transcript indices; everything else → None."""
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str) and value.strip().lstrip("-").isdigit():
-        return int(value.strip())
     return None
 
 
@@ -72,8 +59,8 @@ async def insert_facts(client, *, user_id, space_id, meeting_id, facts) -> int:
     rows = [{
         "user_id": user_id, "space_id": space_id, "meeting_id": meeting_id,
         "kind": f.get("kind"), "text": f.get("text"),
-        "source_seq": _coerce_seq(f.get("source_line")), "due": _coerce_due(f.get("due")),
-    } for f in facts if f.get("kind") in _FACT_KINDS and f.get("text")]
+        "source_seq": coerce_seq(f.get("source_line")), "due": _coerce_due(f.get("due")),
+    } for f in facts if f.get("kind") in FACT_KINDS and f.get("text")]
     if not rows:
         return 0
     await client.table("space_facts").insert(rows).execute()
