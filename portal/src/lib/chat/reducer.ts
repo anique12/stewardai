@@ -61,6 +61,7 @@ export function reduceChatEvent(state: ChatState, ev: ServerEvent): ChatState {
     }
 
     case "permission_request": {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { type: _type, ...rest } = ev;
       const messages = replaceLastAssistant(state.messages, (msg) => ({
         ...msg,
@@ -71,6 +72,7 @@ export function reduceChatEvent(state: ChatState, ev: ServerEvent): ChatState {
     }
 
     case "connect_required": {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { type: _type, ...rest } = ev;
       const messages = replaceLastAssistant(state.messages, (msg) => ({
         ...msg,
