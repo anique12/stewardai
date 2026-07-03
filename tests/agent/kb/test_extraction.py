@@ -39,3 +39,18 @@ async def test_empty_transcript_short_circuits_without_calling_llm():
             raise AssertionError("LLM should not be called for empty transcript")
             yield ""  # pragma: no cover
     assert await extract_entities_and_facts(_Boom(), []) == {"entities": [], "tags": [], "facts": []}
+
+
+async def test_non_dict_json_returns_empty_shape():
+    # Test null
+    out = await extract_entities_and_facts(_llm_yielding("null"), ["x"])
+    assert out == {"entities": [], "tags": [], "facts": []}
+    # Test list
+    out = await extract_entities_and_facts(_llm_yielding("[1, 2, 3]"), ["x"])
+    assert out == {"entities": [], "tags": [], "facts": []}
+    # Test string
+    out = await extract_entities_and_facts(_llm_yielding('"just a string"'), ["x"])
+    assert out == {"entities": [], "tags": [], "facts": []}
+    # Test number
+    out = await extract_entities_and_facts(_llm_yielding("42"), ["x"])
+    assert out == {"entities": [], "tags": [], "facts": []}

@@ -38,7 +38,7 @@ def _strip_fences(text: str) -> str:
 async def extract_entities_and_facts(llm, transcript: list[str]) -> dict:
     """Return {"entities": [...], "tags": [...], "facts": [...]}; empty shape on failure."""
     if not transcript:
-        return {"entities": [], "tags": [], "facts": []}
+        return dict(_EMPTY)
     body = "\n".join(f"{i}: {line}" for i, line in enumerate(transcript))
     chunks: list[str] = []
     async for delta in llm.complete(
@@ -51,7 +51,10 @@ async def extract_entities_and_facts(llm, transcript: list[str]) -> dict:
         data = json.loads(raw)
     except (ValueError, TypeError):
         _log.warning("kb_extraction_parse_failed", head=raw[:120])
-        return {"entities": [], "tags": [], "facts": []}
+        return dict(_EMPTY)
+    if not isinstance(data, dict):
+        _log.warning("kb_extraction_parse_failed", head=raw[:120])
+        return dict(_EMPTY)
     return {
         "entities": data.get("entities") or [],
         "tags": data.get("tags") or [],
