@@ -29,6 +29,8 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from stewardai.agent.chat.graph import run_chat_turn
+from stewardai.agent.chat.store import append_message, create_thread, get_thread_messages
 from stewardai.agent.kb.ask import answer_question
 from stewardai.common.audio import SAMPLE_RATE
 from stewardai.common.logging import TurnTimer, configure_logging, get_logger
@@ -409,3 +411,92 @@ async def ws_pipeline(ws: WebSocket) -> None:
         with suppress(Exception):
             await http_session_cm.__aexit__(None, None, None)
         log.info("pipeline_agent_stopped")
+
+
+@app.websocket("/ws/chat")
+async def ws_chat(ws: WebSocket) -> None:
+    """Agentic chat over a websocket: streamed token/activity events ending in
+    ``done``, backed by T5's ``run_chat_turn`` LangGraph agent.
+
+    Browsers can't set headers on a websocket, so auth rides a ``?token=``
+    query param instead (same Supabase-bearer resolution as ``/api/ask``).
+    Threads/messages are persisted via the chat store, which is itself
+    best-effort (swallows DB errors) -- the per-turn try/except below is a
+    second guard so a lost store or agent error never kills the connection.
+    """
+    await ws.accept()
+
+    if app.state.supabase is None:
+        await _safe_send(ws, {"type": "error", "text": "chat unavailable"})
+        with suppress(Exception):
+            await ws.close(code=1011)  # internal error / server misconfig
+        return
+
+    token = ws.query_params.get("token", "")
+    user_id = await user_id_from_bearer(f"Bearer {token}", app.state.supabase)
+    if not user_id:
+        await _safe_send(ws, {"type": "error", "text": "unauthorized"})
+        with suppress(Exception):
+            await ws.close(code=1008)  # policy violation
+        return
+
+    try:
+        while True:
+            msg = await ws.receive_json()
+            if msg.get("type") != "user_message":
+                continue
+            text = (msg.get("text") or "").strip()
+            if not text:
+                continue
+            try:
+                thread_id = msg.get("thread_id")
+                if not thread_id:
+                    thread_id = await create_thread(
+                        app.state.supabase, user_id=user_id, title=text[:60]
+                    )
+                    await _safe_send(ws, {"type": "thread", "id": thread_id})
+
+                stored = await get_thread_messages(
+                    app.state.supabase, user_id=user_id, thread_id=thread_id
+                )
+                history = [
+                    {
+                        "role": m["role"],
+                        "content": "".join(
+                            part.get("text", "")
+                            for part in (m.get("parts") or [])
+                            if isinstance(part, dict) and part.get("type") == "text"
+                        ),
+                    }
+                    for m in stored
+                ]
+
+                await append_message(
+                    app.state.supabase, user_id=user_id, thread_id=thread_id,
+                    role="user", parts=[{"type": "text", "text": text}],
+                )
+
+                answer = ""
+                citations: list = []
+                async for ev in run_chat_turn(
+                    app.state.supabase, app.state.llm,
+                    user_id=user_id, history=history, message=text,
+                ):
+                    await ws.send_json(ev)
+                    if ev.get("type") == "done":
+                        answer = ev.get("answer", "")
+                        citations = ev.get("citations", [])
+
+                await append_message(
+                    app.state.supabase, user_id=user_id, thread_id=thread_id,
+                    role="assistant",
+                    parts=[
+                        {"type": "text", "text": answer},
+                        {"type": "citation_group", "citations": citations},
+                    ],
+                )
+            except Exception as exc:  # noqa: BLE001 - keep the socket alive across a bad turn
+                log.warning("chat_turn_error", error=str(exc))
+                await _safe_send(ws, {"type": "error", "text": str(exc)})
+    except WebSocketDisconnect:
+        return
