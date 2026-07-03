@@ -20,5 +20,10 @@ def make_chat_llm(role: str = "reasoning", *, tools=None):  # noqa: ANN001
     s = get_settings()
     if s.gemini_api_key:
         os.environ.setdefault("GEMINI_API_KEY", s.gemini_api_key)
-    llm = ChatLiteLLM(model=pick_model(role), temperature=0, num_retries=4)
+    # streaming=True makes ChatLiteLLM route ainvoke() through its internal
+    # _astream(), which fires real per-token callback events -- this is what
+    # lets LangGraph's astream(stream_mode=["messages"]) yield incremental
+    # deltas instead of one whole-message chunk per turn (verified live
+    # against gemini/gemini-2.5-flash via create_react_agent).
+    llm = ChatLiteLLM(model=pick_model(role), temperature=0, num_retries=4, streaming=True)
     return llm.bind_tools(tools) if tools else llm
