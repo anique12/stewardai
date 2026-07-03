@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/app-shell/PageHeader";
 import { Card } from "@/components/ui/card";
 import { buildSpaceTree, type SpaceRow } from "@/lib/spaces/tree";
 import { SpaceCard } from "@/components/spaces/SpaceCard";
+import { NewSpaceDialog } from "@/components/spaces/NewSpaceDialog";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,7 @@ export default async function SpacesPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Spaces" subtitle="Your work, organized into threads." />
+      <PageHeader title="Spaces" subtitle="Your work, organized into threads." action={<NewSpaceDialog />} />
 
       {unfiledCount > 0 ? (
         <Link href="/app/spaces/unfiled" className="block">
