@@ -856,6 +856,41 @@ class MeetingSession:
                     timeout=15.0,
                 )
                 _log.info("post_meeting_actions_extracted", meeting=self._mid)
+        # Knowledge Base ingestion (best-effort; never blocks teardown). Resolves
+        # recurring_event_id/title from the meetings row the same way
+        # _resolve_keyterms/_resolve_profile do; attendee_emails aren't stored
+        # structured yet (Plan A1), so we pass [] until A2/B persist them.
+        try:
+            from stewardai.agent.kb.teardown import run_kb_ingest
+
+            recurring_event_id = None
+            meeting_title = ""
+            if self._supabase is not None and self._meeting_uuid:
+                with contextlib.suppress(Exception):
+                    resp = await (
+                        self._supabase.table("meetings")
+                        .select("recurring_event_id,title")
+                        .eq("id", self._meeting_uuid)
+                        .limit(1)
+                        .execute()
+                    )
+                    rows = resp.data or []
+                    if rows:
+                        recurring_event_id = rows[0].get("recurring_event_id")
+                        meeting_title = (rows[0].get("title") or "").strip()
+
+            await run_kb_ingest(
+                client=self._supabase,
+                llm=self._llm,
+                user_id=self.user_id,
+                meeting_id=self._meeting_uuid,
+                transcript=teardown_transcript,
+                recurring_event_id=recurring_event_id,
+                attendee_emails=[],
+                title=meeting_title,
+            )
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("kb_ingest_wire_failed", error=str(exc))
         with contextlib.suppress(Exception):
             await self._session.aclose()
         if self._control is not None:
