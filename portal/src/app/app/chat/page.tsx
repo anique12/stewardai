@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect } from "react";
+import { Suspense, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useChat } from "@/hooks/useChat";
 import { ChatMessages } from "@/components/chat/ChatMessages";
@@ -28,6 +28,13 @@ function ChatInner() {
     router.push("/app/chat");
   }
 
+  // Keep the view pinned to the latest message — on open (thread load) and as
+  // new tokens/messages stream in.
+  const endRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "end" });
+  }, [messages]);
+
   return (
     <div className="flex h-full min-h-[calc(100vh-8rem)] gap-6">
       <aside className="hidden w-56 shrink-0 lg:block">
@@ -50,6 +57,7 @@ function ChatInner() {
               onConnect={connectDone}
               onSkip={connectDone}
             />
+            <div ref={endRef} />
           </div>
         </div>
 
