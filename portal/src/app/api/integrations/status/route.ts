@@ -1,7 +1,7 @@
 import { requireUserRoute } from "@/lib/auth-helpers";
 import { createServerClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
-import { getComposio, SUPPORTED_TOOLKITS } from "@/lib/composio";
+import { getComposio, getSupportedToolkits } from "@/lib/composio";
 import { NextResponse } from "next/server";
 
 // Maps a Composio connected-account status to our local `connected_apps.status`
@@ -44,6 +44,7 @@ export async function GET() {
 
   const db = createServerClient();     // RLS-scoped reads
   const service = createServiceClient(); // elevated: reconcile upsert
+  const supported = await getSupportedToolkits(); // registry-driven (fallback baked in)
 
   // Fetch all Composio connected accounts for this entity (user). The list
   // items carry `id`, `status`, and `toolkit.slug` (no userId echo — we filter
@@ -53,7 +54,7 @@ export async function GET() {
     const composio = getComposio();
     const response = await composio.connectedAccounts.list({
       userIds: [user.id],
-      toolkitSlugs: [...SUPPORTED_TOOLKITS],
+      toolkitSlugs: supported,
     });
     for (const account of response.items) {
       const slug = (account.toolkit?.slug ?? "").toLowerCase();
@@ -76,7 +77,7 @@ export async function GET() {
       .from("connected_apps")
       .select("app,status,connected_account_id,connected_at,updated_at")
       .eq("user_id", user.id)
-      .in("app", [...SUPPORTED_TOOLKITS]);
+      .in("app", supported);
     return NextResponse.json({
       apps: (existing ?? []).map((r) => ({ ...r, account_label: null })),
     });
@@ -84,7 +85,7 @@ export async function GET() {
 
   // Reconcile our local table to match Composio's truth for the 4 apps.
   const now = new Date().toISOString();
-  const upserts = SUPPORTED_TOOLKITS.map((app) => {
+  const upserts = supported.map((app) => {
     const conn = byApp.get(app);
     const status = conn ? localStatus(conn.status) : "disconnected";
     return {
@@ -106,7 +107,7 @@ export async function GET() {
     .from("connected_apps")
     .select("app,status,connected_account_id,connected_at,updated_at")
     .eq("user_id", user.id)
-    .in("app", [...SUPPORTED_TOOLKITS]);
+    .in("app", supported);
 
   const withLabels = (rows ?? []).map((r) => ({
     ...r,

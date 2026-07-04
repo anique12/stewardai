@@ -31,6 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from stewardai.agent.chat.composio_tools import build_composio_tools
+from stewardai.agent.chat.registry import load_available as load_available_integrations
 from stewardai.agent.chat.session import ChatSession
 from stewardai.agent.chat.store import (
     append_message,
@@ -608,10 +609,12 @@ async def ws_chat(ws: WebSocket) -> None:
                         app.state.supabase, app.state.llm, user_id=user_id
                     ) + build_write_tools(app.state.supabase, user_id=user_id)
                     try:
+                        available = await load_available_integrations(app.state.supabase)
                         tools += build_composio_tools(
                             user_id=user_id,
                             composio_service=getattr(app.state, "composio_service", None),
                             client=app.state.supabase,
+                            available=available,
                         )
                     except Exception as exc:  # noqa: BLE001 - chat still works without Composio
                         log.warning("composio_tools_unavailable", error=str(exc))

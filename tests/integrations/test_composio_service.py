@@ -15,8 +15,8 @@ import pytest
 from stewardai.integrations.composio_service import (
     _ALLOW_LIST,
     _ALLOWED_SLUGS,
+    _DEFINED_TOOLKITS,
     _RISK_MAP,
-    TOOLKITS,
     ComposioService,
 )
 
@@ -74,16 +74,21 @@ def _service_with_mock(
 
 
 class TestAllowList:
-    def test_all_four_toolkits_defined(self):
-        assert set(_ALLOW_LIST.keys()) == {"gmail", "googlecalendar", "notion", "slack"}
+    def test_defined_toolkits(self):
+        assert set(_ALLOW_LIST.keys()) == {
+            "gmail",
+            "googlecalendar",
+            "googledrive",
+            "googledocs",
+            "googlesheets",
+            "notion",
+            "slack",
+        }
 
-    def test_enabled_toolkits_are_gmail_and_calendar(self):
-        # Only the apps that are BOTH live in the portal AND have chat actions.
-        assert set(TOOLKITS) == {"gmail", "googlecalendar"}
-
-    def test_enabled_toolkits_all_have_actions(self):
-        # Every enabled toolkit must have action definitions (TOOLKITS ⊆ _ALLOW_LIST).
-        assert set(TOOLKITS).issubset(set(_ALLOW_LIST.keys()))
+    def test_defined_toolkits_constant_matches_allow_list(self):
+        # _DEFINED_TOOLKITS is the superset; which are OFFERED is decided at
+        # runtime by the DB registry, not a constant here.
+        assert set(_DEFINED_TOOLKITS) == set(_ALLOW_LIST.keys())
 
     def test_each_toolkit_has_at_least_two_actions(self):
         for tk, actions in _ALLOW_LIST.items():
@@ -168,7 +173,7 @@ class TestListConnected:
         mock_client.connected_accounts.list.assert_called_once_with(
             user_ids=["user-123"],
             statuses=["ACTIVE"],
-            toolkit_slugs=TOOLKITS,
+            toolkit_slugs=_DEFINED_TOOLKITS,
         )
 
     def test_empty_when_nothing_connected(self):

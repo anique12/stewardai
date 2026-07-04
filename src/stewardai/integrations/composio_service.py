@@ -5,9 +5,11 @@ discovering, fetching, and executing third-party app actions on behalf of a
 user.  Only actions on the explicit allow-list below are ever exposed to the
 agent; everything else is silently excluded.
 
-Toolkit slugs: gmail, googlecalendar are ENABLED (offered by the chat); notion,
-slack have action definitions but are gated off (see TOOLKITS) until the portal
-marks them connectable.
+Toolkit slugs with action definitions (``_DEFINED_TOOLKITS``): gmail,
+googlecalendar, googledrive, googledocs, googlesheets, notion, slack. WHICH of
+these the chat offers is decided at runtime by the DB integration registry
+(``stewardai.agent.chat.registry``) — the source of truth shared with the portal
+— so this module never hardcodes an "enabled" set that could drift.
 
 Action risk levels
 ------------------
@@ -37,21 +39,6 @@ import functools
 from stewardai.config import get_settings
 
 # ---------------------------------------------------------------------------
-# Supported toolkits
-# ---------------------------------------------------------------------------
-
-# ENABLED toolkits the chat actually offers + can connect. Kept in sync with the
-# portal's live/connectable set (portal catalog + SUPPORTED_TOOLKITS): only apps
-# that are BOTH live in the portal AND have actions defined below. notion/slack
-# have action definitions in _ALLOW_LIST but are gated OFF here (portal marks
-# them "coming soon" — not connectable yet), so the chat never offers an app it
-# can't actually connect. Re-add them here once the portal enables them.
-TOOLKITS: list[str] = ["gmail", "googlecalendar"]
-
-# All toolkits we have action definitions for (enabled or not) — the superset.
-_DEFINED_TOOLKITS: list[str] = ["gmail", "googlecalendar", "notion", "slack"]
-
-# ---------------------------------------------------------------------------
 # Allow-list: pinned action slugs discovered from the Composio SDK / API.
 # Each entry is (action_slug, risk_level).
 # "high" = outbound / irreversible-to-others.
@@ -70,6 +57,24 @@ _ALLOW_LIST: dict[str, list[tuple[str, str]]] = {
         ("GOOGLECALENDAR_FIND_FREE_SLOTS", "low"),  # find free/busy windows
         ("GOOGLECALENDAR_CREATE_EVENT", "low"),  # create a calendar event (own cal)
         ("GOOGLECALENDAR_UPDATE_EVENT", "low"),  # edit own event
+    ],
+    "googledrive": [
+        ("GOOGLEDRIVE_FIND_FILE", "low"),            # search/list files
+        ("GOOGLEDRIVE_CREATE_FILE_FROM_TEXT", "low"),  # create a file from text
+        ("GOOGLEDRIVE_CREATE_FOLDER", "low"),        # create a folder
+    ],
+    "googledocs": [
+        ("GOOGLEDOCS_SEARCH_DOCUMENTS", "low"),      # search docs
+        ("GOOGLEDOCS_GET_DOCUMENT_PLAINTEXT", "low"),  # read a doc as text
+        ("GOOGLEDOCS_CREATE_DOCUMENT_MARKDOWN", "low"),  # create a doc from markdown
+        ("GOOGLEDOCS_UPDATE_DOCUMENT_MARKDOWN", "low"),  # update own doc
+    ],
+    "googlesheets": [
+        ("GOOGLESHEETS_SEARCH_SPREADSHEETS", "low"),  # search spreadsheets
+        ("GOOGLESHEETS_GET_SPREADSHEET_INFO", "low"),  # read spreadsheet metadata
+        ("GOOGLESHEETS_BATCH_GET", "low"),           # read cell values
+        ("GOOGLESHEETS_CREATE_GOOGLE_SHEET1", "low"),  # create a spreadsheet
+        ("GOOGLESHEETS_CREATE_SPREADSHEET_ROW", "low"),  # append a row
     ],
     "notion": [
         ("NOTION_SEARCH_NOTION_PAGE", "low"),    # search pages / databases
@@ -91,6 +96,12 @@ _RISK_MAP: dict[str, str] = {
 
 # Set of all allowed slugs for membership tests
 _ALLOWED_SLUGS: frozenset[str] = frozenset(_RISK_MAP)
+
+# All toolkits we have action definitions for (the superset). WHICH of these the
+# chat actually offers is decided at runtime by the DB integration registry
+# (stewardai.agent.chat.registry) — the single source of truth shared with the
+# portal — not by a constant here, so the two can't diverge.
+_DEFINED_TOOLKITS: list[str] = list(_ALLOW_LIST.keys())
 
 # Google Calendar event types that CANNOT have a Meet room or attendees — Google
 # rejects those with 'malformedFocusTimeEvent' / similar.
@@ -187,32 +198,34 @@ class ComposioService:
     # Public API
     # ------------------------------------------------------------------
 
-    def list_connected(self, user_id: str) -> list[str]:
-        """Return the subset of TOOLKITS that the user has connected.
+    def list_connected(self, user_id: str, toolkits: list[str] | None = None) -> list[str]:
+        """Return the subset of ``toolkits`` the user has connected.
 
         Parameters
         ----------
         user_id:
             The Supabase user UUID used as the Composio entity/user ID.
+        toolkits:
+            Which toolkit slugs to check (defaults to all defined toolkits).
 
         Returns
         -------
         list[str]
-            Toolkit slugs (e.g. ``["gmail", "slack"]``) for which there is at
-            least one ACTIVE connected account for this user.  Only slugs in
-            :data:`TOOLKITS` are returned.
+            Toolkit slugs (e.g. ``["gmail", "googledrive"]``) with at least one
+            ACTIVE connected account for this user, limited to ``toolkits``.
         """
+        target = toolkits or _DEFINED_TOOLKITS
         response = self._composio.connected_accounts.list(
             user_ids=[user_id],
             statuses=["ACTIVE"],
-            toolkit_slugs=TOOLKITS,
+            toolkit_slugs=target,
         )
         items = getattr(response, "items", None) or []
         seen: set[str] = set()
         result: list[str] = []
         for account in items:
             toolkit_slug = self._toolkit_slug_from_account(account)
-            if toolkit_slug and toolkit_slug in TOOLKITS and toolkit_slug not in seen:
+            if toolkit_slug and toolkit_slug in target and toolkit_slug not in seen:
                 seen.add(toolkit_slug)
                 result.append(toolkit_slug)
         return result
@@ -255,10 +268,12 @@ class ComposioService:
         if only_connected:
             connected = self.list_connected(user_id)
             target_toolkits = [
-                t for t in (toolkits or connected) if t in connected and t in TOOLKITS
+                t for t in (toolkits or connected) if t in connected and t in _DEFINED_TOOLKITS
             ]
         else:
-            target_toolkits = [t for t in (toolkits or TOOLKITS) if t in TOOLKITS]
+            target_toolkits = [
+                t for t in (toolkits or _DEFINED_TOOLKITS) if t in _DEFINED_TOOLKITS
+            ]
         if not target_toolkits:
             return []
 

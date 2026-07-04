@@ -7,7 +7,8 @@ import { Composio } from "@composio/core";
 // backend (and vice versa). The entity/user id MUST be the Supabase auth
 // user.id (UUID) everywhere.
 
-/** The toolkit slugs the portal supports connecting. */
+/** Fallback connectable toolkits, used if the DB registry can't be read. Kept in
+ *  sync with the `integrations` table seed (migration 0014). */
 export const SUPPORTED_TOOLKITS = [
   "gmail",
   "googlecalendar",
@@ -16,6 +17,23 @@ export const SUPPORTED_TOOLKITS = [
   "googlesheets",
 ] as const;
 export type SupportedToolkit = (typeof SUPPORTED_TOOLKITS)[number];
+
+/** The connectable toolkits, from the DB integration registry (single source of
+ *  truth shared with the chat backend). Falls back to SUPPORTED_TOOLKITS if the
+ *  table is missing/unreadable, so connect/status keep working pre-migration. */
+export async function getSupportedToolkits(): Promise<string[]> {
+  try {
+    const { createServiceClient } = await import("@/lib/supabase/service");
+    const { data, error } = await createServiceClient()
+      .from("integrations")
+      .select("slug")
+      .eq("available", true);
+    if (error || !data || data.length === 0) return [...SUPPORTED_TOOLKITS];
+    return data.map((r) => r.slug as string);
+  } catch {
+    return [...SUPPORTED_TOOLKITS];
+  }
+}
 
 /** Construct a Composio v3 client from the server-side API key. */
 export function getComposio(): Composio {

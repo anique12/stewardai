@@ -34,7 +34,7 @@ from langgraph.types import interrupt
 
 from stewardai.agent.chat.permissions import gate
 from stewardai.common.logging import get_logger
-from stewardai.integrations.composio_service import TOOLKITS
+from stewardai.integrations.composio_service import _DEFINED_TOOLKITS
 
 _log = get_logger("agent.chat.composio_tools")
 
@@ -231,8 +231,10 @@ def _format_tool_result(slug: str, result: Any) -> dict | None:
     return None
 
 
-def build_composio_tools(*, user_id: str, composio_service: Any, client: Any = None) -> list:
-    """Build TWO generic integration tools (progressive tool disclosure):
+def build_composio_tools(
+    *, user_id: str, composio_service: Any, client: Any = None, available: list[str] | None = None
+) -> list:
+    """Build THREE generic integration tools (progressive tool disclosure):
 
     - ``describe_action(app)`` — returns an app's allow-listed actions + their
       argument schemas ON DEMAND (as a tool result), so the model pays a fat
@@ -254,52 +256,57 @@ def build_composio_tools(*, user_id: str, composio_service: Any, client: Any = N
         A :class:`stewardai.integrations.composio_service.ComposioService`, or ``None``.
     client:
         Supabase client for :func:`gate`'s "always allow" check (may be ``None``).
+    available:
+        Slugs the DB registry marks available (from ``registry.load_available``).
+        The offered set is these intersected with the toolkits we have actions
+        for. ``None`` → all defined toolkits (keeps chat working pre-registry).
     """
     if composio_service is None:
         return []
+    src = available if available is not None else _DEFINED_TOOLKITS
+    apps = [a for a in src if a in _DEFINED_TOOLKITS]
     tools = [
-        _make_list_integrations_tool(user_id=user_id, composio_service=composio_service),
-        _make_describe_tool(user_id=user_id, composio_service=composio_service),
-        _make_run_tool(user_id=user_id, composio_service=composio_service, client=client),
+        _make_list_integrations_tool(user_id=user_id, composio_service=composio_service, apps=apps),
+        _make_describe_tool(user_id=user_id, composio_service=composio_service, apps=apps),
+        _make_run_tool(
+            user_id=user_id, composio_service=composio_service, client=client, apps=apps
+        ),
     ]
-    _log.info("composio_tools_built", user_id=user_id, count=len(tools), mode="generic")
+    _log.info("composio_tools_built", user_id=user_id, count=len(tools), apps=apps)
     return tools
 
 
-_APP_ENUM = list(TOOLKITS)
-
-
-def _make_list_integrations_tool(*, user_id: str, composio_service: Any) -> Any:
+def _make_list_integrations_tool(*, user_id: str, composio_service: Any, apps: list[str]) -> Any:
     async def _list_integrations() -> dict:
         # Report REAL connection status so the model answers access/availability
         # questions truthfully instead of assuming it can (or can't) use an app.
         try:
-            connected = set(composio_service.list_connected(user_id))
+            connected = set(composio_service.list_connected(user_id, apps))
         except Exception as exc:  # noqa: BLE001 - status unknown → say so, don't guess
             _log.warning("composio_list_connected_failed", error=str(exc))
             return {
-                "apps": [{"app": a, "connected": None} for a in TOOLKITS],
+                "apps": [{"app": a, "connected": None} for a in apps],
                 "note": "couldn't verify connection status right now",
             }
-        return {"apps": [{"app": a, "connected": a in connected} for a in TOOLKITS]}
+        return {"apps": [{"app": a, "connected": a in connected} for a in apps]}
 
     return StructuredTool.from_function(
         coroutine=_list_integrations,
         name="list_integrations",
         description=(
-            "List the external apps (Gmail, Google Calendar, Notion, Slack) and whether each is "
-            "connected for this user. Call this to answer whether you can access or use an app — "
-            "never assume."
+            "List the external apps available to this user and whether each is connected. "
+            "Call this to answer whether you can access or use an app — never assume."
         ),
         args_schema=None,
     )
 
 
-def _make_describe_tool(*, user_id: str, composio_service: Any) -> Any:
+def _make_describe_tool(*, user_id: str, composio_service: Any, apps: list[str]) -> Any:
     async def _describe(app: str) -> dict:
         app_l = (app or "").strip().lower()
-        if app_l not in TOOLKITS:
-            return {"error": f"unknown app {app!r}; must be one of {', '.join(TOOLKITS)}"}
+        if app_l not in apps:
+            allowed = ", ".join(apps) if apps else "(none available)"
+            return {"error": f"{app!r} isn't available; supported apps: {allowed}"}
         try:
             schemas = composio_service.get_tools(user_id, toolkits=[app_l], only_connected=False)
         except Exception as exc:  # noqa: BLE001 - listing failure → tell the model, don't crash
@@ -323,25 +330,26 @@ def _make_describe_tool(*, user_id: str, composio_service: Any) -> Any:
         "properties": {
             "app": {
                 "type": "string",
-                "enum": _APP_ENUM,
+                "enum": list(apps),
                 "description": "Integration app to describe.",
             }
         },
         "required": ["app"],
     }
+    apps_str = ", ".join(apps) if apps else "(none)"
     return StructuredTool.from_function(
         coroutine=_describe,
         name="describe_action",
         description=(
             "List an integration app's available actions and their exact argument "
             "schemas. ALWAYS call this before run_integration_action so you use the "
-            f"correct action slug and arguments. app is one of: {', '.join(TOOLKITS)}."
+            f"correct action slug and arguments. app is one of: {apps_str}."
         ),
         args_schema=args_schema,
     )
 
 
-def _make_run_tool(*, user_id: str, composio_service: Any, client: Any) -> Any:
+def _make_run_tool(*, user_id: str, composio_service: Any, client: Any, apps: list[str]) -> Any:
     async def _run(app: str, action: str, args_json: str = "{}") -> dict:
         # NOT wrapped in try/except: gate()/connect interrupt raise langgraph's
         # GraphInterrupt to pause the turn — catching here would break the
@@ -372,7 +380,7 @@ def _make_run_tool(*, user_id: str, composio_service: Any, client: Any) -> Any:
     args_schema = {
         "type": "object",
         "properties": {
-            "app": {"type": "string", "enum": _APP_ENUM, "description": "Integration app."},
+            "app": {"type": "string", "enum": list(apps), "description": "Integration app."},
             "action": {
                 "type": "string",
                 "description": "Exact action slug from describe_action, e.g. GMAIL_SEND_EMAIL.",
@@ -391,9 +399,10 @@ def _make_run_tool(*, user_id: str, composio_service: Any, client: Any) -> Any:
         coroutine=_run,
         name="run_integration_action",
         description=(
-            "Execute an integration action (Gmail, Google Calendar, Notion, Slack). "
-            "Call describe_action(app) first to get the action slug + arguments. If "
-            "the app isn't connected, the user is automatically prompted to connect."
+            "Execute an integration action on an available app (call "
+            "list_integrations / describe_action first). Call describe_action(app) to "
+            "get the action slug + arguments. If the app isn't connected, the user is "
+            "automatically prompted to connect."
         ),
         args_schema=args_schema,
     )

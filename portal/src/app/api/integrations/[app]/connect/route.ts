@@ -2,8 +2,8 @@ import { requireUserRoute } from "@/lib/auth-helpers";
 import { createServiceClient } from "@/lib/supabase/service";
 import {
   getComposio,
+  getSupportedToolkits,
   resolveManagedAuthConfigId,
-  SUPPORTED_TOOLKITS,
   type SupportedToolkit,
 } from "@/lib/composio";
 import { NextRequest, NextResponse } from "next/server";
@@ -18,7 +18,7 @@ export async function POST(
   }
 
   const app = params.app as SupportedToolkit;
-  if (!SUPPORTED_TOOLKITS.includes(app)) {
+  if (!(await getSupportedToolkits()).includes(app)) {
     return NextResponse.json({ error: "Unknown app" }, { status: 400 });
   }
 

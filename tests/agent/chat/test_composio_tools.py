@@ -40,8 +40,8 @@ class _FakeService:
         self.get_tools_calls.append({"toolkits": toolkits, "only_connected": only_connected})
         return self._schemas
 
-    def list_connected(self, user_id):
-        return self._connected
+    def list_connected(self, user_id, toolkits=None):
+        return [c for c in self._connected if toolkits is None or c in toolkits]
 
     def execute(self, user_id, action_slug, arguments, **kwargs):
         self.execute_calls.append((user_id, action_slug, arguments))
@@ -93,15 +93,29 @@ async def test_build_returns_generic_tools():
 
 
 async def test_list_integrations_reports_connected_status():
-    # Only the ENABLED toolkits (gmail + googlecalendar) are reported.
+    # Only the `available` apps (from the registry) are reported.
     service = _FakeService([], connected=["gmail"])
-    tools = build_composio_tools(user_id="u1", composio_service=service)
+    tools = build_composio_tools(
+        user_id="u1", composio_service=service, available=["gmail", "googlecalendar"]
+    )
     out = await tools[0].ainvoke({})
     status = {a["app"]: a["connected"] for a in out["apps"]}
     assert status == {"gmail": True, "googlecalendar": False}
-    # Not-ready apps are not offered at all.
+    # Apps not in `available` are not offered at all.
     assert "notion" not in status
-    assert "slack" not in status
+
+
+async def test_build_respects_available_set():
+    # An app not in `available` is not offered; describe rejects it.
+    service = _FakeService([], connected=[])
+    tools = build_composio_tools(
+        user_id="u1", composio_service=service, available=["gmail"]
+    )
+    describe = tools[1]
+    ok = await describe.ainvoke({"app": "gmail"})
+    assert ok["app"] == "gmail"
+    rejected = await describe.ainvoke({"app": "googlecalendar"})
+    assert "error" in rejected
 
 
 # --- describe_action (on-demand schemas) ----------------------------------
