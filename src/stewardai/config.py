@@ -79,7 +79,11 @@ class Settings(BaseSettings):
     embedding_model: str = "gemini/gemini-embedding-001"
     embedding_dim: int = 768
     # Agentic chat (Plan C1+): per-role models, all via litellm (any provider swappable).
-    chat_reasoning_model: str = "gemini/gemini-2.5-flash"
+    # Reasoning uses PRO: with the full agentic toolset (~20 tools incl. Composio's
+    # Gmail/Calendar schemas), gemini-2.5-flash intermittently returns an EMPTY response
+    # (a known flash weakness with many/complex function declarations); pro is reliable.
+    # Override per-env with CHAT_REASONING_MODEL.
+    chat_reasoning_model: str = "gemini/gemini-2.5-pro"
     chat_utility_model: str = "gemini/gemini-2.5-flash-lite"
     # Ask (RAG) retrieval depth + allowed browser origins for the /api/ask endpoint.
     ask_top_k: int = 8
