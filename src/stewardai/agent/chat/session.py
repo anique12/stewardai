@@ -142,6 +142,7 @@ class ChatSession:
         citations: list[dict] = []
         seen_citations: dict[tuple, int] = {}
         accumulated = ""
+        thinking = ""
         activities: dict[tuple, dict] = {}  # (kind, name) -> latest {kind,name,status}
         try:
             async for mode, chunk in stream:
@@ -154,6 +155,8 @@ class ChatSession:
                 for event in map_stream_event(mode, chunk):
                     if event.get("type") == "token":
                         accumulated += event.get("delta", "")
+                    elif event.get("type") == "thinking":
+                        thinking += event.get("delta", "")
                     elif event.get("type") == "activity":
                         activities[(event.get("kind"), event.get("name"))] = {
                             "kind": event.get("kind"),
@@ -191,6 +194,7 @@ class ChatSession:
             "answer": answer,
             "citations": citations,
             "activities": list(activities.values()),
+            "thinking": thinking,
         }
 
     def _interrupt_event(self, chunk: dict) -> dict | None:

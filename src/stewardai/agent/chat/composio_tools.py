@@ -206,6 +206,46 @@ def _format_calendar_events(slug: str, result: Any) -> dict | None:
     return {"events": events}
 
 
+def _format_gmail_messages(slug: str, result: Any) -> dict | None:
+    """For GMAIL_FETCH_EMAILS, return a compact list of REAL emails (from/subject/
+    date/snippet) so the model repeats actual inbox contents instead of
+    hallucinating (it invented emails from raw/truncated JSON). None otherwise."""
+    if slug != "GMAIL_FETCH_EMAILS" or not isinstance(result, dict):
+        return None
+    data = result.get("data")
+    msgs = data.get("messages") if isinstance(data, dict) else None
+    if not isinstance(msgs, list):
+        return None
+    emails = []
+    for m in msgs:
+        if not isinstance(m, dict):
+            continue
+        prev = m.get("preview")
+        snippet = prev.get("body") if isinstance(prev, dict) else None
+        if not snippet:
+            snippet = m.get("messageText") or ""
+        emails.append(
+            {
+                "from": m.get("sender") or "",
+                "to": m.get("to") or "",
+                "subject": m.get("subject") or "(no subject)",
+                "date": m.get("messageTimestamp") or "",
+                "snippet": str(snippet)[:200],
+            }
+        )
+    return {"emails": emails}
+
+
+def _format_tool_result(slug: str, result: Any) -> dict | None:
+    """Deterministically shape a tool result the model reads unreliably from raw
+    JSON (calendar, gmail). Returns None to fall back to generic trimming."""
+    for fmt in (_format_calendar_events, _format_gmail_messages):
+        out = fmt(slug, result)
+        if out is not None:
+            return out
+    return None
+
+
 def build_composio_tools(*, user_id: str, composio_service: Any, client: Any = None) -> list:
     """Build one gated LangChain tool per the user's allow-listed, connected
     Composio action.
@@ -323,9 +363,10 @@ async def _execute_with_connect_gate(
             if exc is not None:
                 _log.warning("composio_tool_exec_failed", slug=slug, error=str(exc))
                 return {"ok": False, "error": str(exc)}
-            # Pre-format calendar lists into accurate, readable times; otherwise
-            # trim the raw payload so a large blob doesn't blow up the context.
-            formatted = _format_calendar_events(slug, result)
+            # Pre-format results the model reads unreliably (calendar times,
+            # gmail lists) into clean data; otherwise trim the raw payload so a
+            # large blob doesn't blow up the context (or get hallucinated).
+            formatted = _format_tool_result(slug, result)
             return formatted if formatted is not None else _trim_result(result)
 
         decision = interrupt({"kind": "connect", "app": app, "tool": slug})

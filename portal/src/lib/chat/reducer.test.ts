@@ -6,7 +6,7 @@ import type { ChatState, ServerEvent } from "@/lib/chat/types";
 // state here so every test begins from the same shape the real hook produces.
 function withAssistant(): ChatState {
   return {
-    messages: [{ role: "assistant", text: "", activities: [], citations: [], done: false }],
+    messages: [{ role: "assistant", text: "", thinking: "", activities: [], citations: [], done: false }],
     streaming: false,
     awaiting: null,
     threadId: null,

@@ -31,10 +31,11 @@ def _install_fake_chat_session(monkeypatch, *, stream_events=None, resume_events
     resume_events = resume_events if resume_events is not None else []
 
     class _FakeChatSession:
-        def __init__(self, client, llm, *, user_id, thread_id, tools):
+        def __init__(self, client, llm, *, user_id, thread_id, tools, tz=None):
             self.user_id = user_id
             self.thread_id = thread_id
             self.tools = tools
+            self.tz = tz
 
         async def stream_turn(self, message, history):
             for item in stream_events:

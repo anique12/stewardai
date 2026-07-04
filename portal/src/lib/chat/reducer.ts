@@ -48,6 +48,14 @@ export function reduceChatEvent(state: ChatState, ev: ServerEvent): ChatState {
       return { ...state, messages, streaming: true };
     }
 
+    case "thinking": {
+      const messages = replaceLastAssistant(state.messages, (msg) => ({
+        ...msg,
+        thinking: (msg.thinking ?? "") + ev.delta,
+      }));
+      return { ...state, messages, streaming: true };
+    }
+
     case "activity": {
       const messages = replaceLastAssistant(state.messages, (msg) => ({
         ...msg,

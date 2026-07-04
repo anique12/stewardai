@@ -283,4 +283,4 @@ async def test_no_tool_calls_yields_no_citations(monkeypatch):
 
     out = await _collect()
 
-    assert out[-1] == {"type": "done", "answer": "Hi there.", "citations": [], "activities": []}
+    assert out[-1] == {"type": "done", "answer": "Hi there.", "citations": [], "activities": [], "thinking": ""}

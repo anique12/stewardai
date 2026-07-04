@@ -3,7 +3,13 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { NextRequest, NextResponse } from "next/server";
 import type { Activity, Citation, Message } from "@/lib/chat/types";
 
-type StoredPart = { type?: string; text?: string; citations?: Citation[]; activities?: Activity[] };
+type StoredPart = {
+  type?: string;
+  text?: string;
+  citations?: Citation[];
+  activities?: Activity[];
+  thinking?: string;
+};
 
 // Rebuild a display Message from a stored chat_messages row's `parts` jsonb.
 // (Activity lines are ephemeral turn-progress and aren't persisted — restored
@@ -13,16 +19,19 @@ function rowToMessage(row: { role: string; parts: unknown }): Message {
   let text = "";
   let citations: Citation[] = [];
   let activities: Activity[] = [];
+  let thinking = "";
   for (const p of parts) {
     if (p?.type === "text" && typeof p.text === "string") text += p.text;
     else if (p?.type === "citation_group" && Array.isArray(p.citations)) citations = p.citations;
     else if (p?.type === "activity_group" && Array.isArray(p.activities)) activities = p.activities;
+    else if (p?.type === "thinking_block" && typeof p.thinking === "string") thinking = p.thinking;
   }
   return {
     role: row.role === "user" ? "user" : "assistant",
     text,
     activities,
     citations,
+    thinking,
     done: true,
   };
 }

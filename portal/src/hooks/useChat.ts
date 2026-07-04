@@ -30,11 +30,11 @@ const NOT_SIGNED_IN = "Sign in to use chat.";
 const CONNECTION_FAILED = "Chat connection failed. Send a message to retry.";
 
 function emptyAssistantMessage(): Message {
-  return { role: "assistant", text: "", activities: [], citations: [], done: false };
+  return { role: "assistant", text: "", thinking: "", activities: [], citations: [], done: false };
 }
 
 function newUserMessage(text: string): Message {
-  return { role: "user", text, activities: [], citations: [], done: true };
+  return { role: "user", text, thinking: "", activities: [], citations: [], done: true };
 }
 
 async function getAccessToken(): Promise<string | null> {

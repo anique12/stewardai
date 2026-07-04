@@ -30,16 +30,25 @@ from typing import Any
 from langchain_core.messages import AIMessage, ToolMessage
 
 
-def _token_events(chunk: Any) -> list[dict]:
+def _message_events(chunk: Any) -> list[dict]:
     if not isinstance(chunk, tuple) or len(chunk) != 2:
         return []
     message_chunk, _metadata = chunk
     if not isinstance(message_chunk, AIMessage) or isinstance(message_chunk, ToolMessage):
         return []
+    events: list[dict] = []
+    # Reasoning models (e.g. gemini-2.5-pro) stream thought summaries on
+    # additional_kwargs["reasoning_content"] before/alongside the answer; surface
+    # them as `thinking` deltas for the collapsible thinking block. Absent on
+    # non-reasoning models → no thinking events (nothing breaks).
+    ak = getattr(message_chunk, "additional_kwargs", None) or {}
+    reasoning = ak.get("reasoning_content")
+    if isinstance(reasoning, str) and reasoning:
+        events.append({"type": "thinking", "delta": reasoning})
     content = getattr(message_chunk, "content", None)
-    if not isinstance(content, str) or not content:
-        return []
-    return [{"type": "token", "delta": content}]
+    if isinstance(content, str) and content:
+        events.append({"type": "token", "delta": content})
+    return events
 
 
 def _tool_call_names(message: Any) -> list[str]:
@@ -78,7 +87,7 @@ def map_stream_event(mode: str, chunk: Any) -> list[dict]:
     zero or more typed client events. Never raises."""
     try:
         if mode == "messages":
-            return _token_events(chunk)
+            return _message_events(chunk)
         if mode == "updates":
             return _activity_events(chunk)
         return []

@@ -5,9 +5,31 @@
 // the streamed answer (with [n] citation chips), a sources strip, and — when
 // the run is paused — the permission/connect action card.
 
-import { Fragment, type ReactNode } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { CheckCircle2, ChevronDown, FileText, Loader2, XCircle } from "lucide-react";
+import {
+  Archive,
+  Calendar,
+  CalendarPlus,
+  CheckCircle2,
+  CheckSquare,
+  ChevronDown,
+  FileText,
+  Folder,
+  FolderPlus,
+  Loader2,
+  Mail,
+  Paperclip,
+  Search,
+  Send,
+  Sparkles,
+  Square,
+  Tag,
+  User,
+  Wrench,
+  XCircle,
+  type LucideIcon,
+} from "lucide-react";
 import type { Activity, Citation as CitationType, Message } from "@/lib/chat/types";
 import type { PermissionDecision } from "@/hooks/useChat";
 import { useMeetingTitles, type MeetingInfo } from "@/hooks/useMeetingTitles";
@@ -155,6 +177,35 @@ const FRIENDLY_TOOL: Record<string, string> = {
   GMAIL_GET_ATTACHMENT: "Fetched an attachment",
 };
 
+// A distinct icon per action so the activity list reads at a glance (instead of
+// the same tick on every line).
+const TOOL_ICON: Record<string, LucideIcon> = {
+  kb_search: Search,
+  list_spaces: Folder,
+  list_meetings: Calendar,
+  lookup_entity: User,
+  create_space: FolderPlus,
+  rename_space: Folder,
+  archive_space: Archive,
+  file_meeting: Folder,
+  add_tag: Tag,
+  remove_tag: Tag,
+  complete_action_item: CheckSquare,
+  reopen_action_item: Square,
+  GOOGLECALENDAR_EVENTS_LIST: Calendar,
+  GOOGLECALENDAR_CREATE_EVENT: CalendarPlus,
+  GOOGLECALENDAR_UPDATE_EVENT: Calendar,
+  GOOGLECALENDAR_FIND_FREE_SLOTS: Calendar,
+  GMAIL_FETCH_EMAILS: Mail,
+  GMAIL_SEND_EMAIL: Send,
+  GMAIL_CREATE_EMAIL_DRAFT: Mail,
+  GMAIL_GET_ATTACHMENT: Paperclip,
+};
+
+function toolIcon(name?: string): LucideIcon {
+  return (name && TOOL_ICON[name]) || Wrench;
+}
+
 function friendlyToolLabel(name?: string): string {
   if (!name) return "Worked on it";
   if (FRIENDLY_TOOL[name]) return FRIENDLY_TOOL[name];
@@ -171,22 +222,79 @@ function describeActivity(activity: Activity): string {
 }
 
 function ActivityLine({ activity }: { activity: Activity }) {
-  const StatusIcon =
-    activity.status === "started" ? Loader2 : activity.status === "error" ? XCircle : CheckCircle2;
+  // Spinner while running, red on error, otherwise the action's own icon.
+  const Icon =
+    activity.status === "started"
+      ? Loader2
+      : activity.status === "error"
+        ? XCircle
+        : activity.kind === "reasoning"
+          ? Sparkles
+          : toolIcon(activity.name);
 
   return (
     <div className="flex w-fit max-w-full items-center gap-1.5 px-1.5 py-1 text-[12.5px] text-muted-foreground">
-      <StatusIcon
+      <Icon
         className={cn(
           "h-3.5 w-3.5 shrink-0",
           activity.status === "started" && "animate-spin",
-          activity.status === "done" && "text-primary",
           activity.status === "error" && "text-destructive",
         )}
         aria-hidden
       />
       <span className="truncate">{describeActivity(activity)}</span>
     </div>
+  );
+}
+
+// A smoothly-animated disclosure (grid-rows 0fr↔1fr transition) — replaces
+// native <details>, which toggles instantly.
+function Collapsible({ summary, children }: { summary: ReactNode; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          "flex w-fit max-w-full cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1 text-left",
+          "text-[12.5px] text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground",
+        )}
+      >
+        {summary}
+        <ChevronDown
+          className={cn("h-3 w-3 shrink-0 transition-transform duration-200", open && "rotate-180")}
+          aria-hidden
+        />
+      </button>
+      <div
+        className={cn(
+          "grid transition-[grid-template-rows] duration-200 ease-out",
+          open ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+        )}
+      >
+        <div className="overflow-hidden">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+// The model's thinking (reasoning models only) as a collapsed Claude-style block.
+function ThinkingBlock({ thinking, streaming }: { thinking: string; streaming: boolean }) {
+  if (!thinking) return null;
+  return (
+    <Collapsible
+      summary={
+        <span className="flex items-center gap-1.5">
+          <Sparkles className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+          {streaming ? "Thinking…" : "Thought about it"}
+        </span>
+      }
+    >
+      <div className="ml-2 mt-0.5 whitespace-pre-wrap border-l border-border py-1 pl-3 text-[12.5px] leading-relaxed text-muted-foreground">
+        {thinking}
+      </div>
+    </Collapsible>
   );
 }
 
@@ -197,28 +305,24 @@ function ActivityGroup({ activities }: { activities: Activity[] }) {
   const running = activities.some((a) => a.status === "started");
   const n = activities.length;
   return (
-    <details className="group">
-      <summary
-        className={cn(
-          "flex w-fit max-w-full cursor-pointer list-none items-center gap-1.5 rounded-md px-1.5 py-1",
-          "text-[12.5px] text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground",
-          "[&::-webkit-details-marker]:hidden",
-        )}
-      >
-        {running ? (
-          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
-        ) : (
-          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
-        )}
-        <span>{running ? "Working…" : `Worked through ${n} action${n === 1 ? "" : "s"}`}</span>
-        <ChevronDown className="h-3 w-3 shrink-0 transition-transform group-open:rotate-180" aria-hidden />
-      </summary>
+    <Collapsible
+      summary={
+        <span className="flex items-center gap-1.5">
+          {running ? (
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+          ) : (
+            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
+          )}
+          {running ? "Working…" : `Worked through ${n} action${n === 1 ? "" : "s"}`}
+        </span>
+      }
+    >
       <div className="mt-0.5 flex flex-col gap-0.5 border-l border-border pl-2">
         {activities.map((a, i) => (
           <ActivityLine key={`${a.kind}-${a.name ?? i}`} activity={a} />
         ))}
       </div>
-    </details>
+    </Collapsible>
   );
 }
 
@@ -276,6 +380,7 @@ function AssistantTurn({
         <span className="text-[12.5px] font-semibold text-foreground">Steward</span>
       </div>
 
+      <ThinkingBlock thinking={message.thinking} streaming={streaming} />
       <ActivityGroup activities={activities} />
 
 
@@ -378,18 +483,21 @@ export function ChatMessages({
     <div className="flex flex-col gap-8 py-4">
       {messages.map((message, i) => {
         const isLast = i === messages.length - 1;
-        return message.role === "user" ? (
-          <UserTurn key={i} message={message} />
-        ) : (
-          <AssistantTurn
-            key={i}
-            message={message}
-            streaming={streaming && isLast}
-            titles={titles}
-            onDecide={onDecide}
-            onConnect={onConnect}
-            onSkip={onSkip}
-          />
+        return (
+          <div key={i} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+            {message.role === "user" ? (
+              <UserTurn message={message} />
+            ) : (
+              <AssistantTurn
+                message={message}
+                streaming={streaming && isLast}
+                titles={titles}
+                onDecide={onDecide}
+                onConnect={onConnect}
+                onSkip={onSkip}
+              />
+            )}
+          </div>
         );
       })}
     </div>

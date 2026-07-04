@@ -19,6 +19,11 @@ export type TokenEvent = {
   delta: string;
 };
 
+export type ThinkingEvent = {
+  type: "thinking";
+  delta: string;
+};
+
 export type ActivityKind = "tool" | "reasoning";
 export type ActivityStatus = "started" | "done" | "error";
 
@@ -47,6 +52,8 @@ export type DoneEvent = {
   type: "done";
   answer: string;
   citations: Citation[];
+  activities?: Activity[];
+  thinking?: string;
 };
 
 export type ErrorEvent = {
@@ -58,6 +65,7 @@ export type ErrorEvent = {
 export type ServerEvent =
   | ThreadEvent
   | TokenEvent
+  | ThinkingEvent
   | ActivityEvent
   | PermissionRequestEvent
   | ConnectRequiredEvent
@@ -74,6 +82,7 @@ export type Activity = {
 export type Message = {
   role: "user" | "assistant";
   text: string;
+  thinking: string;
   activities: Activity[];
   citations: Citation[];
   done: boolean;
