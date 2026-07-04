@@ -93,14 +93,15 @@ async def test_build_returns_generic_tools():
 
 
 async def test_list_integrations_reports_connected_status():
-    service = _FakeService([], connected=["gmail", "googlecalendar"])
+    # Only the ENABLED toolkits (gmail + googlecalendar) are reported.
+    service = _FakeService([], connected=["gmail"])
     tools = build_composio_tools(user_id="u1", composio_service=service)
     out = await tools[0].ainvoke({})
     status = {a["app"]: a["connected"] for a in out["apps"]}
-    assert status["gmail"] is True
-    assert status["googlecalendar"] is True
-    assert status["notion"] is False
-    assert status["slack"] is False
+    assert status == {"gmail": True, "googlecalendar": False}
+    # Not-ready apps are not offered at all.
+    assert "notion" not in status
+    assert "slack" not in status
 
 
 # --- describe_action (on-demand schemas) ----------------------------------

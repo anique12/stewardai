@@ -74,11 +74,16 @@ def _service_with_mock(
 
 
 class TestAllowList:
-    def test_all_four_toolkits_present(self):
+    def test_all_four_toolkits_defined(self):
         assert set(_ALLOW_LIST.keys()) == {"gmail", "googlecalendar", "notion", "slack"}
 
-    def test_toolkits_constant_matches_allow_list(self):
-        assert set(TOOLKITS) == set(_ALLOW_LIST.keys())
+    def test_enabled_toolkits_are_gmail_and_calendar(self):
+        # Only the apps that are BOTH live in the portal AND have chat actions.
+        assert set(TOOLKITS) == {"gmail", "googlecalendar"}
+
+    def test_enabled_toolkits_all_have_actions(self):
+        # Every enabled toolkit must have action definitions (TOOLKITS ⊆ _ALLOW_LIST).
+        assert set(TOOLKITS).issubset(set(_ALLOW_LIST.keys()))
 
     def test_each_toolkit_has_at_least_two_actions(self):
         for tk, actions in _ALLOW_LIST.items():
@@ -157,9 +162,9 @@ class TestRiskOf:
 
 class TestListConnected:
     def test_returns_only_connected_toolkits(self):
-        svc, mock_client = _service_with_mock(["gmail", "slack"])
+        svc, mock_client = _service_with_mock(["gmail", "googlecalendar"])
         result = svc.list_connected("user-123")
-        assert sorted(result) == ["gmail", "slack"]
+        assert sorted(result) == ["gmail", "googlecalendar"]
         mock_client.connected_accounts.list.assert_called_once_with(
             user_ids=["user-123"],
             statuses=["ACTIVE"],
@@ -189,10 +194,10 @@ class TestListConnected:
     def test_handles_toolkit_as_string_attribute(self):
         """Account with toolkit_slug attr instead of .toolkit.slug."""
         svc, mock_client = _service_with_mock([])
-        acct = SimpleNamespace(toolkit_slug="notion", toolkit=None)
+        acct = SimpleNamespace(toolkit_slug="googlecalendar", toolkit=None)
         mock_client.connected_accounts.list.return_value = SimpleNamespace(items=[acct])
         result = svc.list_connected("user-y")
-        assert result == ["notion"]
+        assert result == ["googlecalendar"]
 
 
 # ---------------------------------------------------------------------------
@@ -236,10 +241,10 @@ class TestGetTools:
         assert result == []
 
     def test_only_connected_false_exposes_unconnected_toolkits(self):
-        # Only gmail connected; notion is NOT. With only_connected=False the
-        # schema fetch still returns notion tools (Composio serves schemas
-        # without a live connection), so the agent can call one and trip the
-        # connect gate — the "tool available but not authorized → ask to
+        # gmail connected; googlecalendar (enabled) is NOT. With only_connected=
+        # False the schema fetch still returns calendar tools (Composio serves
+        # schemas without a live connection), so the agent can call one and trip
+        # the connect gate — the "tool available but not authorized → ask to
         # connect" contract.
         svc, mock_client = _service_with_mock(["gmail"])
         mock_client.tools.get.side_effect = lambda user_id, tools: [
@@ -247,19 +252,19 @@ class TestGetTools:
             for s in tools
         ]
         names = {t["function"]["name"] for t in svc.get_tools("user-1", only_connected=False)}
-        notion_slugs = {s for s, _ in _ALLOW_LIST["notion"]}
-        assert notion_slugs.issubset(names)
+        cal_slugs = {s for s, _ in _ALLOW_LIST["googlecalendar"]}
+        assert cal_slugs.issubset(names)
 
     def test_only_connected_true_is_the_default_and_still_filters(self):
-        # Default behavior unchanged: unconnected notion yields no tools.
+        # Default behavior unchanged: unconnected calendar yields no tools.
         svc, mock_client = _service_with_mock(["gmail"])
         mock_client.tools.get.side_effect = lambda user_id, tools: [
             {"type": "function", "function": {"name": s, "description": "t", "parameters": {}}}
             for s in tools
         ]
         names = {t["function"]["name"] for t in svc.get_tools("user-1")}
-        notion_slugs = {s for s, _ in _ALLOW_LIST["notion"]}
-        assert not notion_slugs.intersection(names)
+        cal_slugs = {s for s, _ in _ALLOW_LIST["googlecalendar"]}
+        assert not cal_slugs.intersection(names)
 
     def test_schema_has_expected_openai_shape(self):
         svc, mock_client = _service_with_mock(["gmail"])

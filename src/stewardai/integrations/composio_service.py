@@ -5,7 +5,9 @@ discovering, fetching, and executing third-party app actions on behalf of a
 user.  Only actions on the explicit allow-list below are ever exposed to the
 agent; everything else is silently excluded.
 
-Toolkit slugs supported: gmail, googlecalendar, notion, slack.
+Toolkit slugs: gmail, googlecalendar are ENABLED (offered by the chat); notion,
+slack have action definitions but are gated off (see TOOLKITS) until the portal
+marks them connectable.
 
 Action risk levels
 ------------------
@@ -38,7 +40,16 @@ from stewardai.config import get_settings
 # Supported toolkits
 # ---------------------------------------------------------------------------
 
-TOOLKITS: list[str] = ["gmail", "googlecalendar", "notion", "slack"]
+# ENABLED toolkits the chat actually offers + can connect. Kept in sync with the
+# portal's live/connectable set (portal catalog + SUPPORTED_TOOLKITS): only apps
+# that are BOTH live in the portal AND have actions defined below. notion/slack
+# have action definitions in _ALLOW_LIST but are gated OFF here (portal marks
+# them "coming soon" — not connectable yet), so the chat never offers an app it
+# can't actually connect. Re-add them here once the portal enables them.
+TOOLKITS: list[str] = ["gmail", "googlecalendar"]
+
+# All toolkits we have action definitions for (enabled or not) — the superset.
+_DEFINED_TOOLKITS: list[str] = ["gmail", "googlecalendar", "notion", "slack"]
 
 # ---------------------------------------------------------------------------
 # Allow-list: pinned action slugs discovered from the Composio SDK / API.

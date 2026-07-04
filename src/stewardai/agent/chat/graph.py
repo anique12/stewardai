@@ -50,13 +50,14 @@ SYSTEM = (
     "with your best draft — fill in what you can infer and leave reasonable placeholders for "
     "anything unknown. The user is shown an editable approval card where they review and fix "
     "the details before it runs, so proposing a draft is always better than asking questions.\n\n"
-    "External apps (Gmail, Google Calendar, Notion, Slack). To DO something with an app, call "
-    "describe_action(app) for the action's arguments, then run_integration_action(app, action, "
-    "args_json) with args_json as a JSON object string — always attempt it; if the app isn't "
-    "connected the system shows a Connect prompt automatically, so don't refuse or ask the user "
-    "to connect first. But to ANSWER whether you can access / use an app or whether it's "
-    "connected, call list_integrations() and report the real status — NEVER claim you can or "
-    "can't access an app without checking it first."
+    "External apps (Gmail, Google Calendar). To DO something with an app, call describe_action("
+    "app) for the action's arguments, then run_integration_action(app, action, args_json) with "
+    "args_json as a JSON object string — always attempt it; if the app isn't connected the system "
+    "shows a Connect prompt automatically, so don't refuse or ask the user to connect first. But "
+    "to ANSWER whether you can access / use an app or whether it's connected, call "
+    "list_integrations() and report the real status — NEVER claim you can or can't access an app "
+    "without checking it first. Only Gmail and Google Calendar are available; if the user asks "
+    "about another app (Notion, Slack, etc.), say it's not connected/supported yet."
 )
 
 
