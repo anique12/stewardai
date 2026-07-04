@@ -152,6 +152,60 @@ def _trim_result(result: Any) -> dict:
     return out
 
 
+def _fmt_event_dt(d: Any) -> str:
+    """Format a Google Calendar start/end ({dateTime}|{date}) as a readable time,
+    preserving the event's own offset (its wall-clock local time)."""
+    if not isinstance(d, dict):
+        return str(d) if d else ""
+    dt = d.get("dateTime")
+    if dt:
+        try:
+            from datetime import datetime
+
+            return datetime.fromisoformat(dt).strftime("%a %b %d, %I:%M %p")
+        except Exception:  # noqa: BLE001 - unparseable → show as-is
+            return str(dt)
+    return str(d.get("date") or "")
+
+
+def _find_items(node: Any) -> list | None:
+    """Locate the Google 'items' event array anywhere in the result payload."""
+    if isinstance(node, dict):
+        items = node.get("items")
+        if isinstance(items, list):
+            return items
+        for v in node.values():
+            found = _find_items(v)
+            if found is not None:
+                return found
+    return None
+
+
+def _format_calendar_events(slug: str, result: Any) -> dict | None:
+    """For GOOGLECALENDAR_EVENTS_LIST, return a compact, pre-formatted event list
+    so the model repeats accurate times instead of parsing/converting raw ISO
+    (which it does unreliably — it hallucinated wrong times from the raw JSON).
+    Returns None for other actions / unrecognized shapes (caller falls back)."""
+    if slug != "GOOGLECALENDAR_EVENTS_LIST" or not isinstance(result, dict):
+        return None
+    items = _find_items(result.get("data"))
+    if items is None:
+        return None
+    events = []
+    for e in items:
+        if not isinstance(e, dict):
+            continue
+        ev = {
+            "summary": e.get("summary") or "(no title)",
+            "start": _fmt_event_dt(e.get("start")),
+            "end": _fmt_event_dt(e.get("end")),
+        }
+        if e.get("location"):
+            ev["location"] = e["location"]
+        events.append(ev)
+    return {"events": events}
+
+
 def build_composio_tools(*, user_id: str, composio_service: Any, client: Any = None) -> list:
     """Build one gated LangChain tool per the user's allow-listed, connected
     Composio action.
@@ -269,7 +323,10 @@ async def _execute_with_connect_gate(
             if exc is not None:
                 _log.warning("composio_tool_exec_failed", slug=slug, error=str(exc))
                 return {"ok": False, "error": str(exc)}
-            return _trim_result(result)
+            # Pre-format calendar lists into accurate, readable times; otherwise
+            # trim the raw payload so a large blob doesn't blow up the context.
+            formatted = _format_calendar_events(slug, result)
+            return formatted if formatted is not None else _trim_result(result)
 
         decision = interrupt({"kind": "connect", "app": app, "tool": slug})
         if decision == "retry" and attempt < _MAX_ATTEMPTS - 1:

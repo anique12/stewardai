@@ -249,3 +249,31 @@ async def test_unrelated_execute_error_is_not_treated_as_connect_required(monkey
 
     assert result == {"ok": False, "error": "bad argument: recipient missing"}
     assert len(service.execute_calls) == 1
+
+
+def test_format_calendar_events_extracts_readable_times():
+    from stewardai.agent.chat.composio_tools import _format_calendar_events
+
+    result = {
+        "data": {
+            "items": [
+                {
+                    "summary": "Stand Up",
+                    "start": {"dateTime": "2026-07-04T11:15:00+05:00", "timeZone": "Asia/Karachi"},
+                    "end": {"dateTime": "2026-07-04T11:35:00+05:00", "timeZone": "Asia/Karachi"},
+                }
+            ]
+        }
+    }
+    out = _format_calendar_events("GOOGLECALENDAR_EVENTS_LIST", result)
+    assert out is not None
+    ev = out["events"][0]
+    assert ev["summary"] == "Stand Up"
+    assert "11:15 AM" in ev["start"]
+    assert "11:35 AM" in ev["end"]
+
+
+def test_format_calendar_events_returns_none_for_other_actions():
+    from stewardai.agent.chat.composio_tools import _format_calendar_events
+
+    assert _format_calendar_events("GMAIL_SEND_EMAIL", {"data": {}}) is None
