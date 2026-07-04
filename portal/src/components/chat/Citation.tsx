@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import type { Citation as CitationType } from "@/lib/chat/types";
 import { cn } from "@/lib/utils";
 
-export function Citation({ citation }: { citation: CitationType }) {
+export function Citation({ citation, label }: { citation: CitationType; label?: number }) {
   const router = useRouter();
 
   return (
@@ -21,7 +21,7 @@ export function Citation({ citation }: { citation: CitationType }) {
         "tabular-nums text-primary outline-none transition-colors hover:bg-primary/25 focus-visible:bg-primary/25",
       )}
     >
-      {citation.n}
+      {label ?? citation.n}
       <span
         className={cn(
           "pointer-events-none invisible absolute bottom-[calc(100%+9px)] left-1/2 z-30 w-[270px] -translate-x-1/2",

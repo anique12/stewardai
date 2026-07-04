@@ -41,9 +41,14 @@ import { cn } from "@/lib/utils";
 // Lightweight markdown → React for the streamed answer: paragraphs, bullet lists,
 // **bold**, and inline [n]/[1, 6] citation chips. (Full markdown lib is overkill
 // for what the model emits here.)
+// Resolver from a raw per-chunk citation number to its meeting's single display
+// number + a representative citation. Lets many chunks of one meeting collapse
+// to a single inline marker (and one Sources entry) — see AssistantTurn.
+type CiteResolver = Map<number, { num: number; citation: CitationType }>;
+
 function renderInline(
   text: string,
-  citationsByN: Map<number, CitationType>,
+  cite: CiteResolver,
   keyBase: string,
 ): ReactNode[] {
   const nodes: ReactNode[] = [];
@@ -67,17 +72,27 @@ function renderInline(
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     if (m.index > last) pushText(text.slice(last, m.index));
-    const ns = m[1]
+    const entries = m[1]
       .split(",")
       .map((s) => Number(s.trim()))
-      .filter((n) => Number.isInteger(n) && citationsByN.has(n));
-    if (ns.length === 0) {
+      .filter((n) => Number.isInteger(n) && cite.has(n))
+      .map((n) => cite.get(n)!);
+    // Collapse to one chip per distinct meeting (many chunks → one marker).
+    const seen = new Set<number>();
+    const distinct: Array<{ num: number; citation: CitationType }> = [];
+    for (const e of entries) {
+      if (!seen.has(e.num)) {
+        seen.add(e.num);
+        distinct.push(e);
+      }
+    }
+    if (distinct.length === 0) {
       pushText(m[0]);
     } else {
       nodes.push(
         <span key={`${keyBase}-c${idx++}`} className="inline-flex items-center gap-0.5 align-[2px]">
-          {ns.map((n) => (
-            <Citation key={n} citation={citationsByN.get(n)!} />
+          {distinct.map((e) => (
+            <Citation key={e.num} citation={e.citation} label={e.num} />
           ))}
         </span>,
       );
@@ -90,10 +105,10 @@ function renderInline(
 
 function AnswerContent({
   text,
-  citationsByN,
+  cite,
 }: {
   text: string;
-  citationsByN: Map<number, CitationType>;
+  cite: CiteResolver;
 }) {
   const blocks: ReactNode[] = [];
   let para: string[] = [];
@@ -104,7 +119,7 @@ function AnswerContent({
       const k = key++;
       blocks.push(
         <p key={`p${k}`} className="mb-3 last:mb-0">
-          {renderInline(para.join(" "), citationsByN, `p${k}`)}
+          {renderInline(para.join(" "), cite, `p${k}`)}
         </p>,
       );
       para = [];
@@ -119,7 +134,7 @@ function AnswerContent({
           {items.map((it, i) => (
             <li key={i} className="flex gap-2">
               <span className="mt-[9px] h-1 w-1 shrink-0 rounded-full bg-muted-foreground/60" aria-hidden />
-              <span className="min-w-0">{renderInline(it, citationsByN, `u${k}-${i}`)}</span>
+              <span className="min-w-0">{renderInline(it, cite, `u${k}-${i}`)}</span>
             </li>
           ))}
         </ul>,
@@ -339,17 +354,29 @@ function ActivityGroup({ activities }: { activities: Activity[] }) {
   );
 }
 
-function groupCitationsByMeeting(citations: CitationType[]): Array<{ meetingId: string; ns: number[] }> {
-  const order: string[] = [];
-  const byMeeting = new Map<string, number[]>();
+// Collapse citations to ONE number per meeting (Claude/Perplexity-style):
+// every chunk of a meeting shares the meeting's display number, so the answer
+// reads [1] for that source throughout instead of [1][2][3], and Sources shows
+// one entry per meeting. Returns the inline resolver (raw chunk n → {num,
+// citation}) and the ordered source list (one per meeting, first-cited first).
+function collapseCitations(citations: CitationType[]): {
+  cite: CiteResolver;
+  sources: Array<{ meetingId: string; num: number }>;
+} {
+  const meetingNumber = new Map<string, number>();
+  const sources: Array<{ meetingId: string; num: number }> = [];
   for (const c of citations) {
-    if (!byMeeting.has(c.meeting_id)) {
-      order.push(c.meeting_id);
-      byMeeting.set(c.meeting_id, []);
+    if (!meetingNumber.has(c.meeting_id)) {
+      const num = sources.length + 1;
+      meetingNumber.set(c.meeting_id, num);
+      sources.push({ meetingId: c.meeting_id, num });
     }
-    byMeeting.get(c.meeting_id)!.push(c.n);
   }
-  return order.map((meetingId) => ({ meetingId, ns: byMeeting.get(meetingId)! }));
+  const cite: CiteResolver = new Map();
+  for (const c of citations) {
+    cite.set(c.n, { num: meetingNumber.get(c.meeting_id)!, citation: c });
+  }
+  return { cite, sources };
 }
 
 function UserTurn({ message }: { message: Message }) {
@@ -377,8 +404,7 @@ function AssistantTurn({
   onConnect: () => void;
   onSkip: () => void;
 }) {
-  const citationsByN = new Map(message.citations.map((c) => [c.n, c]));
-  const sources = groupCitationsByMeeting(message.citations);
+  const { cite, sources } = collapseCitations(message.citations);
   // Show EVERY action Steward takes (like the artifact) — including "Searched
   // your knowledge base". We only hide the *inner* detail (query/params), not
   // the action line itself.
@@ -407,7 +433,7 @@ function AssistantTurn({
 
 
 
-      {message.text.length > 0 && <AnswerContent text={message.text} citationsByN={citationsByN} />}
+      {message.text.length > 0 && <AnswerContent text={message.text} cite={cite} />}
 
       {message.pending === "permission" && message.permission && (
         <PermissionCard permission={message.permission} onDecide={onDecide} />
@@ -446,7 +472,7 @@ function AssistantTurn({
                     {date && <span className="text-[11px] text-muted-foreground">{date}</span>}
                   </span>
                   <span className="ml-1 shrink-0 rounded bg-primary/15 px-1.5 py-0.5 text-[10.5px] font-semibold tabular-nums text-primary">
-                    {s.ns.join(" · ")}
+                    {s.num}
                   </span>
                 </Link>
               );
