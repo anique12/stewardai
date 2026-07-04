@@ -29,15 +29,19 @@ class _FakeService:
     """Stand-in for ComposioService: get_tools() returns pinned schemas,
     execute() is scripted per-test."""
 
-    def __init__(self, schemas, execute_fn=None):
+    def __init__(self, schemas, execute_fn=None, connected=None):
         self._schemas = schemas
         self._execute_fn = execute_fn
+        self._connected = connected or []
         self.execute_calls: list[tuple] = []
         self.get_tools_calls: list[dict] = []
 
     def get_tools(self, user_id, toolkits=None, *, only_connected=True):
         self.get_tools_calls.append({"toolkits": toolkits, "only_connected": only_connected})
         return self._schemas
+
+    def list_connected(self, user_id):
+        return self._connected
 
     def execute(self, user_id, action_slug, arguments, **kwargs):
         self.execute_calls.append((user_id, action_slug, arguments))
@@ -61,11 +65,11 @@ async def _auto(*_a, **_k):
 
 
 def _describe_tool(service, client=None):
-    return build_composio_tools(user_id="u1", composio_service=service, client=client)[0]
+    return build_composio_tools(user_id="u1", composio_service=service, client=client)[1]
 
 
 def _run_tool(service, client=None):
-    return build_composio_tools(user_id="u1", composio_service=service, client=client)[1]
+    return build_composio_tools(user_id="u1", composio_service=service, client=client)[2]
 
 
 def _run_input(action, args, app="gmail"):
@@ -79,9 +83,24 @@ async def test_build_returns_empty_when_service_none():
     assert build_composio_tools(user_id="u1", composio_service=None) == []
 
 
-async def test_build_returns_two_generic_tools():
+async def test_build_returns_generic_tools():
     tools = build_composio_tools(user_id="u1", composio_service=_FakeService([]))
-    assert [t.name for t in tools] == ["describe_action", "run_integration_action"]
+    assert [t.name for t in tools] == [
+        "list_integrations",
+        "describe_action",
+        "run_integration_action",
+    ]
+
+
+async def test_list_integrations_reports_connected_status():
+    service = _FakeService([], connected=["gmail", "googlecalendar"])
+    tools = build_composio_tools(user_id="u1", composio_service=service)
+    out = await tools[0].ainvoke({})
+    status = {a["app"]: a["connected"] for a in out["apps"]}
+    assert status["gmail"] is True
+    assert status["googlecalendar"] is True
+    assert status["notion"] is False
+    assert status["slack"] is False
 
 
 # --- describe_action (on-demand schemas) ----------------------------------

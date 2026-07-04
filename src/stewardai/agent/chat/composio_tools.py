@@ -258,6 +258,7 @@ def build_composio_tools(*, user_id: str, composio_service: Any, client: Any = N
     if composio_service is None:
         return []
     tools = [
+        _make_list_integrations_tool(user_id=user_id, composio_service=composio_service),
         _make_describe_tool(user_id=user_id, composio_service=composio_service),
         _make_run_tool(user_id=user_id, composio_service=composio_service, client=client),
     ]
@@ -266,6 +267,32 @@ def build_composio_tools(*, user_id: str, composio_service: Any, client: Any = N
 
 
 _APP_ENUM = list(TOOLKITS)
+
+
+def _make_list_integrations_tool(*, user_id: str, composio_service: Any) -> Any:
+    async def _list_integrations() -> dict:
+        # Report REAL connection status so the model answers access/availability
+        # questions truthfully instead of assuming it can (or can't) use an app.
+        try:
+            connected = set(composio_service.list_connected(user_id))
+        except Exception as exc:  # noqa: BLE001 - status unknown → say so, don't guess
+            _log.warning("composio_list_connected_failed", error=str(exc))
+            return {
+                "apps": [{"app": a, "connected": None} for a in TOOLKITS],
+                "note": "couldn't verify connection status right now",
+            }
+        return {"apps": [{"app": a, "connected": a in connected} for a in TOOLKITS]}
+
+    return StructuredTool.from_function(
+        coroutine=_list_integrations,
+        name="list_integrations",
+        description=(
+            "List the external apps (Gmail, Google Calendar, Notion, Slack) and whether each is "
+            "connected for this user. Call this to answer whether you can access or use an app — "
+            "never assume."
+        ),
+        args_schema=None,
+    )
 
 
 def _make_describe_tool(*, user_id: str, composio_service: Any) -> Any:

@@ -191,6 +191,7 @@ const FRIENDLY_TOOL: Record<string, string> = {
   GMAIL_SEND_EMAIL: "Sent an email",
   GMAIL_CREATE_EMAIL_DRAFT: "Drafted an email",
   GMAIL_GET_ATTACHMENT: "Fetched an attachment",
+  list_integrations: "Checked connected apps",
   describe_action: "Checked available actions",
   run_integration_action: "Used an integration",
 };
@@ -218,8 +219,9 @@ const TOOL_ICON: Record<string, LucideIcon> = {
   GMAIL_SEND_EMAIL: Send,
   GMAIL_CREATE_EMAIL_DRAFT: Mail,
   GMAIL_GET_ATTACHMENT: Paperclip,
+  list_integrations: Blocks,
   describe_action: Search,
-  run_integration_action: Blocks,
+  run_integration_action: Wrench,
 };
 
 function toolIcon(name?: string): LucideIcon {
