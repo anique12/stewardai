@@ -210,3 +210,29 @@ async def test_session_reused_across_two_stream_turn_calls_same_thread(monkeypat
     assert len(fake_agent.astream_calls) == 2
     for _inp, config, _mode in fake_agent.astream_calls:
         assert config == {"configurable": {"thread_id": "thread-1"}}
+
+
+async def test_stream_turn_runs_inside_chat_usage_scope(monkeypatch):
+    """The turn must execute inside a usage_scope(feature="chat", ...) so the
+    litellm callback can attribute every model call to this user/thread/request."""
+    from stewardai.observability.usage_context import current_usage
+
+    captured: dict = {}
+
+    class _CapAgent(_FakeAgent):
+        async def astream(self, inp, config, stream_mode=None):
+            captured.update(current_usage())
+            for mode, chunk in self._events:
+                yield mode, chunk
+
+    events = [("messages", (AIMessage(content="Hi"), {"langgraph_node": "agent"}))]
+    agent = _CapAgent(events, final_content="Hi")
+    monkeypatch.setattr(graph_module, "build_chat_agent", lambda llm, tools, **kw: agent)
+    session = _make_session()
+
+    await _collect(session.stream_turn("hello", []))
+
+    assert captured.get("feature") == "chat"
+    assert captured.get("user_id") == "u1"
+    assert captured.get("thread_id") == "thread-1"
+    assert captured.get("request_id")  # a uuid was assigned for this turn

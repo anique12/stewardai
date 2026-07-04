@@ -198,7 +198,10 @@ def install_usage_logger(client_factory: Any) -> Any:
 async def _get_client() -> Any:
     global _client
     if _client is None and _client_factory is not None:
-        _client = await _client_factory()
+        import inspect
+
+        res = _client_factory()
+        _client = await res if inspect.isawaitable(res) else res
     return _client
 
 

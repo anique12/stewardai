@@ -35,6 +35,7 @@ looks it up dynamically (``chat_graph.build_chat_agent``), not to a
 from __future__ import annotations
 
 import time
+import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC
 from typing import Any
@@ -47,6 +48,7 @@ from stewardai.agent.chat.events import map_stream_event
 from stewardai.agent.chat.models import make_chat_llm
 from stewardai.agent.chat.tools import build_read_tools
 from stewardai.common.logging import get_logger
+from stewardai.observability.usage_context import usage_scope
 
 _log = get_logger("agent.chat.session")
 
@@ -112,11 +114,20 @@ class ChatSession:
         :meth:`resume` with the human's decision to continue this turn).
         """
         messages = [*history, {"role": "user", "content": message}]
-        stream = self._agent.astream(
-            {"messages": messages}, self._config, stream_mode=["updates", "messages"]
-        )
-        async for event in self._drive(stream):
-            yield event
+        # One request_id per turn groups all its LLM calls in usage_logs; resume
+        # reuses it so a permission/connect round-trip stays one logical request.
+        self._request_id = str(uuid.uuid4())
+        with usage_scope(
+            feature="chat",
+            user_id=self.user_id,
+            thread_id=self.thread_id,
+            request_id=self._request_id,
+        ):
+            stream = self._agent.astream(
+                {"messages": messages}, self._config, stream_mode=["updates", "messages"]
+            )
+            async for event in self._drive(stream):
+                yield event
 
     async def resume(self, decision: Any) -> AsyncIterator[dict]:
         """Continue a turn that a prior ``stream_turn``/``resume`` call left
@@ -126,11 +137,17 @@ class ChatSession:
         another interrupt and end in ``permission_request``/
         ``connect_required`` again.
         """
-        stream = self._agent.astream(
-            Command(resume=decision), self._config, stream_mode=["updates", "messages"]
-        )
-        async for event in self._drive(stream):
-            yield event
+        with usage_scope(
+            feature="chat",
+            user_id=self.user_id,
+            thread_id=self.thread_id,
+            request_id=getattr(self, "_request_id", None) or str(uuid.uuid4()),
+        ):
+            stream = self._agent.astream(
+                Command(resume=decision), self._config, stream_mode=["updates", "messages"]
+            )
+            async for event in self._drive(stream):
+                yield event
 
     async def _drive(self, stream: AsyncIterator[tuple[str, Any]]) -> AsyncIterator[dict]:
         """Shared event loop for ``stream_turn``/``resume``: map every chunk

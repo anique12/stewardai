@@ -112,6 +112,14 @@ async def lifespan(app: FastAPI):
         app.state.supabase = await create_service_client(settings)
     except Exception as exc:  # noqa: BLE001 - Ask is optional; don't block startup
         log.warning("supabase_client_unavailable", error=str(exc))
+    # Register the global litellm usage/cost callback once, reusing the service
+    # client. Best-effort: if the client is unavailable, rows just aren't written.
+    try:
+        from stewardai.observability.usage_logger import install_usage_logger
+
+        install_usage_logger(lambda: app.state.supabase)
+    except Exception as exc:  # noqa: BLE001 - logging must never block startup
+        log.warning("usage_logger_install_failed", error=str(exc))
     # Composio (Gmail/Calendar/Notion/Slack chat tools) is optional: only built
     # when COMPOSIO_API_KEY is set, and never allowed to block startup. Same
     # guarded-construction pattern as meeting_runner.run_multiplexer.
