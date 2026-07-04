@@ -125,13 +125,13 @@ async def test_yields_token_events_then_terminal_done(monkeypatch):
     assert len(token_events) >= 1
     assert "".join(e["delta"] for e in token_events) == "The answer is 42."
 
-    assert out[-1] == {
-        "type": "done",
-        "answer": "final answer",
-        "citations": [
-            {"n": 1, "meeting_id": "m1", "source_seq": 3, "kind": "fact", "text": "ship July 17"}
-        ],
-    }
+    done = out[-1]
+    assert done["type"] == "done"
+    assert done["answer"] == "final answer"
+    assert done["citations"] == [
+        {"n": 1, "meeting_id": "m1", "source_seq": 3, "kind": "fact", "text": "ship July 17"}
+    ]
+    assert isinstance(done["activities"], list)
 
     # ToolMessage content must never leak as a "token" event.
     assert not any("July 17" in e.get("delta", "") for e in token_events)
@@ -283,4 +283,4 @@ async def test_no_tool_calls_yields_no_citations(monkeypatch):
 
     out = await _collect()
 
-    assert out[-1] == {"type": "done", "answer": "Hi there.", "citations": []}
+    assert out[-1] == {"type": "done", "answer": "Hi there.", "citations": [], "activities": []}

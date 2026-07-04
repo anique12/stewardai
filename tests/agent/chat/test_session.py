@@ -125,7 +125,7 @@ async def test_resume_yields_token_then_done(monkeypatch):
 
     assert out == [
         {"type": "token", "delta": "Done."},
-        {"type": "done", "answer": "Done.", "citations": []},
+        {"type": "done", "answer": "Done.", "citations": [], "activities": []},
     ]
 
     # resume() re-astreams on the SAME thread with a Command(resume=...) input.
@@ -175,7 +175,7 @@ async def test_clean_stream_turn_without_interrupt_ends_in_done(monkeypatch):
 
     assert out == [
         {"type": "token", "delta": "Hi there."},
-        {"type": "done", "answer": "Hi there.", "citations": []},
+        {"type": "done", "answer": "Hi there.", "citations": [], "activities": []},
     ]
 
 

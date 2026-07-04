@@ -7,7 +7,7 @@
 
 import { Fragment, type ReactNode } from "react";
 import Link from "next/link";
-import { CheckCircle2, FileText, Loader2, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronDown, FileText, Loader2, XCircle } from "lucide-react";
 import type { Activity, Citation as CitationType, Message } from "@/lib/chat/types";
 import type { PermissionDecision } from "@/hooks/useChat";
 import { useMeetingTitles, type MeetingInfo } from "@/hooks/useMeetingTitles";
@@ -190,6 +190,46 @@ function ActivityLine({ activity }: { activity: Activity }) {
   );
 }
 
+// Render activity lines, grouping into a single collapsible line when there are
+// many so a busy turn stays compact.
+function ActivityGroup({ activities }: { activities: Activity[] }) {
+  if (activities.length === 0) return null;
+  if (activities.length <= 3) {
+    return (
+      <div className="flex flex-col gap-0.5">
+        {activities.map((a, i) => (
+          <ActivityLine key={`${a.kind}-${a.name ?? i}`} activity={a} />
+        ))}
+      </div>
+    );
+  }
+  const allDone = activities.every((a) => a.status !== "started");
+  return (
+    <details className="group">
+      <summary
+        className={cn(
+          "flex w-fit max-w-full cursor-pointer list-none items-center gap-1.5 rounded-md px-1.5 py-1",
+          "text-[12.5px] text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground",
+          "[&::-webkit-details-marker]:hidden",
+        )}
+      >
+        {allDone ? (
+          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
+        ) : (
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+        )}
+        <span>Worked through {activities.length} steps</span>
+        <ChevronDown className="h-3 w-3 shrink-0 transition-transform group-open:rotate-180" aria-hidden />
+      </summary>
+      <div className="mt-0.5 flex flex-col gap-0.5">
+        {activities.map((a, i) => (
+          <ActivityLine key={`${a.kind}-${a.name ?? i}`} activity={a} />
+        ))}
+      </div>
+    </details>
+  );
+}
+
 function groupCitationsByMeeting(citations: CitationType[]): Array<{ meetingId: string; ns: number[] }> {
   const order: string[] = [];
   const byMeeting = new Map<string, number[]>();
@@ -230,6 +270,11 @@ function AssistantTurn({
 }) {
   const citationsByN = new Map(message.citations.map((c) => [c.n, c]));
   const sources = groupCitationsByMeeting(message.citations);
+  // Hide the KB-search read line when a Sources strip is shown (redundant); keep
+  // all other activity (calendar reads, writes, sends).
+  const activities = message.activities.filter(
+    (a) => !(sources.length > 0 && a.kind === "tool" && a.name === "kb_search"),
+  );
 
   return (
     <div className="flex flex-col gap-3">
@@ -240,13 +285,9 @@ function AssistantTurn({
         <span className="text-[12.5px] font-semibold text-foreground">Steward</span>
       </div>
 
-      {message.activities.length > 0 && (
-        <div className="flex flex-col gap-0.5">
-          {message.activities.map((activity, i) => (
-            <ActivityLine key={`${activity.kind}-${activity.name ?? i}`} activity={activity} />
-          ))}
-        </div>
-      )}
+      <ActivityGroup activities={activities} />
+
+
 
       {message.text.length > 0 && <AnswerContent text={message.text} citationsByN={citationsByN} />}
 

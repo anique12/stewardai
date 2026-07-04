@@ -491,6 +491,7 @@ async def ws_chat(ws: WebSocket) -> None:
                     parts=[
                         {"type": "text", "text": ev.get("answer", "")},
                         {"type": "citation_group", "citations": ev.get("citations", [])},
+                        {"type": "activity_group", "activities": ev.get("activities", [])},
                     ],
                 )
         return None

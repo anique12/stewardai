@@ -1,9 +1,9 @@
 import { requireUserRoute } from "@/lib/auth-helpers";
 import { createServiceClient } from "@/lib/supabase/service";
 import { NextRequest, NextResponse } from "next/server";
-import type { Citation, Message } from "@/lib/chat/types";
+import type { Activity, Citation, Message } from "@/lib/chat/types";
 
-type StoredPart = { type?: string; text?: string; citations?: Citation[] };
+type StoredPart = { type?: string; text?: string; citations?: Citation[]; activities?: Activity[] };
 
 // Rebuild a display Message from a stored chat_messages row's `parts` jsonb.
 // (Activity lines are ephemeral turn-progress and aren't persisted — restored
@@ -12,14 +12,16 @@ function rowToMessage(row: { role: string; parts: unknown }): Message {
   const parts: StoredPart[] = Array.isArray(row.parts) ? (row.parts as StoredPart[]) : [];
   let text = "";
   let citations: Citation[] = [];
+  let activities: Activity[] = [];
   for (const p of parts) {
     if (p?.type === "text" && typeof p.text === "string") text += p.text;
     else if (p?.type === "citation_group" && Array.isArray(p.citations)) citations = p.citations;
+    else if (p?.type === "activity_group" && Array.isArray(p.activities)) activities = p.activities;
   }
   return {
     role: row.role === "user" ? "user" : "assistant",
     text,
-    activities: [],
+    activities,
     citations,
     done: true,
   };

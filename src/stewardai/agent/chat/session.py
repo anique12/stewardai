@@ -142,6 +142,7 @@ class ChatSession:
         citations: list[dict] = []
         seen_citations: dict[tuple, int] = {}
         accumulated = ""
+        activities: dict[tuple, dict] = {}  # (kind, name) -> latest {kind,name,status}
         try:
             async for mode, chunk in stream:
                 if mode == "updates" and isinstance(chunk, dict) and "__interrupt__" in chunk:
@@ -153,6 +154,12 @@ class ChatSession:
                 for event in map_stream_event(mode, chunk):
                     if event.get("type") == "token":
                         accumulated += event.get("delta", "")
+                    elif event.get("type") == "activity":
+                        activities[(event.get("kind"), event.get("name"))] = {
+                            "kind": event.get("kind"),
+                            "name": event.get("name"),
+                            "status": event.get("status"),
+                        }
                     yield event
         except GraphBubbleUp:
             # interrupt()/subgraph control-flow signals MUST propagate to LangGraph
@@ -179,7 +186,12 @@ class ChatSession:
             _log.warning("chat_empty_answer", thread_id=self.thread_id)
             answer = "I wasn't able to generate a response — could you rephrase or try again?"
 
-        yield {"type": "done", "answer": answer, "citations": citations}
+        yield {
+            "type": "done",
+            "answer": answer,
+            "citations": citations,
+            "activities": list(activities.values()),
+        }
 
     def _interrupt_event(self, chunk: dict) -> dict | None:
         """Build the one client event for a ``__interrupt__`` update.
