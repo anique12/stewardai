@@ -555,6 +555,7 @@ async def ws_chat(ws: WebSocket) -> None:
                     session = ChatSession(
                         app.state.supabase, app.state.llm,
                         user_id=user_id, thread_id=thread_id, tools=tools,
+                        tz=msg.get("tz"),
                     )
                     sessions[thread_id] = session
 

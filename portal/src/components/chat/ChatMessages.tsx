@@ -130,11 +130,44 @@ function formatDate(iso: string | null): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+// Human-readable labels for tool activity — non-technical readers shouldn't see
+// raw slugs like GOOGLECALENDAR_EVENTS_LIST.
+const FRIENDLY_TOOL: Record<string, string> = {
+  kb_search: "Searched your knowledge base",
+  list_spaces: "Looked through your spaces",
+  list_meetings: "Looked through your meetings",
+  lookup_entity: "Looked up a contact",
+  create_space: "Created a space",
+  rename_space: "Renamed a space",
+  archive_space: "Archived a space",
+  file_meeting: "Filed a meeting",
+  add_tag: "Added a tag",
+  remove_tag: "Removed a tag",
+  complete_action_item: "Completed an action item",
+  reopen_action_item: "Reopened an action item",
+  GOOGLECALENDAR_EVENTS_LIST: "Checked your calendar",
+  GOOGLECALENDAR_CREATE_EVENT: "Created a calendar event",
+  GOOGLECALENDAR_UPDATE_EVENT: "Updated a calendar event",
+  GOOGLECALENDAR_FIND_FREE_SLOTS: "Found open time slots",
+  GMAIL_FETCH_EMAILS: "Read your emails",
+  GMAIL_SEND_EMAIL: "Sent an email",
+  GMAIL_CREATE_EMAIL_DRAFT: "Drafted an email",
+  GMAIL_GET_ATTACHMENT: "Fetched an attachment",
+};
+
+function friendlyToolLabel(name?: string): string {
+  if (!name) return "Worked on it";
+  if (FRIENDLY_TOOL[name]) return FRIENDLY_TOOL[name];
+  // Composio fallback: APP_VERB_NOUN → "verb noun (App)".
+  const [app, ...rest] = name.split("_");
+  const appName = app ? app.charAt(0) + app.slice(1).toLowerCase() : "";
+  const phrase = rest.join(" ").toLowerCase();
+  return phrase ? `${phrase} (${appName})` : name;
+}
+
 function describeActivity(activity: Activity): string {
-  if (activity.kind === "reasoning") return "Reasoned";
-  const name = activity.name ?? "a tool";
-  if (name === "kb_search") return "Searched knowledge base";
-  return `Used ${name}`;
+  if (activity.kind === "reasoning") return "Thought about it";
+  return friendlyToolLabel(activity.name);
 }
 
 function ActivityLine({ activity }: { activity: Activity }) {
@@ -142,36 +175,18 @@ function ActivityLine({ activity }: { activity: Activity }) {
     activity.status === "started" ? Loader2 : activity.status === "error" ? XCircle : CheckCircle2;
 
   return (
-    <details className="group">
-      <summary
+    <div className="flex w-fit max-w-full items-center gap-1.5 px-1.5 py-1 text-[12.5px] text-muted-foreground">
+      <StatusIcon
         className={cn(
-          "flex w-fit max-w-full cursor-pointer list-none items-center gap-1.5 rounded-md px-1.5 py-1 text-[12.5px]",
-          "text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground",
-          "[&::-webkit-details-marker]:hidden",
+          "h-3.5 w-3.5 shrink-0",
+          activity.status === "started" && "animate-spin",
+          activity.status === "done" && "text-primary",
+          activity.status === "error" && "text-destructive",
         )}
-      >
-        <StatusIcon
-          className={cn(
-            "h-3.5 w-3.5 shrink-0",
-            activity.status === "started" && "animate-spin text-muted-foreground",
-            activity.status === "done" && "text-primary",
-            activity.status === "error" && "text-destructive",
-          )}
-          aria-hidden
-        />
-        <span className="truncate">{describeActivity(activity)}</span>
-      </summary>
-      <div className="ml-4 mt-1 border-l border-border py-1 pl-3 text-[12.5px] leading-relaxed text-muted-foreground">
-        {activity.kind === "tool" ? (
-          <>
-            <span className="font-mono text-[11.5px] text-foreground/80">{activity.name ?? "unknown"}</span>{" "}
-            &middot; {activity.status}
-          </>
-        ) : (
-          `Reasoning ${activity.status}`
-        )}
-      </div>
-    </details>
+        aria-hidden
+      />
+      <span className="truncate">{describeActivity(activity)}</span>
+    </div>
   );
 }
 

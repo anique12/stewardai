@@ -65,6 +65,7 @@ class ChatSession:
         user_id: str,
         thread_id: str,
         tools: list | None = None,
+        tz: str | None = None,
     ) -> None:
         """Build the agent ONCE. ``llm`` is the app's ``LiteLLMClient`` (used
         for embeddings inside ``kb_search``'s ``retrieve()`` -- not the chat
@@ -83,8 +84,21 @@ class ChatSession:
         )
         from datetime import datetime
 
-        today = datetime.now(UTC).strftime("%A, %B %d, %Y")
-        system = f"{chat_graph.SYSTEM}\n\nThe current date is {today} (UTC)."
+        tzinfo, tzlabel = UTC, "UTC"
+        if tz:
+            try:
+                from zoneinfo import ZoneInfo
+
+                tzinfo, tzlabel = ZoneInfo(tz), tz
+            except Exception:  # noqa: BLE001 - bad/unknown tz → fall back to UTC
+                tzinfo, tzlabel = UTC, "UTC"
+        now = datetime.now(tzinfo).strftime("%A, %B %d, %Y at %I:%M %p")
+        system = (
+            f"{chat_graph.SYSTEM}\n\n"
+            f"The current date and time is {now} ({tzlabel}). The user's timezone is "
+            f"{tzlabel} — always present dates and times in this timezone (convert from "
+            f"UTC or an event's own offset as needed); do not show raw UTC unless asked."
+        )
         chat_llm = make_chat_llm("reasoning", tools=self.tools)
         self._agent = chat_graph.build_chat_agent(chat_llm, self.tools, system=system)
         self._config = {"configurable": {"thread_id": thread_id}}

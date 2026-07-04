@@ -209,12 +209,19 @@ export function useChat(
       }));
 
       const threadId = threadIdRef.current;
+      let tz: string | undefined;
+      try {
+        tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      } catch {
+        tz = undefined;
+      }
       void openSocket().then((ws) => {
         ws?.send(
           JSON.stringify({
             type: "user_message",
             text: trimmed,
             thread_id: threadId ?? undefined,
+            tz,
           }),
         );
       });
