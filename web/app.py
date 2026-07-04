@@ -492,7 +492,11 @@ async def ws_chat(ws: WebSocket) -> None:
                         {"type": "text", "text": ev.get("answer", "")},
                         {"type": "citation_group", "citations": ev.get("citations", [])},
                         {"type": "activity_group", "activities": ev.get("activities", [])},
-                        {"type": "thinking_block", "thinking": ev.get("thinking", "")},
+                        {
+                            "type": "thinking_block",
+                            "thinking": ev.get("thinking", ""),
+                            "thinking_seconds": ev.get("thinking_seconds"),
+                        },
                     ],
                 )
         return None

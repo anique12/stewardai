@@ -9,6 +9,7 @@ type StoredPart = {
   citations?: Citation[];
   activities?: Activity[];
   thinking?: string;
+  thinking_seconds?: number | null;
 };
 
 // Rebuild a display Message from a stored chat_messages row's `parts` jsonb.
@@ -20,11 +21,15 @@ function rowToMessage(row: { role: string; parts: unknown }): Message {
   let citations: Citation[] = [];
   let activities: Activity[] = [];
   let thinking = "";
+  let thinkingSeconds: number | null = null;
   for (const p of parts) {
     if (p?.type === "text" && typeof p.text === "string") text += p.text;
     else if (p?.type === "citation_group" && Array.isArray(p.citations)) citations = p.citations;
     else if (p?.type === "activity_group" && Array.isArray(p.activities)) activities = p.activities;
-    else if (p?.type === "thinking_block" && typeof p.thinking === "string") thinking = p.thinking;
+    else if (p?.type === "thinking_block" && typeof p.thinking === "string") {
+      thinking = p.thinking;
+      if (typeof p.thinking_seconds === "number") thinkingSeconds = p.thinking_seconds;
+    }
   }
   return {
     role: row.role === "user" ? "user" : "assistant",
@@ -32,6 +37,7 @@ function rowToMessage(row: { role: string; parts: unknown }): Message {
     activities,
     citations,
     thinking,
+    thinkingSeconds,
     done: true,
   };
 }

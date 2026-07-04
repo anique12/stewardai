@@ -34,6 +34,7 @@ looks it up dynamically (``chat_graph.build_chat_agent``), not to a
 """
 from __future__ import annotations
 
+import time
 from collections.abc import AsyncIterator
 from datetime import UTC
 from typing import Any
@@ -143,6 +144,11 @@ class ChatSession:
         seen_citations: dict[tuple, int] = {}
         accumulated = ""
         thinking = ""
+        # Wall-clock of the reasoning phase: from the first thinking delta to the
+        # first answer token (≈ "time until it started answering", which is what
+        # the UI's "Thought for Ns" reports). None until a reasoning model streams.
+        t_first_think: float | None = None
+        t_answer_start: float | None = None
         activities: dict[tuple, dict] = {}  # (kind, name) -> latest {kind,name,status}
         try:
             async for mode, chunk in stream:
@@ -154,8 +160,12 @@ class ChatSession:
                 chat_graph._collect_citations(mode, chunk, citations, seen_citations)
                 for event in map_stream_event(mode, chunk):
                     if event.get("type") == "token":
+                        if t_answer_start is None:
+                            t_answer_start = time.monotonic()
                         accumulated += event.get("delta", "")
                     elif event.get("type") == "thinking":
+                        if t_first_think is None:
+                            t_first_think = time.monotonic()
                         thinking += event.get("delta", "")
                     elif event.get("type") == "activity":
                         activities[(event.get("kind"), event.get("name"))] = {
@@ -189,12 +199,18 @@ class ChatSession:
             _log.warning("chat_empty_answer", thread_id=self.thread_id)
             answer = "I wasn't able to generate a response — could you rephrase or try again?"
 
+        thinking_seconds: int | None = None
+        if t_first_think is not None:
+            end = t_answer_start if t_answer_start is not None else time.monotonic()
+            thinking_seconds = max(1, round(end - t_first_think))
+
         yield {
             "type": "done",
             "answer": answer,
             "citations": citations,
             "activities": list(activities.values()),
             "thinking": thinking,
+            "thinking_seconds": thinking_seconds,
         }
 
     def _interrupt_event(self, chunk: dict) -> dict | None:

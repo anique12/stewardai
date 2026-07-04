@@ -54,6 +54,7 @@ export type DoneEvent = {
   citations: Citation[];
   activities?: Activity[];
   thinking?: string;
+  thinking_seconds?: number | null;
 };
 
 export type ErrorEvent = {
@@ -83,6 +84,7 @@ export type Message = {
   role: "user" | "assistant";
   text: string;
   thinking: string;
+  thinkingSeconds?: number | null;
   activities: Activity[];
   citations: Citation[];
   done: boolean;

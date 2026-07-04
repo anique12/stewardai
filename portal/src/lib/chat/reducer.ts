@@ -95,6 +95,7 @@ export function reduceChatEvent(state: ChatState, ev: ServerEvent): ChatState {
         ...msg,
         text: ev.answer || msg.text,
         citations: ev.citations,
+        thinkingSeconds: ev.thinking_seconds ?? msg.thinkingSeconds,
         done: true,
         pending: undefined,
       }));

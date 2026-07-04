@@ -280,14 +280,27 @@ function Collapsible({ summary, children }: { summary: ReactNode; children: Reac
 }
 
 // The model's thinking (reasoning models only) as a collapsed Claude-style block.
-function ThinkingBlock({ thinking, streaming }: { thinking: string; streaming: boolean }) {
+function ThinkingBlock({
+  thinking,
+  streaming,
+  seconds,
+}: {
+  thinking: string;
+  streaming: boolean;
+  seconds?: number | null;
+}) {
   if (!thinking) return null;
+  const label = streaming
+    ? "Thinking…"
+    : seconds
+      ? `Thought for ${seconds}s`
+      : "Thought about it";
   return (
     <Collapsible
       summary={
         <span className="flex items-center gap-1.5">
           <Sparkles className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-          {streaming ? "Thinking…" : "Thought about it"}
+          {label}
         </span>
       }
     >
@@ -313,7 +326,7 @@ function ActivityGroup({ activities }: { activities: Activity[] }) {
           ) : (
             <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
           )}
-          {running ? "Working…" : `Worked through ${n} action${n === 1 ? "" : "s"}`}
+          {running ? "Working…" : `Ran ${n} action${n === 1 ? "" : "s"}`}
         </span>
       }
     >
@@ -374,13 +387,22 @@ function AssistantTurn({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2">
-        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-gradient-to-br from-primary to-primary/60 text-primary-foreground">
+        <span
+          className={cn(
+            "grid h-6 w-6 shrink-0 place-items-center rounded-md bg-gradient-to-br from-primary to-primary/60 text-primary-foreground",
+            streaming && "animate-pulse",
+          )}
+        >
           <span className="h-2 w-2 rotate-45 rounded-[2px] bg-primary-foreground" aria-hidden />
         </span>
         <span className="text-[12.5px] font-semibold text-foreground">Steward</span>
       </div>
 
-      <ThinkingBlock thinking={message.thinking} streaming={streaming} />
+      <ThinkingBlock
+        thinking={message.thinking}
+        streaming={streaming}
+        seconds={message.thinkingSeconds}
+      />
       <ActivityGroup activities={activities} />
 
 
@@ -433,16 +455,21 @@ function AssistantTurn({
         </div>
       )}
 
-      {streaming && (
-        <div className="flex items-center gap-2 pt-1 text-[13px] text-muted-foreground">
-          <span className="flex gap-1">
+      {/* Pure "responding" indicator: dots only, shown while waiting for the
+          first output and nothing else already signals activity (no reasoning
+          block, no tool line, no answer text yet). No "thinking" wording —
+          this is just latency-to-first-token, not the model reasoning. */}
+      {streaming &&
+        message.text.length === 0 &&
+        !message.thinking &&
+        activities.length === 0 &&
+        !message.pending && (
+          <div className="flex items-center gap-1 pt-1" role="status" aria-label="Steward is responding">
             <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:-0.3s]" />
             <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:-0.15s]" />
             <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" />
-          </span>
-          Steward is thinking…
-        </div>
-      )}
+          </div>
+        )}
     </div>
   );
 }
