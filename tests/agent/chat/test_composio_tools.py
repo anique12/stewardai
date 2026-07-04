@@ -83,7 +83,7 @@ async def test_build_composio_tools_returns_one_tool_with_right_name(monkeypatch
 
 
 async def _auto(*_a, **_k):
-    return "auto"
+    return "auto", None
 
 
 async def test_tool_invocation_executes_via_service_and_returns_result(monkeypatch):
@@ -105,7 +105,7 @@ async def test_tool_invocation_passes_client_through_to_gate(monkeypatch):
         seen["user_id"] = user_id
         seen["tool_name"] = tool_name
         seen["payload"] = payload
-        return "auto"
+        return "auto", None
 
     monkeypatch.setattr(CT, "gate", _capturing_gate)
     service = _FakeService([_schema("GMAIL_SEND_EMAIL")])
@@ -122,7 +122,7 @@ async def test_tool_invocation_passes_client_through_to_gate(monkeypatch):
 
 async def test_tool_invocation_skips_mutation_on_reject(monkeypatch):
     async def _reject(*_a, **_k):
-        return "reject"
+        return "reject", None
 
     monkeypatch.setattr(CT, "gate", _reject)
     service = _FakeService([_schema("GMAIL_SEND_EMAIL")])

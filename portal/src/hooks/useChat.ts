@@ -21,7 +21,7 @@ export type UseChatResult = {
   reason: string | null;
   threadId: string | null;
   send: (text: string) => void;
-  decide: (decision: PermissionDecision) => void;
+  decide: (decision: PermissionDecision, args?: Record<string, unknown>) => void;
   connectDone: () => void;
 };
 
@@ -222,10 +222,15 @@ export function useChat(
     [openSocket],
   );
 
-  const decide = useCallback((decision: PermissionDecision) => {
-    setState((s) => ({ ...s, awaiting: null }));
-    wsRef.current?.send(JSON.stringify({ type: "permission_decision", decision }));
-  }, []);
+  const decide = useCallback(
+    (decision: PermissionDecision, args?: Record<string, unknown>) => {
+      setState((s) => ({ ...s, awaiting: null }));
+      wsRef.current?.send(
+        JSON.stringify({ type: "permission_decision", decision, args }),
+      );
+    },
+    [],
+  );
 
   const connectDone = useCallback(() => {
     wsRef.current?.send(JSON.stringify({ type: "connect_done" }));

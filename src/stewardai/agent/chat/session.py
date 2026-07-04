@@ -35,6 +35,7 @@ looks it up dynamically (``chat_graph.build_chat_agent``), not to a
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import UTC
 from typing import Any
 
 from langgraph.errors import GraphBubbleUp
@@ -80,8 +81,12 @@ class ChatSession:
         self.tools = (
             tools if tools is not None else build_read_tools(client, llm, user_id=user_id)
         )
+        from datetime import datetime
+
+        today = datetime.now(UTC).strftime("%A, %B %d, %Y")
+        system = f"{chat_graph.SYSTEM}\n\nThe current date is {today} (UTC)."
         chat_llm = make_chat_llm("reasoning", tools=self.tools)
-        self._agent = chat_graph.build_chat_agent(chat_llm, self.tools)
+        self._agent = chat_graph.build_chat_agent(chat_llm, self.tools, system=system)
         self._config = {"configurable": {"thread_id": thread_id}}
 
     async def stream_turn(self, message: str, history: list[dict]) -> AsyncIterator[dict]:

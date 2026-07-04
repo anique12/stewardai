@@ -40,24 +40,43 @@ def tier_of(name: str) -> str:
     return TIER.get(name, "outward")
 
 
-async def gate(client, *, user_id: str, tool_name: str, payload: dict[str, Any]) -> str:
+def _normalize_resume(raw: Any) -> tuple[str, dict[str, Any] | None]:
+    """The human's decision may come back as a bare string (``"approve"``) or,
+    when they edited the action in the approval card, as
+    ``{"decision": ..., "args": {...}}``. Normalize to ``(decision, edited_args)``."""
+    if isinstance(raw, dict):
+        decision = raw.get("decision")
+        args = raw.get("args")
+        return (
+            decision if isinstance(decision, str) else "reject",
+            args if isinstance(args, dict) else None,
+        )
+    return (raw if isinstance(raw, str) else "reject", None)
+
+
+async def gate(
+    client, *, user_id: str, tool_name: str, payload: dict[str, Any]
+) -> tuple[str, dict[str, Any] | None]:
     """Decide whether ``tool_name`` may run automatically or needs confirmation.
 
-    read/reversible tiers always return "auto". The outward tier returns "auto"
-    if the user has already allowlisted the tool; otherwise it raises a
-    LangGraph interrupt carrying the permission request and returns whatever
-    the human decides ("approve"/"reject"/"always"). A decision of "always"
-    also records the allowlist entry before returning "approve".
+    Returns ``(decision, edited_args)``. read/reversible tiers return
+    ``("auto", None)``. The outward tier returns ``("auto", None)`` if the user
+    has already allowlisted the tool; otherwise it raises a LangGraph interrupt
+    carrying the permission request and returns the human's decision
+    ("approve"/"reject") plus any edited args they submitted in the approval
+    card. A decision of "always" records the allowlist entry and returns
+    ("approve", edited_args).
     """
     tier = tier_of(tool_name)
     if tier in ("read", "reversible"):
-        return "auto"
+        return "auto", None
 
     if await is_allowed(client, user_id=user_id, tool_name=tool_name):
-        return "auto"
+        return "auto", None
 
-    decision = interrupt({"kind": "permission", "tool": tool_name, **payload})
+    raw = interrupt({"kind": "permission", "tool": tool_name, **payload})
+    decision, edited = _normalize_resume(raw)
     if decision == "always":
         await set_allowed(client, user_id=user_id, tool_name=tool_name)
-        return "approve"
-    return decision
+        return "approve", edited
+    return decision, edited

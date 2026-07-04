@@ -5,7 +5,7 @@
 // the streamed answer (with [n] citation chips), a sources strip, and — when
 // the run is paused — the permission/connect action card.
 
-import { Fragment } from "react";
+import { Fragment, type ReactNode } from "react";
 import Link from "next/link";
 import { CheckCircle2, FileText, Loader2, XCircle } from "lucide-react";
 import type { Activity, Citation as CitationType, Message } from "@/lib/chat/types";
@@ -16,26 +16,111 @@ import { ConnectCard } from "./ConnectCard";
 import { PermissionCard } from "./PermissionCard";
 import { cn } from "@/lib/utils";
 
-// A run of plain text, or a bracket of one-or-more citation numbers ([1] or [1, 6]).
-type AnswerPart = { type: "text"; value: string } | { type: "cites"; ns: number[]; raw: string };
-
-function parseAnswer(text: string): AnswerPart[] {
-  const parts: AnswerPart[] = [];
-  // Match single OR grouped markers: [1], [1, 6], [1, 2, 3].
+// Lightweight markdown → React for the streamed answer: paragraphs, bullet lists,
+// **bold**, and inline [n]/[1, 6] citation chips. (Full markdown lib is overkill
+// for what the model emits here.)
+function renderInline(
+  text: string,
+  citationsByN: Map<number, CitationType>,
+  keyBase: string,
+): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let idx = 0;
+  const pushText = (s: string) => {
+    for (const seg of s.split(/(\*\*[^*]+\*\*)/g)) {
+      if (!seg) continue;
+      if (seg.startsWith("**") && seg.endsWith("**")) {
+        nodes.push(
+          <strong key={`${keyBase}-b${idx++}`} className="font-semibold text-foreground">
+            {seg.slice(2, -2)}
+          </strong>,
+        );
+      } else {
+        nodes.push(<Fragment key={`${keyBase}-t${idx++}`}>{seg}</Fragment>);
+      }
+    }
+  };
   const re = /\[([\d\s,]+)\]/g;
   let last = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
-    if (m.index > last) parts.push({ type: "text", value: text.slice(last, m.index) });
+    if (m.index > last) pushText(text.slice(last, m.index));
     const ns = m[1]
       .split(",")
       .map((s) => Number(s.trim()))
-      .filter((n) => Number.isInteger(n));
-    parts.push({ type: "cites", ns, raw: m[0] });
+      .filter((n) => Number.isInteger(n) && citationsByN.has(n));
+    if (ns.length === 0) {
+      pushText(m[0]);
+    } else {
+      nodes.push(
+        <span key={`${keyBase}-c${idx++}`} className="inline-flex items-center gap-0.5 align-[2px]">
+          {ns.map((n) => (
+            <Citation key={n} citation={citationsByN.get(n)!} />
+          ))}
+        </span>,
+      );
+    }
     last = m.index + m[0].length;
   }
-  if (last < text.length) parts.push({ type: "text", value: text.slice(last) });
-  return parts;
+  if (last < text.length) pushText(text.slice(last));
+  return nodes;
+}
+
+function AnswerContent({
+  text,
+  citationsByN,
+}: {
+  text: string;
+  citationsByN: Map<number, CitationType>;
+}) {
+  const blocks: ReactNode[] = [];
+  let para: string[] = [];
+  let list: string[] = [];
+  let key = 0;
+  const flushPara = () => {
+    if (para.length) {
+      const k = key++;
+      blocks.push(
+        <p key={`p${k}`} className="mb-3 last:mb-0">
+          {renderInline(para.join(" "), citationsByN, `p${k}`)}
+        </p>,
+      );
+      para = [];
+    }
+  };
+  const flushList = () => {
+    if (list.length) {
+      const k = key++;
+      const items = [...list];
+      blocks.push(
+        <ul key={`u${k}`} className="mb-3 flex list-none flex-col gap-1.5 last:mb-0">
+          {items.map((it, i) => (
+            <li key={i} className="flex gap-2">
+              <span className="mt-[9px] h-1 w-1 shrink-0 rounded-full bg-muted-foreground/60" aria-hidden />
+              <span className="min-w-0">{renderInline(it, citationsByN, `u${k}-${i}`)}</span>
+            </li>
+          ))}
+        </ul>,
+      );
+      list = [];
+    }
+  };
+  for (const raw of text.split("\n")) {
+    const bullet = raw.match(/^\s*[*-]\s+(.*)$/);
+    if (bullet) {
+      flushPara();
+      list.push(bullet[1]);
+    } else if (raw.trim() === "") {
+      flushPara();
+      flushList();
+    } else {
+      flushList();
+      para.push(raw.trim());
+    }
+  }
+  flushPara();
+  flushList();
+  return <div className="text-[15px] leading-[1.68] text-foreground/90">{blocks}</div>;
 }
 
 function formatDate(iso: string | null): string {
@@ -124,12 +209,11 @@ function AssistantTurn({
   message: Message;
   streaming: boolean;
   titles: Record<string, MeetingInfo>;
-  onDecide: (decision: PermissionDecision) => void;
+  onDecide: (decision: PermissionDecision, args?: Record<string, unknown>) => void;
   onConnect: () => void;
   onSkip: () => void;
 }) {
   const citationsByN = new Map(message.citations.map((c) => [c.n, c]));
-  const parts = parseAnswer(message.text);
   const sources = groupCitationsByMeeting(message.citations);
 
   return (
@@ -149,23 +233,7 @@ function AssistantTurn({
         </div>
       )}
 
-      {message.text.length > 0 && (
-        <div className="max-w-none whitespace-pre-wrap text-[15px] leading-[1.68] text-foreground/90">
-          {parts.map((part, i) => {
-            if (part.type === "text") return <Fragment key={i}>{part.value}</Fragment>;
-            const known = part.ns.filter((n) => citationsByN.has(n));
-            // No matching citation → show the model's literal marker rather than dropping it.
-            if (known.length === 0) return <Fragment key={i}>{part.raw}</Fragment>;
-            return (
-              <span key={i} className="inline-flex items-center gap-0.5 align-[2px]">
-                {known.map((n) => (
-                  <Citation key={n} citation={citationsByN.get(n)!} />
-                ))}
-              </span>
-            );
-          })}
-        </div>
-      )}
+      {message.text.length > 0 && <AnswerContent text={message.text} citationsByN={citationsByN} />}
 
       {message.pending === "permission" && message.permission && (
         <PermissionCard permission={message.permission} onDecide={onDecide} />
@@ -236,7 +304,7 @@ export function ChatMessages({
 }: {
   messages: Message[];
   streaming: boolean;
-  onDecide: (decision: PermissionDecision) => void;
+  onDecide: (decision: PermissionDecision, args?: Record<string, unknown>) => void;
   onConnect: () => void;
   onSkip: () => void;
 }) {

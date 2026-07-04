@@ -43,13 +43,22 @@ SYSTEM = (
     "ask the user for details you can look up yourself. When you use knowledge-base passages, "
     "cite each claim with [n] matching the passage numbers, and never invent facts not in the "
     "tools' results. Never mention tool names, schemas, JSON, or that a tool was called — just "
-    "answer naturally. Be concise."
+    "answer naturally. Be concise.\n\n"
+    "You always know the current date (given below) — never ask the user for it.\n\n"
+    "When the user asks you to DO something (send an email, create a calendar event, etc.), "
+    "do NOT interrogate them field-by-field in chat. Instead call the right tool immediately "
+    "with your best draft — fill in what you can infer and leave reasonable placeholders for "
+    "anything unknown. The user is shown an editable approval card where they review and fix "
+    "the details before it runs, so proposing a draft is always better than asking questions."
 )
 
 
-def build_chat_agent(llm, tools):  # noqa: ANN001
-    """Build the tool-calling chat agent with in-memory per-turn checkpointing."""
-    return create_react_agent(llm, tools, prompt=SYSTEM, checkpointer=InMemorySaver())
+def build_chat_agent(llm, tools, system: str = SYSTEM):  # noqa: ANN001
+    """Build the tool-calling chat agent with in-memory per-turn checkpointing.
+
+    ``system`` lets the caller inject a dated/per-session prompt (see
+    :class:`~stewardai.agent.chat.session.ChatSession`)."""
+    return create_react_agent(llm, tools, prompt=system, checkpointer=InMemorySaver())
 
 
 def _parse_kb_passages(content: object) -> list[dict] | None:

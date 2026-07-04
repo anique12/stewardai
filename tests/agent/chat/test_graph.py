@@ -65,7 +65,7 @@ class _FakeEmbedLLM:
 
 def _install_fake_agent(monkeypatch, events, **kwargs) -> _FakeAgent:
     fake_agent = _FakeAgent(events, **kwargs)
-    monkeypatch.setattr(graph_module, "build_chat_agent", lambda llm, tools: fake_agent)
+    monkeypatch.setattr(graph_module, "build_chat_agent", lambda llm, tools, **kw: fake_agent)
     return fake_agent
 
 

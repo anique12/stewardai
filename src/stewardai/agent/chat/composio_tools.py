@@ -224,7 +224,7 @@ def _make_tool(
         # GraphInterrupt (turning it into a stream `__interrupt__` chunk --
         # see ChatSession._drive), and ChatSession._drive's own try/except
         # is the right place to catch any other genuine error.
-        decision = await gate(
+        decision, edited_args = await gate(
             client,
             user_id=user_id,
             tool_name=slug,
@@ -232,8 +232,11 @@ def _make_tool(
         )
         if decision not in ("auto", "approve"):
             return dict(_SKIPPED)
+        # Honor edits the user made in the approval card (they override the
+        # model's drafted args), so "type it in the UI" actually takes effect.
+        run_args = {**kwargs, **edited_args} if edited_args else kwargs
         return await _execute_with_connect_gate(
-            slug=slug, app=app, kwargs=kwargs, user_id=user_id, composio_service=composio_service,
+            slug=slug, app=app, kwargs=run_args, user_id=user_id, composio_service=composio_service,
         )
 
     clean = _sanitize_gemini_schema(parameters) if isinstance(parameters, dict) else None

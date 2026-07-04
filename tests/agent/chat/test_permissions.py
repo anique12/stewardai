@@ -78,7 +78,7 @@ async def test_gate_read_tool_returns_auto_without_interrupt(monkeypatch):
     result = await gate(
         _FakeClient(), user_id="u1", tool_name="kb_search", payload={"query": "x"}
     )
-    assert result == "auto"
+    assert result == ("auto", None)
 
 
 async def test_gate_reversible_tool_returns_auto_without_interrupt(monkeypatch):
@@ -92,7 +92,7 @@ async def test_gate_reversible_tool_returns_auto_without_interrupt(monkeypatch):
     result = await gate(
         _FakeClient(), user_id="u1", tool_name="add_tag", payload={"tag": "x"}
     )
-    assert result == "auto"
+    assert result == ("auto", None)
 
 
 # --- gate: outward -------------------------------------------------------
@@ -115,7 +115,7 @@ async def test_gate_outward_not_allowlisted_interrupts_and_returns_decision(monk
         tool_name="send_email",
         payload={"to": "a@b.com"},
     )
-    assert result == "approve"
+    assert result == ("approve", None)
 
 
 async def test_gate_outward_allowlisted_returns_auto_without_interrupt(monkeypatch):
@@ -131,7 +131,7 @@ async def test_gate_outward_allowlisted_returns_auto_without_interrupt(monkeypat
         tool_name="send_email",
         payload={"to": "a@b.com"},
     )
-    assert result == "auto"
+    assert result == ("auto", None)
 
 
 async def test_gate_outward_always_decision_sets_allowlist_and_returns_approve(monkeypatch):
@@ -153,7 +153,7 @@ async def test_gate_outward_always_decision_sets_allowlist_and_returns_approve(m
         tool_name="post_slack_message",
         payload={"text": "hi"},
     )
-    assert result == "approve"
+    assert result == ("approve", None)
     assert calls == [("u1", "post_slack_message")]
 
 
@@ -170,4 +170,4 @@ async def test_gate_outward_reject_decision_returns_reject(monkeypatch):
         tool_name="create_notion_page",
         payload={"title": "x"},
     )
-    assert result == "reject"
+    assert result == ("reject", None)

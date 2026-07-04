@@ -74,11 +74,11 @@ def _ops(client, table, op):
 
 
 async def _auto(*_a, **_k):
-    return "auto"
+    return "auto", None
 
 
 async def _reject(*_a, **_k):
-    return "reject"
+    return "reject", None
 
 
 def _rows():

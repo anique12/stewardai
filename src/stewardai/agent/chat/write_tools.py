@@ -51,7 +51,7 @@ async def _action_item_owned(client, *, user_id: str, action_item_id: str) -> bo
 
 def build_write_tools(client, *, user_id: str) -> list:  # noqa: ANN001
     async def create_space(name: str, kind: str | None = None) -> dict:
-        d = await gate(
+        d, _ = await gate(
             client, user_id=user_id, tool_name="create_space",
             payload={"name": name, "kind": kind},
         )
@@ -68,7 +68,7 @@ def build_write_tools(client, *, user_id: str) -> list:  # noqa: ANN001
     async def rename_space(space_id: str, name: str) -> dict:
         if not await _space_owned(client, user_id=user_id, space_id=space_id):
             return _NOT_FOUND
-        d = await gate(
+        d, _ = await gate(
             client, user_id=user_id, tool_name="rename_space",
             payload={"space_id": space_id, "name": name},
         )
@@ -83,7 +83,7 @@ def build_write_tools(client, *, user_id: str) -> list:  # noqa: ANN001
     async def archive_space(space_id: str) -> dict:
         if not await _space_owned(client, user_id=user_id, space_id=space_id):
             return _NOT_FOUND
-        d = await gate(
+        d, _ = await gate(
             client, user_id=user_id, tool_name="archive_space",
             payload={"space_id": space_id},
         )
@@ -101,7 +101,7 @@ def build_write_tools(client, *, user_id: str) -> list:  # noqa: ANN001
         ) and await _space_owned(client, user_id=user_id, space_id=space_id)
         if not owned:
             return _NOT_FOUND
-        d = await gate(
+        d, _ = await gate(
             client, user_id=user_id, tool_name="file_meeting",
             payload={"meeting_id": meeting_id, "space_id": space_id},
         )
@@ -117,7 +117,7 @@ def build_write_tools(client, *, user_id: str) -> list:  # noqa: ANN001
     async def add_tag(meeting_id: str, tag: str) -> dict:
         if not await _meeting_owned(client, user_id=user_id, meeting_id=meeting_id):
             return _NOT_FOUND
-        d = await gate(
+        d, _ = await gate(
             client, user_id=user_id, tool_name="add_tag",
             payload={"meeting_id": meeting_id, "tag": tag},
         )
@@ -132,7 +132,7 @@ def build_write_tools(client, *, user_id: str) -> list:  # noqa: ANN001
     async def remove_tag(meeting_id: str, tag: str) -> dict:
         if not await _meeting_owned(client, user_id=user_id, meeting_id=meeting_id):
             return _NOT_FOUND
-        d = await gate(
+        d, _ = await gate(
             client, user_id=user_id, tool_name="remove_tag",
             payload={"meeting_id": meeting_id, "tag": tag},
         )
@@ -147,7 +147,7 @@ def build_write_tools(client, *, user_id: str) -> list:  # noqa: ANN001
     async def complete_action_item(action_item_id: str) -> dict:
         if not await _action_item_owned(client, user_id=user_id, action_item_id=action_item_id):
             return _NOT_FOUND
-        d = await gate(
+        d, _ = await gate(
             client, user_id=user_id, tool_name="complete_action_item",
             payload={"action_item_id": action_item_id},
         )
@@ -161,7 +161,7 @@ def build_write_tools(client, *, user_id: str) -> list:  # noqa: ANN001
     async def reopen_action_item(action_item_id: str) -> dict:
         if not await _action_item_owned(client, user_id=user_id, action_item_id=action_item_id):
             return _NOT_FOUND
-        d = await gate(
+        d, _ = await gate(
             client, user_id=user_id, tool_name="reopen_action_item",
             payload={"action_item_id": action_item_id},
         )

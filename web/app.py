@@ -573,9 +573,14 @@ async def ws_chat(ws: WebSocket) -> None:
                 if session is None:
                     suspended = None
                     continue
-                decision = msg.get("decision") if msg_type == "permission_decision" else "retry"
+                # permission → {decision, args} so edits made in the approval card
+                # take effect; connect_done → "retry" to re-attempt the paused action.
+                if msg_type == "permission_decision":
+                    resume_value = {"decision": msg.get("decision"), "args": msg.get("args")}
+                else:
+                    resume_value = "retry"
                 try:
-                    suspended = await _drain(session.resume(decision), thread_id)
+                    suspended = await _drain(session.resume(resume_value), thread_id)
                 except Exception as exc:  # noqa: BLE001 - keep the socket alive across a bad turn
                     log.warning("chat_turn_error", error=str(exc))
                     await _safe_send(
