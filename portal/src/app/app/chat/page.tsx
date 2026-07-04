@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useRef } from "react";
+import { Suspense, useCallback, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useChat } from "@/hooks/useChat";
 import { ChatMessages } from "@/components/chat/ChatMessages";
@@ -11,18 +11,17 @@ function ChatInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const threadParam = searchParams.get("thread");
-  const { messages, streaming, connected, reason, threadId, send, decide, connectDone } =
-    useChat(threadParam ?? undefined);
 
-  // When a BRAND-NEW thread gets created (first message on a fresh chat with no
-  // ?thread= yet), reflect its id in the URL so refresh + the sidebar can restore
-  // it. Guard on `!threadParam` so navigating to an *existing* thread from the
-  // sidebar isn't bounced back to the currently-loaded one.
-  useEffect(() => {
-    if (threadId && !threadParam) {
-      router.replace(`/app/chat?thread=${threadId}`);
-    }
-  }, [threadId, threadParam, router]);
+  // Pin a freshly-created thread to the URL (so refresh + the sidebar restore it).
+  // Fires only from the WS `thread` event, so it never bounces navigation.
+  const onThreadCreated = useCallback(
+    (id: string) => router.replace(`/app/chat?thread=${id}`),
+    [router],
+  );
+  const { messages, streaming, connected, reason, send, decide, connectDone } = useChat(
+    threadParam ?? undefined,
+    onThreadCreated,
+  );
 
   function handleNewChat() {
     router.push("/app/chat");

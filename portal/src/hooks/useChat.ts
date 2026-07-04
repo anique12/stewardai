@@ -47,7 +47,10 @@ async function getAccessToken(): Promise<string | null> {
   }
 }
 
-export function useChat(initialThreadId?: string): UseChatResult {
+export function useChat(
+  initialThreadId?: string,
+  onThreadCreated?: (id: string) => void,
+): UseChatResult {
   const [state, setState] = useState<ChatState>(() => initialChatState());
   const [connected, setConnected] = useState(false);
   const [reason, setReason] = useState<string | null>(null);
@@ -55,6 +58,13 @@ export function useChat(initialThreadId?: string): UseChatResult {
   const wsRef = useRef<WebSocket | null>(null);
   const threadIdRef = useRef<string | null>(null);
   const mountedRef = useRef(true);
+
+  // Keep the latest onThreadCreated callback reachable from the (long-lived)
+  // socket's onmessage closure without re-opening the socket.
+  const onThreadCreatedRef = useRef(onThreadCreated);
+  useEffect(() => {
+    onThreadCreatedRef.current = onThreadCreated;
+  });
 
   useEffect(() => {
     threadIdRef.current = state.threadId;
@@ -178,6 +188,9 @@ export function useChat(initialThreadId?: string): UseChatResult {
           } catch {
             return;
           }
+          // A `thread` event means the backend just CREATED a new thread — the
+          // one moment to reflect it in the URL (never fires on load/reset).
+          if (parsed.type === "thread" && parsed.id) onThreadCreatedRef.current?.(parsed.id);
           setState((s) => reduceChatEvent(s, parsed));
         };
       });
