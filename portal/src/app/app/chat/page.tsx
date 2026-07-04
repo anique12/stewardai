@@ -14,10 +14,12 @@ function ChatInner() {
   const { messages, streaming, connected, reason, threadId, send, decide, connectDone } =
     useChat(threadParam ?? undefined);
 
-  // When a new thread gets created (first message on a fresh chat), reflect its
-  // id in the URL so a refresh — and the sidebar — can restore this conversation.
+  // When a BRAND-NEW thread gets created (first message on a fresh chat with no
+  // ?thread= yet), reflect its id in the URL so refresh + the sidebar can restore
+  // it. Guard on `!threadParam` so navigating to an *existing* thread from the
+  // sidebar isn't bounced back to the currently-loaded one.
   useEffect(() => {
-    if (threadId && threadId !== threadParam) {
+    if (threadId && !threadParam) {
       router.replace(`/app/chat?thread=${threadId}`);
     }
   }, [threadId, threadParam, router]);
