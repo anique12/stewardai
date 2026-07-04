@@ -65,11 +65,11 @@ async def _auto(*_a, **_k):
 
 
 def _describe_tool(service, client=None):
-    return build_composio_tools(user_id="u1", composio_service=service, client=client)[1]
+    return build_composio_tools(user_id="u1", composio_service=service, client=client)[2]
 
 
 def _run_tool(service, client=None):
-    return build_composio_tools(user_id="u1", composio_service=service, client=client)[2]
+    return build_composio_tools(user_id="u1", composio_service=service, client=client)[3]
 
 
 def _run_input(action, args, app="gmail"):
@@ -87,9 +87,35 @@ async def test_build_returns_generic_tools():
     tools = build_composio_tools(user_id="u1", composio_service=_FakeService([]))
     assert [t.name for t in tools] == [
         "list_integrations",
+        "connect_app",
         "describe_action",
         "run_integration_action",
     ]
+
+
+async def test_connect_app_shows_connect_card_when_not_connected(monkeypatch):
+    captured = []
+    monkeypatch.setattr(CT, "interrupt", lambda payload: captured.append(payload) or "cancel")
+    service = _FakeService([], connected=[])
+    connect = build_composio_tools(
+        user_id="u1", composio_service=service, available=["gmail"]
+    )[1]
+    result = await connect.ainvoke({"app": "gmail"})
+    assert captured == [{"kind": "connect", "app": "gmail", "tool": None}]
+    assert result == {"app": "gmail", "connect_required": True}
+
+
+async def test_connect_app_noop_when_already_connected(monkeypatch):
+    def _no_interrupt(_p):
+        raise AssertionError("should not interrupt when already connected")
+
+    monkeypatch.setattr(CT, "interrupt", _no_interrupt)
+    service = _FakeService([], connected=["gmail"])
+    connect = build_composio_tools(
+        user_id="u1", composio_service=service, available=["gmail"]
+    )[1]
+    result = await connect.ainvoke({"app": "gmail"})
+    assert result["connected"] is True
 
 
 async def test_list_integrations_reports_connected_status():
@@ -111,7 +137,7 @@ async def test_build_respects_available_set():
     tools = build_composio_tools(
         user_id="u1", composio_service=service, available=["gmail"]
     )
-    describe = tools[1]
+    describe = tools[2]
     ok = await describe.ainvoke({"app": "gmail"})
     assert ok["app"] == "gmail"
     rejected = await describe.ainvoke({"app": "googlecalendar"})

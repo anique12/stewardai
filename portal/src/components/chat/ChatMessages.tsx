@@ -21,6 +21,7 @@ import {
   Loader2,
   Mail,
   Paperclip,
+  Plug,
   Search,
   Send,
   Sparkles,
@@ -192,6 +193,7 @@ const FRIENDLY_TOOL: Record<string, string> = {
   GMAIL_CREATE_EMAIL_DRAFT: "Drafted an email",
   GMAIL_GET_ATTACHMENT: "Fetched an attachment",
   list_integrations: "Checked connected apps",
+  connect_app: "Opened a connect dialog",
   describe_action: "Checked available actions",
   run_integration_action: "Used an integration",
 };
@@ -220,6 +222,7 @@ const TOOL_ICON: Record<string, LucideIcon> = {
   GMAIL_CREATE_EMAIL_DRAFT: Mail,
   GMAIL_GET_ATTACHMENT: Paperclip,
   list_integrations: Blocks,
+  connect_app: Plug,
   describe_action: Search,
   run_integration_action: Wrench,
 };

@@ -267,6 +267,7 @@ def build_composio_tools(
     apps = [a for a in src if a in _DEFINED_TOOLKITS]
     tools = [
         _make_list_integrations_tool(user_id=user_id, composio_service=composio_service, apps=apps),
+        _make_connect_tool(user_id=user_id, composio_service=composio_service, apps=apps),
         _make_describe_tool(user_id=user_id, composio_service=composio_service, apps=apps),
         _make_run_tool(
             user_id=user_id, composio_service=composio_service, client=client, apps=apps
@@ -298,6 +299,51 @@ def _make_list_integrations_tool(*, user_id: str, composio_service: Any, apps: l
             "Call this to answer whether you can access or use an app — never assume."
         ),
         args_schema=None,
+    )
+
+
+def _make_connect_tool(*, user_id: str, composio_service: Any, apps: list[str]) -> Any:
+    async def _connect_app(app: str) -> dict:
+        # NOT wrapped in try/except around the interrupt: it raises langgraph's
+        # GraphInterrupt to pause the turn (so the UI shows the Connect card).
+        app_l = (app or "").strip().lower()
+        if app_l not in apps:
+            allowed = ", ".join(apps) if apps else "(none available)"
+            return {"error": f"{app!r} isn't available; supported apps: {allowed}"}
+        try:
+            connected = app_l in set(composio_service.list_connected(user_id, [app_l]))
+        except Exception as exc:  # noqa: BLE001 - status unknown → attempt connect anyway
+            _log.warning("composio_list_connected_failed", error=str(exc))
+            connected = False
+        if connected:
+            return {"app": app_l, "connected": True, "note": "already connected"}
+        # Surface the Connect card (connect_required). On resume ("retry", after
+        # the user connects) confirm the new status.
+        decision = interrupt({"kind": "connect", "app": app_l, "tool": None})
+        if decision == "retry":
+            try:
+                now = app_l in set(composio_service.list_connected(user_id, [app_l]))
+            except Exception:  # noqa: BLE001
+                now = False
+            return {"app": app_l, "connected": now}
+        return {"app": app_l, "connect_required": True}
+
+    args_schema = {
+        "type": "object",
+        "properties": {
+            "app": {"type": "string", "enum": list(apps), "description": "App to connect."}
+        },
+        "required": ["app"],
+    }
+    return StructuredTool.from_function(
+        coroutine=_connect_app,
+        name="connect_app",
+        description=(
+            "Show the user the Connect dialog for an available app so they can authorize it. "
+            "Call this when the user wants to connect an app or asks how to — do NOT tell them to "
+            "click a button unless you called this. No-op with a note if already connected."
+        ),
+        args_schema=args_schema,
     )
 
 

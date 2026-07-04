@@ -57,7 +57,10 @@ SYSTEM = (
     "object string — always attempt it; if the app isn't connected the system shows a Connect "
     "prompt automatically, so don't refuse or ask the user to connect first. To ANSWER whether you "
     "can access/use an app, call list_integrations() and report the truth — NEVER assume. If an "
-    "app isn't in list_integrations, tell the user it's not supported yet."
+    "app isn't in list_integrations, tell the user it's not supported yet. When the user wants to "
+    "connect an app (or asks how), call connect_app(app) — it shows the Connect dialog. NEVER tell "
+    "the user to click a Connect button unless you actually called connect_app or "
+    "run_integration_action."
 )
 
 
