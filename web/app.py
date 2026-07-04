@@ -37,6 +37,7 @@ from stewardai.agent.chat.store import (
     create_thread,
     get_thread_messages,
     thread_owned,
+    update_message,
 )
 from stewardai.agent.chat.tools import build_read_tools
 from stewardai.agent.chat.write_tools import build_write_tools
@@ -123,6 +124,12 @@ async def lifespan(app: FastAPI):
     # Composio (Gmail/Calendar/Notion/Slack chat tools) is optional: only built
     # when COMPOSIO_API_KEY is set, and never allowed to block startup. Same
     # guarded-construction pattern as meeting_runner.run_multiplexer.
+    # Process-global chat sessions keyed by thread_id, so a paused turn (waiting
+    # on a permission/connect interrupt) survives a client reconnect/refresh and
+    # can still be resumed against the same in-memory graph checkpoint. (Lost on
+    # a process restart — that's the documented limit; the paused turn is still
+    # persisted so it re-renders, and the decision then reports "expired".)
+    app.state.chat_sessions = {}
     app.state.composio_service = None
     if settings.composio_enabled:
         try:
@@ -477,25 +484,66 @@ async def ws_chat(ws: WebSocket) -> None:
             await ws.close(code=1008)  # policy violation
         return
 
-    sessions: dict[str, ChatSession] = {}
+    if getattr(app.state, "chat_sessions", None) is None:
+        app.state.chat_sessions = {}  # defensive (e.g. tests that skip lifespan)
+    sessions: dict[str, ChatSession] = app.state.chat_sessions
     suspended: tuple[str, str | None] | None = None
 
-    async def _drain(stream, thread_id: str) -> tuple[str, str | None] | None:
+    async def _persist_assistant(session, thread_id: str, parts: list, *, final: bool) -> None:
+        """Persist the assistant turn as ONE row. A paused turn is written with a
+        `pending` part (so it survives refresh + re-renders its card); resuming
+        updates that same row in place (final=True clears pending), so a
+        pause→resume→done turn never duplicates into two rows."""
+        pid = getattr(session, "_pending_row_id", None)
+        if pid:
+            await update_message(app.state.supabase, message_id=pid, parts=parts)
+            if final:
+                session._pending_row_id = None
+        else:
+            new_id = await append_message(
+                app.state.supabase, user_id=user_id, thread_id=thread_id,
+                role="assistant", parts=parts,
+            )
+            if not final:
+                session._pending_row_id = new_id
+
+    async def _drain(session, stream, thread_id: str) -> tuple[str, str | None] | None:
         """Forward every event from a ``stream_turn``/``resume`` stream to the
-        client. Returns a new ``suspended`` marker if the turn paused on a
-        permission/connect interrupt (and stops consuming right there,
-        without persisting an assistant message), or ``None`` if it ran to
-        ``done`` (in which case the assistant message is persisted here).
-        """
+        client, accumulating text/thinking/activities so a mid-turn pause can be
+        persisted. Returns a ``suspended`` marker if the turn paused on a
+        permission/connect interrupt (persisting the partial turn + its pending
+        card), or ``None`` if it ran to ``done`` (persisting the final turn)."""
+        text = ""
+        thinking = ""
+        acts: dict = {}  # (kind, name) -> {kind, name, status}
         async for ev in stream:
             await ws.send_json(ev)
-            ev_type = ev.get("type")
-            if ev_type in ("permission_request", "connect_required"):
+            et = ev.get("type")
+            if et == "token":
+                text += ev.get("delta", "")
+            elif et == "thinking":
+                thinking += ev.get("delta", "")
+            elif et == "activity":
+                acts[(ev.get("kind"), ev.get("name"))] = {
+                    "kind": ev.get("kind"), "name": ev.get("name"), "status": ev.get("status"),
+                }
+            if et in ("permission_request", "connect_required"):
+                kind = "permission" if et == "permission_request" else "connect"
+                payload = {k: v for k, v in ev.items() if k != "type"}
+                await _persist_assistant(
+                    session, thread_id,
+                    parts=[
+                        {"type": "text", "text": text},
+                        {"type": "activity_group", "activities": list(acts.values())},
+                        {"type": "thinking_block", "thinking": thinking, "thinking_seconds": None},
+                        {"type": "pending", "pending": kind, "data": payload},
+                    ],
+                    final=False,
+                )
                 return (thread_id, ev.get("call_id"))
-            if ev_type == "done":
-                await append_message(
-                    app.state.supabase, user_id=user_id, thread_id=thread_id,
-                    role="assistant",
+            if et == "done":
+                await _persist_assistant(
+                    session, thread_id,
                     parts=[
                         {"type": "text", "text": ev.get("answer", "")},
                         {"type": "citation_group", "citations": ev.get("citations", [])},
@@ -506,6 +554,7 @@ async def ws_chat(ws: WebSocket) -> None:
                             "thinking_seconds": ev.get("thinking_seconds"),
                         },
                     ],
+                    final=True,
                 )
         return None
 
@@ -573,7 +622,7 @@ async def ws_chat(ws: WebSocket) -> None:
                     )
                     sessions[thread_id] = session
 
-                    suspended = await _drain(session.stream_turn(text, history), thread_id)
+                    suspended = await _drain(session, session.stream_turn(text, history), thread_id)
                 except Exception as exc:  # noqa: BLE001 - keep the socket alive across a bad turn
                     log.warning("chat_turn_error", error=str(exc))
                     await _safe_send(
@@ -581,11 +630,17 @@ async def ws_chat(ws: WebSocket) -> None:
                     )
 
             elif msg_type in ("permission_decision", "connect_done"):
-                if suspended is None:
-                    continue
-                thread_id, _call_id = suspended
-                session = sessions.get(thread_id)
+                # Prefer the client-supplied thread_id (so a decision made AFTER a
+                # refresh, on a fresh socket with no local `suspended`, still finds
+                # its paused session); fall back to this connection's suspended one.
+                thread_id = msg.get("thread_id") or (suspended[0] if suspended else None)
+                session = sessions.get(thread_id) if thread_id else None
                 if session is None:
+                    # Paused session is gone (e.g. the server restarted since the
+                    # turn paused) — we can't resume the in-memory graph.
+                    await _safe_send(
+                        ws, {"type": "error", "text": "This request expired — please ask again."}
+                    )
                     suspended = None
                     continue
                 # permission → {decision, args} so edits made in the approval card
@@ -595,7 +650,7 @@ async def ws_chat(ws: WebSocket) -> None:
                 else:
                     resume_value = "retry"
                 try:
-                    suspended = await _drain(session.resume(resume_value), thread_id)
+                    suspended = await _drain(session, session.resume(resume_value), thread_id)
                 except Exception as exc:  # noqa: BLE001 - keep the socket alive across a bad turn
                     log.warning("chat_turn_error", error=str(exc))
                     await _safe_send(

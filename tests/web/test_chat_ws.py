@@ -79,6 +79,7 @@ def _client(monkeypatch, *, user_id, owned_thread_ids=frozenset()):
     app = webapp.app
     app.state.supabase = object()
     app.state.llm = object()
+    app.state.chat_sessions = {}  # fresh per test (process-global in prod)
     return TestClient(app)
 
 
@@ -234,3 +235,74 @@ def test_ws_chat_permission_round_trip(monkeypatch):
     types = [thread_msg["type"], token_msg["type"], permission_msg["type"],
              resumed_token["type"], done_msg["type"]]
     assert types == ["thread", "token", "permission_request", "token", "done"]
+
+
+def test_ws_chat_persists_paused_turn_with_pending_card(monkeypatch):
+    """A turn that pauses on a permission interrupt must persist a partial
+    assistant message carrying a `pending` part, so a refresh restores the card."""
+    appended: list = []
+
+    async def capturing_append(client, *, user_id, thread_id, role, parts):
+        appended.append({"role": role, "parts": parts})
+        return "row-1"
+
+    client = _client(monkeypatch, user_id="u1")
+    monkeypatch.setattr(webapp, "append_message", capturing_append)
+    _install_fake_chat_session(
+        monkeypatch,
+        stream_events=[
+            {"type": "token", "delta": "Sure, "},
+            {
+                "type": "permission_request",
+                "call_id": "t1",
+                "kind": "permission",
+                "tool": "send_email",
+            },
+        ],
+    )
+
+    with client.websocket_connect("/ws/chat?token=x") as ws:
+        ws.send_json({"type": "user_message", "text": "email bob"})
+        [ws.receive_json(), ws.receive_json(), ws.receive_json()]  # thread, token, permission
+
+    assistant = [a for a in appended if a["role"] == "assistant"]
+    assert len(assistant) == 1
+    pending = next(p for p in assistant[0]["parts"] if p.get("type") == "pending")
+    assert pending["pending"] == "permission"
+    assert pending["data"]["tool"] == "send_email"
+    # The streamed text-so-far is persisted too.
+    text_part = next(p for p in assistant[0]["parts"] if p.get("type") == "text")
+    assert text_part["text"] == "Sure, "
+
+
+def test_ws_chat_decision_after_reconnect_resumes_by_thread_id(monkeypatch):
+    """A decision on a FRESH socket (no local `suspended`) still resumes the
+    paused session via the client-supplied thread_id (server keeps it alive)."""
+    client = _client(monkeypatch, user_id="u1", owned_thread_ids={"t1"})
+    _install_fake_chat_session(
+        monkeypatch,
+        stream_events=[
+            {
+                "type": "permission_request",
+                "call_id": "t1",
+                "kind": "permission",
+                "tool": "send_email",
+            },
+        ],
+        resume_events=[
+            {"type": "token", "delta": "done."},
+            {"type": "done", "answer": "done.", "citations": []},
+        ],
+    )
+
+    # Turn 1: pause on the first socket.
+    with client.websocket_connect("/ws/chat?token=x") as ws:
+        ws.send_json({"type": "user_message", "text": "email bob", "thread_id": "t1"})
+        msg = ws.receive_json()
+        assert msg["type"] == "permission_request"
+
+    # Turn 2: a brand-new socket sends the decision with thread_id → resumes.
+    with client.websocket_connect("/ws/chat?token=x") as ws:
+        ws.send_json({"type": "permission_decision", "decision": "approve", "thread_id": "t1"})
+        got = [ws.receive_json(), ws.receive_json()]
+    assert [m["type"] for m in got] == ["token", "done"]

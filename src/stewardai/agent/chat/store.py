@@ -28,8 +28,8 @@ async def create_thread(client, *, user_id: str, title: str) -> str | None:
 
 async def append_message(
     client, *, user_id: str, thread_id: str, role: str, parts: list[Any]
-) -> None:
-    """Append a message to a thread. On DB failure, log and no-op."""
+) -> str | None:
+    """Append a message to a thread; return its row id (or None on failure)."""
     try:
         # Get the next seq number for this thread
         count_resp = await client.table("chat_messages").select(
@@ -37,19 +37,36 @@ async def append_message(
         ).eq("thread_id", thread_id).execute()
         seq = count_resp.count + 1 if count_resp.count else 1
 
-        await client.table("chat_messages").insert({
+        resp = await client.table("chat_messages").insert({
             "thread_id": thread_id,
             "user_id": user_id,
             "role": role,
             "seq": seq,
             "parts": parts,
         }).execute()
+        data = resp.data or []
+        return data[0].get("id") if data else None
     except Exception as e:
         if "relation" in str(e) or "does not exist" in str(e):
             _log.warning("chat_store_unavailable", exc_info=e)
         else:
             _log.exception("chat_store_error")
-        # No-op on error; don't raise
+        return None  # No-op on error; don't raise
+
+
+async def update_message(client, *, message_id: str, parts: list[Any]) -> None:
+    """Overwrite a message's ``parts`` (used to finalize a paused turn's row in
+    place, so a resumed turn updates its persisted card instead of duplicating).
+    Best-effort: log and no-op on failure."""
+    try:
+        await client.table("chat_messages").update({"parts": parts}).eq(
+            "id", message_id
+        ).execute()
+    except Exception as e:
+        if "relation" in str(e) or "does not exist" in str(e):
+            _log.warning("chat_store_unavailable", exc_info=e)
+        else:
+            _log.exception("chat_store_error")
 
 
 async def thread_owned(client, *, user_id: str, thread_id: str) -> bool:

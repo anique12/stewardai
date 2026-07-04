@@ -229,19 +229,33 @@ export function useChat(
     [openSocket],
   );
 
+  // decide/connectDone open the socket if needed (it may be closed after a
+  // refresh) and always carry thread_id, so a decision made on a fresh socket
+  // still routes to the paused session the server kept alive.
   const decide = useCallback(
     (decision: PermissionDecision, args?: Record<string, unknown>) => {
       setState((s) => ({ ...s, awaiting: null }));
-      wsRef.current?.send(
-        JSON.stringify({ type: "permission_decision", decision, args }),
+      const threadId = threadIdRef.current;
+      void openSocket().then((ws) =>
+        ws?.send(
+          JSON.stringify({
+            type: "permission_decision",
+            decision,
+            args,
+            thread_id: threadId ?? undefined,
+          }),
+        ),
       );
     },
-    [],
+    [openSocket],
   );
 
   const connectDone = useCallback(() => {
-    wsRef.current?.send(JSON.stringify({ type: "connect_done" }));
-  }, []);
+    const threadId = threadIdRef.current;
+    void openSocket().then((ws) =>
+      ws?.send(JSON.stringify({ type: "connect_done", thread_id: threadId ?? undefined })),
+    );
+  }, [openSocket]);
 
   return {
     messages: state.messages,

@@ -10,6 +10,8 @@ type StoredPart = {
   activities?: Activity[];
   thinking?: string;
   thinking_seconds?: number | null;
+  pending?: "permission" | "connect";
+  data?: Record<string, unknown>;
 };
 
 // Rebuild a display Message from a stored chat_messages row's `parts` jsonb.
@@ -22,6 +24,9 @@ function rowToMessage(row: { role: string; parts: unknown }): Message {
   let activities: Activity[] = [];
   let thinking = "";
   let thinkingSeconds: number | null = null;
+  let pending: "permission" | "connect" | undefined;
+  let permission: Record<string, unknown> | undefined;
+  let connect: Record<string, unknown> | undefined;
   for (const p of parts) {
     if (p?.type === "text" && typeof p.text === "string") text += p.text;
     else if (p?.type === "citation_group" && Array.isArray(p.citations)) citations = p.citations;
@@ -29,6 +34,12 @@ function rowToMessage(row: { role: string; parts: unknown }): Message {
     else if (p?.type === "thinking_block" && typeof p.thinking === "string") {
       thinking = p.thinking;
       if (typeof p.thinking_seconds === "number") thinkingSeconds = p.thinking_seconds;
+    } else if (p?.type === "pending" && (p.pending === "permission" || p.pending === "connect")) {
+      // A turn paused on a permission/connect interrupt — restore its card so a
+      // refresh doesn't drop it (the server keeps the session alive to resume).
+      pending = p.pending;
+      if (p.pending === "permission") permission = p.data ?? {};
+      else connect = p.data ?? {};
     }
   }
   return {
@@ -38,7 +49,10 @@ function rowToMessage(row: { role: string; parts: unknown }): Message {
     citations,
     thinking,
     thinkingSeconds,
-    done: true,
+    done: pending === undefined,
+    pending,
+    permission,
+    connect,
   };
 }
 
