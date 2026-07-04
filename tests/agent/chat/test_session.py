@@ -236,3 +236,15 @@ async def test_stream_turn_runs_inside_chat_usage_scope(monkeypatch):
     assert captured.get("user_id") == "u1"
     assert captured.get("thread_id") == "thread-1"
     assert captured.get("request_id")  # a uuid was assigned for this turn
+
+
+def test_content_text_handles_str_and_reasoning_list_blocks():
+    from stewardai.agent.chat.session import _content_text
+
+    # Plain string (non-reasoning models)
+    assert _content_text("hello") == "hello"
+    # Reasoning-model list content: only text blocks are joined; bare strings kept.
+    assert _content_text([{"type": "text", "text": "the "}, "answer"]) == "the answer"
+    # Non-text blocks ignored; None/other → empty
+    assert _content_text([{"type": "tool_use", "id": "x"}]) == ""
+    assert _content_text(None) == ""

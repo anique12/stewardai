@@ -36,6 +36,20 @@ export default function ConnectionsPage() {
     return () => window.removeEventListener("focus", refreshStatus);
   }, [refreshStatus]);
 
+  // If this page was opened as the OAuth popup (window.opener set) and Composio
+  // redirected back with ?status=success, auto-close so the user returns to chat
+  // — the chat's connect card polls status and resumes on its own.
+  useEffect(() => {
+    try {
+      const ok = new URLSearchParams(window.location.search).get("status") === "success";
+      if (ok && window.opener && window.opener !== window) {
+        setTimeout(() => window.close(), 400);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   function statusFor(app: CatalogApp): CardStatus {
     if (app.availability === "coming_soon") return "disconnected";
     if (!loaded) return "loading";

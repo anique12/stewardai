@@ -246,23 +246,26 @@ function describeActivity(activity: Activity): string {
   return friendlyToolLabel(activity.name);
 }
 
-function ActivityLine({ activity }: { activity: Activity }) {
-  // Spinner while running, red on error, otherwise the action's own icon.
-  const Icon =
-    activity.status === "started"
-      ? Loader2
-      : activity.status === "error"
-        ? XCircle
-        : activity.kind === "reasoning"
-          ? Sparkles
-          : toolIcon(activity.name);
+function ActivityLine({ activity, paused }: { activity: Activity; paused?: boolean }) {
+  // Spinner while running, red on error, otherwise the action's own icon. When
+  // the turn is paused on a card, a "started" action isn't really running (it's
+  // waiting on the user) — show its icon, not a spinner, so the card is the only
+  // live indicator.
+  const spinning = activity.status === "started" && !paused;
+  const Icon = spinning
+    ? Loader2
+    : activity.status === "error"
+      ? XCircle
+      : activity.kind === "reasoning"
+        ? Sparkles
+        : toolIcon(activity.name);
 
   return (
     <div className="flex w-fit max-w-full items-center gap-1.5 px-1.5 py-1 text-[12.5px] text-muted-foreground">
       <Icon
         className={cn(
           "h-3.5 w-3.5 shrink-0",
-          activity.status === "started" && "animate-spin",
+          spinning && "animate-spin",
           activity.status === "error" && "text-destructive",
         )}
         aria-hidden
@@ -338,9 +341,11 @@ function ThinkingBlock({
 
 // Collapse all of a turn's actions into one "Worked through N actions" line
 // (Claude-chat style) that expands to reveal every tool call.
-function ActivityGroup({ activities }: { activities: Activity[] }) {
+function ActivityGroup({ activities, paused }: { activities: Activity[]; paused?: boolean }) {
   if (activities.length === 0) return null;
-  const running = activities.some((a) => a.status === "started");
+  // When the turn is paused on a card, an in-flight action is waiting on the
+  // user, not running — so don't spin "Working…" (the card is the live status).
+  const running = !paused && activities.some((a) => a.status === "started");
   const n = activities.length;
   return (
     <Collapsible
@@ -357,7 +362,7 @@ function ActivityGroup({ activities }: { activities: Activity[] }) {
     >
       <div className="mt-0.5 flex flex-col gap-0.5 border-l border-border pl-2">
         {activities.map((a, i) => (
-          <ActivityLine key={`${a.kind}-${a.name ?? i}`} activity={a} />
+          <ActivityLine key={`${a.kind}-${a.name ?? i}`} activity={a} paused={paused} />
         ))}
       </div>
     </Collapsible>
@@ -439,7 +444,7 @@ function AssistantTurn({
         streaming={streaming}
         seconds={message.thinkingSeconds}
       />
-      <ActivityGroup activities={activities} />
+      <ActivityGroup activities={activities} paused={!!message.pending} />
 
 
 

@@ -53,6 +53,23 @@ from stewardai.observability.usage_context import usage_scope
 _log = get_logger("agent.chat.session")
 
 
+def _content_text(content: Any) -> str:
+    """Extract plain text from a LangChain message ``content``, which for
+    reasoning models can be a list of blocks (``[{"type": "text", "text": ...},
+    ...]``) rather than a plain string."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text") or ""))
+        return "".join(parts)
+    return ""
+
+
 class ChatSession:
     """One user's agentic-chat conversation: a persistent LangGraph agent +
     ``InMemorySaver`` checkpoint bound to a fixed ``thread_id``, built once
@@ -200,15 +217,21 @@ class ChatSession:
             yield {"type": "error", "message": "something went wrong on this turn"}
             return
 
-        answer = accumulated
+        # The authoritative answer is the FINAL assistant message — NOT the
+        # accumulated stream, which concatenates text the model emitted across
+        # multiple tool-call rounds (e.g. an interim "I can't access that,
+        # connect it" from a connect round + the real answer from a later
+        # round). `_content_text` handles reasoning models whose content is a
+        # list of blocks (str check alone missed those → fell back to the
+        # concatenation). Fall back to `accumulated` only if state is unavailable.
+        answer = ""
         try:
             state = await self._agent.aget_state(self._config)
-            last_message = state.values["messages"][-1]
-            content = last_message.content
-            if isinstance(content, str) and content:
-                answer = content
+            answer = _content_text(state.values["messages"][-1].content)
         except Exception:
             pass
+        if not answer.strip():
+            answer = accumulated
 
         # Safety net: a turn that completes with no text at all (e.g. the model
         # returned an empty candidate) must never render as a blank message.
