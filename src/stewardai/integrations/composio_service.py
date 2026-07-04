@@ -210,15 +210,16 @@ class ComposioService:
         self,
         user_id: str,
         toolkits: list[str] | None = None,
+        *,
+        only_connected: bool = True,
     ) -> list[dict]:
-        """Return LLM-callable tool schemas for allowed actions on connected apps.
+        """Return LLM-callable tool schemas for allowed actions.
 
         The returned list contains OpenAI function-calling format dicts
         (``{"type": "function", "function": {"name": ..., "description": ...,
         "parameters": {...}}}``) — directly usable with LiteLLM / Gemini.
 
-        Only actions on the allow-list are included; any toolkit not in
-        *toolkits* (or not connected by the user) is skipped.
+        Only actions on the allow-list are included.
 
         Parameters
         ----------
@@ -226,17 +227,27 @@ class ComposioService:
             Composio entity / Supabase user UUID.
         toolkits:
             Optional filter: only return tools from these toolkit slugs.
-            Defaults to all connected toolkits.
+        only_connected:
+            When ``True`` (default), restrict to toolkits the user has an
+            ACTIVE connection for. When ``False``, expose the allow-listed
+            actions for ALL supported toolkits regardless of connection —
+            Composio serves the schemas without a live connection, and calling
+            an unconnected action trips the connect-required gate in
+            :mod:`stewardai.agent.chat.composio_tools` (so the agent offers to
+            connect the app instead of silently having no tool to call).
 
         Returns
         -------
         list[dict]
             OpenAI-format tool schema dicts.
         """
-        connected = self.list_connected(user_id)
-        target_toolkits = [
-            t for t in (toolkits or connected) if t in connected and t in TOOLKITS
-        ]
+        if only_connected:
+            connected = self.list_connected(user_id)
+            target_toolkits = [
+                t for t in (toolkits or connected) if t in connected and t in TOOLKITS
+            ]
+        else:
+            target_toolkits = [t for t in (toolkits or TOOLKITS) if t in TOOLKITS]
         if not target_toolkits:
             return []
 

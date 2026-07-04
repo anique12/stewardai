@@ -14,10 +14,13 @@ gate-then-mutate executor shape):
    interrupt (unless the user has "always allow"-ed that exact action slug),
    which the WS surfaces as ``permission_request`` with an args preview.
 2. On "auto"/"approve", the action executes via ``ComposioService.execute``.
-   ``ComposioService.get_tools`` already filters to the user's *connected*
-   toolkits, so this should rarely see a disconnected app -- but a connection
-   can be revoked between listing and execution (or a stale tool list is
-   reused across a long chat session), so execution is still defended: a
+   The tool list is built with ``get_tools(..., only_connected=False)`` so
+   allow-listed actions for ALL supported toolkits are present even when the
+   user hasn't connected that app yet -- that's deliberate: the model must be
+   able to *call* an unconnected action so this executor can catch the "not
+   connected" signal and raise a ``kind="connect"`` interrupt, offering to
+   connect the app (rather than the model silently declining because it had no
+   tool). Execution is therefore the authorization boundary: a
    :class:`composio.exceptions.ConnectedAccountError` (covers
    ``ConnectedAccountNotFoundError``, an ACL-denied shared connection, etc.)
    or an unsuccessful result whose error text mentions the connection is
@@ -270,7 +273,13 @@ def build_composio_tools(*, user_id: str, composio_service: Any, client: Any = N
         return []
 
     try:
-        schemas = composio_service.get_tools(user_id)
+        # only_connected=False: expose allow-listed actions for ALL supported
+        # toolkits, not just connected ones. A tool the user hasn't authorized
+        # must still be present so the model can call it and trip the
+        # connect-required gate below (interrupt kind="connect") — otherwise an
+        # unconnected app has zero tools and the model just declines in prose
+        # instead of offering to connect it.
+        schemas = composio_service.get_tools(user_id, only_connected=False)
     except Exception as exc:  # noqa: BLE001 - listing failure must not break chat
         _log.warning("composio_tools_list_failed", user_id=user_id, error=str(exc))
         return []

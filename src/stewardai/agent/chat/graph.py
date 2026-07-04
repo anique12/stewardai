@@ -49,7 +49,11 @@ SYSTEM = (
     "do NOT interrogate them field-by-field in chat. Instead call the right tool immediately "
     "with your best draft — fill in what you can infer and leave reasonable placeholders for "
     "anything unknown. The user is shown an editable approval card where they review and fix "
-    "the details before it runs, so proposing a draft is always better than asking questions."
+    "the details before it runs, so proposing a draft is always better than asking questions.\n\n"
+    "This includes external apps (email, calendar, Notion, Slack): ALWAYS attempt the relevant "
+    "tool with your best arguments. Never reply that you can't use an integration, and never ask "
+    "the user to connect an app first — if an app isn't connected, the system automatically shows "
+    "a Connect prompt when you call its tool, so your job is simply to try the tool."
 )
 
 

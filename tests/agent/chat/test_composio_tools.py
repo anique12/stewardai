@@ -32,7 +32,7 @@ class _FakeService:
         self._execute_fn = execute_fn
         self.execute_calls: list[tuple] = []
 
-    def get_tools(self, user_id):
+    def get_tools(self, user_id, *, only_connected=True):
         return self._schemas
 
     def execute(self, user_id, action_slug, arguments, **kwargs):
@@ -52,6 +52,25 @@ class _NotConnectedError(Exception):
 _NotConnectedError.__name__ = "ConnectedAccountNotFoundError"
 
 
+# --- (0) exposes unconnected toolkits so the connect gate can fire --------
+
+
+async def test_build_composio_tools_requests_unconnected_toolkits():
+    """The toolset must include tools for apps that are NOT yet connected, so
+    the model can call one and trip the connect-required gate (rather than
+    declining in prose). build_composio_tools must therefore ask get_tools for
+    tools regardless of connection state (only_connected=False)."""
+    seen = {}
+
+    class _RecordingService:
+        def get_tools(self, user_id, *, only_connected=True):
+            seen["only_connected"] = only_connected
+            return []
+
+    build_composio_tools(user_id="u1", composio_service=_RecordingService())
+    assert seen.get("only_connected") is False
+
+
 # --- (1) composio_service=None -------------------------------------------
 
 
@@ -62,7 +81,7 @@ async def test_build_composio_tools_returns_empty_when_service_none():
 
 async def test_build_composio_tools_returns_empty_when_listing_fails():
     class _BrokenService:
-        def get_tools(self, user_id):
+        def get_tools(self, user_id, *, only_connected=True):
             raise RuntimeError("composio API down")
 
     tools = build_composio_tools(user_id="u1", composio_service=_BrokenService())

@@ -235,6 +235,32 @@ class TestGetTools:
         result = svc.get_tools("user-3", toolkits=["notion"])
         assert result == []
 
+    def test_only_connected_false_exposes_unconnected_toolkits(self):
+        # Only gmail connected; notion is NOT. With only_connected=False the
+        # schema fetch still returns notion tools (Composio serves schemas
+        # without a live connection), so the agent can call one and trip the
+        # connect gate — the "tool available but not authorized → ask to
+        # connect" contract.
+        svc, mock_client = _service_with_mock(["gmail"])
+        mock_client.tools.get.side_effect = lambda user_id, tools: [
+            {"type": "function", "function": {"name": s, "description": "t", "parameters": {}}}
+            for s in tools
+        ]
+        names = {t["function"]["name"] for t in svc.get_tools("user-1", only_connected=False)}
+        notion_slugs = {s for s, _ in _ALLOW_LIST["notion"]}
+        assert notion_slugs.issubset(names)
+
+    def test_only_connected_true_is_the_default_and_still_filters(self):
+        # Default behavior unchanged: unconnected notion yields no tools.
+        svc, mock_client = _service_with_mock(["gmail"])
+        mock_client.tools.get.side_effect = lambda user_id, tools: [
+            {"type": "function", "function": {"name": s, "description": "t", "parameters": {}}}
+            for s in tools
+        ]
+        names = {t["function"]["name"] for t in svc.get_tools("user-1")}
+        notion_slugs = {s for s, _ in _ALLOW_LIST["notion"]}
+        assert not notion_slugs.intersection(names)
+
     def test_schema_has_expected_openai_shape(self):
         svc, mock_client = _service_with_mock(["gmail"])
         # Return a properly shaped OpenAI dict
