@@ -12,7 +12,9 @@ END = datetime(2026, 7, 4, 10, 0, 1)  # +1s
 
 
 def _usage(p, c, t=None):
-    return SimpleNamespace(prompt_tokens=p, completion_tokens=c, total_tokens=t if t is not None else p + c)
+    return SimpleNamespace(
+        prompt_tokens=p, completion_tokens=c, total_tokens=t if t is not None else p + c
+    )
 
 
 def _resp(content=None, tool_calls=None, usage=None):
@@ -43,8 +45,11 @@ def test_success_row_tokens_cost_attribution():
 
 
 def test_tool_calls_extracted_and_unknown_attribution():
-    tcs = [SimpleNamespace(function=SimpleNamespace(name="kb_search", arguments='{"q":"acme"}'))]
-    r = build_usage_row({"model": "gemini-2.5-pro"}, _resp(tool_calls=tcs, usage=_usage(3, 0)), START, END, ctx={})
+    fn = SimpleNamespace(name="kb_search", arguments='{"q":"acme"}')
+    tcs = [SimpleNamespace(function=fn)]
+    r = build_usage_row(
+        {"model": "gemini-2.5-pro"}, _resp(tool_calls=tcs, usage=_usage(3, 0)), START, END, ctx={}
+    )
     assert r["tool_calls"] == [{"name": "kb_search", "args": {"q": "acme"}}]
     assert r["feature"] == "unknown" and r["user_id"] is None
 
@@ -72,7 +77,9 @@ def test_cost_override_when_litellm_cannot_price(monkeypatch):
 
 def test_cost_zero_when_unpriced_and_no_override(monkeypatch):
     monkeypatch.setattr(ul, "_litellm_cost", lambda resp: 0.0)
-    r = build_usage_row({"model": "some-unknown-model"}, _resp(usage=_usage(5, 5)), START, END, ctx={})
+    r = build_usage_row(
+        {"model": "some-unknown-model"}, _resp(usage=_usage(5, 5)), START, END, ctx={}
+    )
     assert r["cost_usd"] == 0.0
 
 
