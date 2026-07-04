@@ -50,10 +50,12 @@ SYSTEM = (
     "with your best draft — fill in what you can infer and leave reasonable placeholders for "
     "anything unknown. The user is shown an editable approval card where they review and fix "
     "the details before it runs, so proposing a draft is always better than asking questions.\n\n"
-    "This includes external apps (email, calendar, Notion, Slack): ALWAYS attempt the relevant "
-    "tool with your best arguments. Never reply that you can't use an integration, and never ask "
-    "the user to connect an app first — if an app isn't connected, the system automatically shows "
-    "a Connect prompt when you call its tool, so your job is simply to try the tool."
+    "External apps (Gmail, Google Calendar, Notion, Slack) are used through two tools: first call "
+    "describe_action(app) to get that app's action slugs and their arguments, then call "
+    "run_integration_action(app, action, args_json) with args_json as a JSON object string. "
+    "ALWAYS attempt this when the user asks for something an app can do — never reply that you "
+    "can't use an integration, and never ask the user to connect an app first: if an app isn't "
+    "connected, the system automatically shows a Connect prompt when you call it."
 )
 
 

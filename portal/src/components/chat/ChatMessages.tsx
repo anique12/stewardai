@@ -9,6 +9,7 @@ import { Fragment, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
   Archive,
+  Blocks,
   Calendar,
   CalendarPlus,
   CheckCircle2,
@@ -190,6 +191,8 @@ const FRIENDLY_TOOL: Record<string, string> = {
   GMAIL_SEND_EMAIL: "Sent an email",
   GMAIL_CREATE_EMAIL_DRAFT: "Drafted an email",
   GMAIL_GET_ATTACHMENT: "Fetched an attachment",
+  describe_action: "Checked available actions",
+  run_integration_action: "Used an integration",
 };
 
 // A distinct icon per action so the activity list reads at a glance (instead of
@@ -215,6 +218,8 @@ const TOOL_ICON: Record<string, LucideIcon> = {
   GMAIL_SEND_EMAIL: Send,
   GMAIL_CREATE_EMAIL_DRAFT: Mail,
   GMAIL_GET_ATTACHMENT: Paperclip,
+  describe_action: Search,
+  run_integration_action: Blocks,
 };
 
 function toolIcon(name?: string): LucideIcon {

@@ -1,41 +1,32 @@
-"""Composio external-tool wrappers for agentic chat.
+"""Composio external tools for agentic chat, via PROGRESSIVE TOOL DISCLOSURE.
 
-Lists a user's allow-listed, connected Composio actions (Gmail / Google
-Calendar / Notion / Slack -- see :mod:`stewardai.integrations.composio_service`)
-and wraps each one as a gated LangChain ``StructuredTool``, reusing the exact
-patterns already proven by :mod:`stewardai.agent.live_tools` (schema-driven
-tool construction) and :mod:`stewardai.agent.chat.write_tools` (the
-gate-then-mutate executor shape):
+Instead of one gated tool per Composio action (Gmail / Google Calendar / Notion
+/ Slack), whose combined JSON schemas cost ~16k tokens on EVERY LLM call, we
+expose just two small generic tools and load per-action schemas on demand:
 
-1. Every Composio action name is unknown to
-   :data:`stewardai.agent.chat.permissions.TIER`, so
-   :func:`stewardai.agent.chat.permissions.gate` classifies all of them as
-   ``"outward"`` -- calling one always raises a ``kind="permission"``
-   interrupt (unless the user has "always allow"-ed that exact action slug),
-   which the WS surfaces as ``permission_request`` with an args preview.
-2. On "auto"/"approve", the action executes via ``ComposioService.execute``.
-   The tool list is built with ``get_tools(..., only_connected=False)`` so
-   allow-listed actions for ALL supported toolkits are present even when the
-   user hasn't connected that app yet -- that's deliberate: the model must be
-   able to *call* an unconnected action so this executor can catch the "not
-   connected" signal and raise a ``kind="connect"`` interrupt, offering to
-   connect the app (rather than the model silently declining because it had no
-   tool). Execution is therefore the authorization boundary: a
-   :class:`composio.exceptions.ConnectedAccountError` (covers
-   ``ConnectedAccountNotFoundError``, an ACL-denied shared connection, etc.)
-   or an unsuccessful result whose error text mentions the connection is
-   treated as "not connected" and raises a second, ``kind="connect"``
-   interrupt so the WS surfaces ``connect_required`` for that app. Resuming
-   with the ``"retry"`` decision (``web/app.py`` maps a ``connect_done``
-   client message to that) re-attempts execution exactly once more.
+1. ``describe_action(app)`` -- returns that app's allow-listed action slugs and
+   their argument schemas as a tool RESULT, so a fat schema is paid once, only
+   for the app actually used, rather than upfront for all of them every call.
+2. ``run_integration_action(app, action, args_json)`` -- executes one action.
+   It calls :func:`stewardai.agent.chat.permissions.gate` with the REAL action
+   slug (so read-verb slugs auto-run and everything else raises a
+   ``kind="permission"`` interrupt with the args preview the approval card
+   renders), then :func:`_execute_with_connect_gate`, which runs the action via
+   ``ComposioService.execute`` and, on a "not connected" signal
+   (:class:`composio.exceptions.ConnectedAccountError`, an ACL-denied shared
+   connection, or an unsuccessful result mentioning the connection), raises a
+   ``kind="connect"`` interrupt so the WS surfaces ``connect_required`` for that
+   app. Resuming with ``"retry"`` (``web/app.py`` maps ``connect_done`` to it)
+   re-attempts execution once. Result formatting (calendar/gmail) is keyed on
+   the action slug exactly as before.
 
-Building the tool list itself (``composio_service is None``, an API error
-while listing) is fully defensive -- it degrades to ``[]`` rather than ever
-raising into the chat graph, so chat still works with read+write tools only.
+Building the tools is defensive: ``composio_service is None`` -> ``[]``; a bad
+describe call returns an error result rather than raising into the chat graph.
 """
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 from langchain_core.tools import StructuredTool
@@ -43,6 +34,7 @@ from langgraph.types import interrupt
 
 from stewardai.agent.chat.permissions import gate
 from stewardai.common.logging import get_logger
+from stewardai.integrations.composio_service import TOOLKITS
 
 _log = get_logger("agent.chat.composio_tools")
 
@@ -96,16 +88,6 @@ def _sanitize_gemini_schema(node: Any) -> Any:
     if out.get("type") == "object" and "properties" not in out:
         out["properties"] = {}
     return out
-
-
-def _toolkit_of(slug: str) -> str:
-    """Derive the toolkit slug from an action slug (prefix before first `_`).
-
-    All allow-listed toolkits (gmail, googlecalendar, notion, slack) happen to
-    equal their action slugs' lowercased first segment, so no lookup table is
-    needed (contrast ``live_tools._slug_to_toolkit``, which keeps one anyway).
-    """
-    return slug.split("_")[0].lower()
 
 
 def _mentions_connection_issue(text: str) -> bool:
@@ -250,108 +232,144 @@ def _format_tool_result(slug: str, result: Any) -> dict | None:
 
 
 def build_composio_tools(*, user_id: str, composio_service: Any, client: Any = None) -> list:
-    """Build one gated LangChain tool per the user's allow-listed, connected
-    Composio action.
+    """Build TWO generic integration tools (progressive tool disclosure):
 
-    Returns ``[]`` gracefully when ``composio_service`` is ``None`` (Composio
-    disabled / unavailable) or when listing the user's tools fails for any
-    reason -- chat still runs fine with read+write tools only.
+    - ``describe_action(app)`` — returns an app's allow-listed actions + their
+      argument schemas ON DEMAND (as a tool result), so the model pays a fat
+      Composio schema only for the app it actually uses, once — instead of every
+      per-action schema (~16k tokens) being sent on every LLM call.
+    - ``run_integration_action(app, action, args_json)`` — executes one action,
+      going through the same permission gate + connect gate + result formatting
+      as before, keyed on the real action slug (so the approval card, read-tier
+      auto-run, and "Connect <app>" flow all behave exactly as with per-action
+      tools).
+
+    Returns ``[]`` when ``composio_service`` is ``None``.
 
     Parameters
     ----------
     user_id:
         Supabase user UUID / Composio entity id.
     composio_service:
-        A :class:`stewardai.integrations.composio_service.ComposioService`
-        instance, or ``None``.
+        A :class:`stewardai.integrations.composio_service.ComposioService`, or ``None``.
     client:
-        The Supabase client used by :func:`gate` for the "always allow"
-        allowlist check. May be ``None`` -- ``gate`` degrades to "not
-        allowlisted" and gates normally (see ``store.is_allowed``).
+        Supabase client for :func:`gate`'s "always allow" check (may be ``None``).
     """
     if composio_service is None:
         return []
-
-    try:
-        # only_connected=False: expose allow-listed actions for ALL supported
-        # toolkits, not just connected ones. A tool the user hasn't authorized
-        # must still be present so the model can call it and trip the
-        # connect-required gate below (interrupt kind="connect") — otherwise an
-        # unconnected app has zero tools and the model just declines in prose
-        # instead of offering to connect it.
-        schemas = composio_service.get_tools(user_id, only_connected=False)
-    except Exception as exc:  # noqa: BLE001 - listing failure must not break chat
-        _log.warning("composio_tools_list_failed", user_id=user_id, error=str(exc))
-        return []
-
-    tools: list = []
-    for schema in schemas or []:
-        fn_def = (schema or {}).get("function", {})
-        slug: str = fn_def.get("name", "")
-        if not slug:
-            continue
-        description: str = fn_def.get("description") or slug
-        parameters: dict = fn_def.get("parameters") or {"type": "object", "properties": {}}
-        tool = _make_tool(
-            slug=slug,
-            description=description,
-            parameters=parameters,
-            user_id=user_id,
-            composio_service=composio_service,
-            client=client,
-        )
-        if tool is not None:
-            tools.append(tool)
-
-    _log.info("composio_tools_built", user_id=user_id, count=len(tools))
+    tools = [
+        _make_describe_tool(user_id=user_id, composio_service=composio_service),
+        _make_run_tool(user_id=user_id, composio_service=composio_service, client=client),
+    ]
+    _log.info("composio_tools_built", user_id=user_id, count=len(tools), mode="generic")
     return tools
 
 
-def _make_tool(
-    *,
-    slug: str,
-    description: str,
-    parameters: dict,
-    user_id: str,
-    composio_service: Any,
-    client: Any,
-) -> Any | None:
-    app = _toolkit_of(slug)
+_APP_ENUM = list(TOOLKITS)
 
-    async def _run(**kwargs: Any) -> dict:
-        # NOTE: deliberately NOT wrapped in try/except -- gate() (and the
-        # connect-flow interrupt below) raise langgraph's GraphInterrupt
-        # (a plain Exception subclass) to pause the turn; catching broadly
-        # here would swallow that and silently break the permission/connect
-        # flow instead of surfacing it. The graph engine itself intercepts
-        # GraphInterrupt (turning it into a stream `__interrupt__` chunk --
-        # see ChatSession._drive), and ChatSession._drive's own try/except
-        # is the right place to catch any other genuine error.
+
+def _make_describe_tool(*, user_id: str, composio_service: Any) -> Any:
+    async def _describe(app: str) -> dict:
+        app_l = (app or "").strip().lower()
+        if app_l not in TOOLKITS:
+            return {"error": f"unknown app {app!r}; must be one of {', '.join(TOOLKITS)}"}
+        try:
+            schemas = composio_service.get_tools(user_id, toolkits=[app_l], only_connected=False)
+        except Exception as exc:  # noqa: BLE001 - listing failure → tell the model, don't crash
+            _log.warning("composio_describe_failed", app=app_l, error=str(exc))
+            return {"error": f"could not list actions for {app_l} right now"}
+        actions = []
+        for sc in schemas or []:
+            fn = (sc or {}).get("function", {})
+            name = fn.get("name")
+            if not name:
+                continue
+            actions.append({
+                "action": name,
+                "description": fn.get("description") or name,
+                "parameters": _sanitize_gemini_schema(fn.get("parameters") or {}),
+            })
+        return {"app": app_l, "actions": actions}
+
+    args_schema = {
+        "type": "object",
+        "properties": {
+            "app": {
+                "type": "string",
+                "enum": _APP_ENUM,
+                "description": "Integration app to describe.",
+            }
+        },
+        "required": ["app"],
+    }
+    return StructuredTool.from_function(
+        coroutine=_describe,
+        name="describe_action",
+        description=(
+            "List an integration app's available actions and their exact argument "
+            "schemas. ALWAYS call this before run_integration_action so you use the "
+            f"correct action slug and arguments. app is one of: {', '.join(TOOLKITS)}."
+        ),
+        args_schema=args_schema,
+    )
+
+
+def _make_run_tool(*, user_id: str, composio_service: Any, client: Any) -> Any:
+    async def _run(app: str, action: str, args_json: str = "{}") -> dict:
+        # NOT wrapped in try/except: gate()/connect interrupt raise langgraph's
+        # GraphInterrupt to pause the turn — catching here would break the
+        # permission/connect flow. ChatSession._drive catches real errors.
+        app_l = (app or "").strip().lower()
+        action_u = (action or "").strip()
+        try:
+            args = json.loads(args_json) if args_json and args_json.strip() else {}
+        except Exception:  # noqa: BLE001 - malformed args → tell the model to retry
+            return {"ok": False, "error": "args_json must be a valid JSON object string"}
+        if not isinstance(args, dict):
+            return {"ok": False, "error": "args_json must be a JSON object"}
+
         decision, edited_args = await gate(
             client,
             user_id=user_id,
-            tool_name=slug,
-            payload={"app": app, "action": slug, "args": kwargs},
+            tool_name=action_u,  # real slug → correct tier + approval-card rendering
+            payload={"app": app_l, "action": action_u, "args": args},
         )
         if decision not in ("auto", "approve"):
             return dict(_SKIPPED)
-        # Honor edits the user made in the approval card (they override the
-        # model's drafted args), so "type it in the UI" actually takes effect.
-        run_args = {**kwargs, **edited_args} if edited_args else kwargs
+        run_args = {**args, **edited_args} if edited_args else args
         return await _execute_with_connect_gate(
-            slug=slug, app=app, kwargs=run_args, user_id=user_id, composio_service=composio_service,
+            slug=action_u, app=app_l, kwargs=run_args,
+            user_id=user_id, composio_service=composio_service,
         )
 
-    clean = _sanitize_gemini_schema(parameters) if isinstance(parameters, dict) else None
-    has_props = isinstance(clean, dict) and bool(clean.get("properties"))
-    args_schema = clean if has_props else None
-    try:
-        return StructuredTool.from_function(
-            coroutine=_run, name=slug, description=description, args_schema=args_schema,
-        )
-    except Exception as exc:  # noqa: BLE001 - a malformed schema shouldn't break other tools
-        _log.warning("composio_tool_build_failed", slug=slug, error=str(exc))
-        return None
+    args_schema = {
+        "type": "object",
+        "properties": {
+            "app": {"type": "string", "enum": _APP_ENUM, "description": "Integration app."},
+            "action": {
+                "type": "string",
+                "description": "Exact action slug from describe_action, e.g. GMAIL_SEND_EMAIL.",
+            },
+            "args_json": {
+                "type": "string",
+                "description": (
+                    "The action's arguments as a JSON object string, matching the "
+                    "schema from describe_action. Use {} if none."
+                ),
+            },
+        },
+        "required": ["app", "action", "args_json"],
+    }
+    return StructuredTool.from_function(
+        coroutine=_run,
+        name="run_integration_action",
+        description=(
+            "Execute an integration action (Gmail, Google Calendar, Notion, Slack). "
+            "Call describe_action(app) first to get the action slug + arguments. If "
+            "the app isn't connected, the user is automatically prompted to connect."
+        ),
+        args_schema=args_schema,
+    )
 
 
 async def _execute_with_connect_gate(
