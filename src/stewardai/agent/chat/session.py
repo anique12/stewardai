@@ -154,6 +154,12 @@ class ChatSession:
         except Exception:
             pass
 
+        # Safety net: a turn that completes with no text at all (e.g. the model
+        # returned an empty candidate) must never render as a blank message.
+        if not (answer or "").strip():
+            _log.warning("chat_empty_answer", thread_id=self.thread_id)
+            answer = "I wasn't able to generate a response — could you rephrase or try again?"
+
         yield {"type": "done", "answer": answer, "citations": citations}
 
     def _interrupt_event(self, chunk: dict) -> dict | None:

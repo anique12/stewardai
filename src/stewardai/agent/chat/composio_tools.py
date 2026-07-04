@@ -48,6 +48,53 @@ _RESULT_PREVIEW_LEN = 2000
 _MAX_ATTEMPTS = 2  # first attempt + exactly one retry after a "connect" interrupt
 
 
+# Gemini function-calling accepts only a small subset of JSON Schema. Composio's
+# raw schemas (notably Google Calendar) carry keywords Gemini rejects — anyOf/
+# oneOf/allOf, additionalProperties, $ref/$defs, format, default, pattern, … —
+# and an unsupported function declaration makes Gemini return an EMPTY response
+# for the WHOLE turn (no tool call, no text). Sanitize to the supported subset.
+_GEMINI_SCHEMA_KEYS = frozenset(
+    {"type", "properties", "required", "items", "enum", "description", "nullable"}
+)
+
+
+def _sanitize_gemini_schema(node: Any) -> Any:
+    """Recursively reduce a JSON Schema to Gemini's supported subset: keep only
+    known keys, flatten anyOf/oneOf/allOf to their first non-null branch, and
+    collapse union ``type`` lists (``["string","null"]`` -> ``string`` +
+    ``nullable``). Best-effort and total — never raises."""
+    if not isinstance(node, dict):
+        return node
+    out: dict = {}
+    for comb in ("anyOf", "oneOf", "allOf"):
+        branches = node.get(comb)
+        if isinstance(branches, list):
+            for sub in branches:
+                if isinstance(sub, dict) and sub.get("type") != "null":
+                    out.update(_sanitize_gemini_schema(sub))
+                    break
+    for key, val in node.items():
+        if key not in _GEMINI_SCHEMA_KEYS:
+            continue
+        if key == "type":
+            if isinstance(val, list):
+                non_null = [t for t in val if t != "null"]
+                out["type"] = non_null[0] if non_null else "string"
+                if "null" in val:
+                    out["nullable"] = True
+            else:
+                out["type"] = val
+        elif key == "properties" and isinstance(val, dict):
+            out["properties"] = {k: _sanitize_gemini_schema(v) for k, v in val.items()}
+        elif key == "items":
+            out["items"] = _sanitize_gemini_schema(val)
+        else:
+            out[key] = val
+    if out.get("type") == "object" and "properties" not in out:
+        out["properties"] = {}
+    return out
+
+
 def _toolkit_of(slug: str) -> str:
     """Derive the toolkit slug from an action slug (prefix before first `_`).
 
@@ -189,8 +236,9 @@ def _make_tool(
             slug=slug, app=app, kwargs=kwargs, user_id=user_id, composio_service=composio_service,
         )
 
-    has_props = isinstance(parameters, dict) and parameters.get("properties")
-    args_schema = parameters if has_props else None
+    clean = _sanitize_gemini_schema(parameters) if isinstance(parameters, dict) else None
+    has_props = isinstance(clean, dict) and bool(clean.get("properties"))
+    args_schema = clean if has_props else None
     try:
         return StructuredTool.from_function(
             coroutine=_run, name=slug, description=description, args_schema=args_schema,
