@@ -19,6 +19,7 @@ export type UseChatResult = {
   awaiting: ChatState["awaiting"];
   connected: boolean;
   reason: string | null;
+  threadId: string | null;
   send: (text: string) => void;
   decide: (decision: PermissionDecision) => void;
   connectDone: () => void;
@@ -46,7 +47,7 @@ async function getAccessToken(): Promise<string | null> {
   }
 }
 
-export function useChat(): UseChatResult {
+export function useChat(initialThreadId?: string): UseChatResult {
   const [state, setState] = useState<ChatState>(() => initialChatState());
   const [connected, setConnected] = useState(false);
   const [reason, setReason] = useState<string | null>(null);
@@ -89,6 +90,34 @@ export function useChat(): UseChatResult {
       setReason(null);
     });
   }, []);
+
+  // Load an existing thread's history on mount / when the selected thread changes.
+  // The thread id lives in the URL, so refresh + sidebar navigation restore it.
+  useEffect(() => {
+    const tid = initialThreadId;
+    if (!tid) {
+      // "New chat" (no thread in URL): clear only if a thread is currently loaded.
+      if (threadIdRef.current) setState(initialChatState());
+      return;
+    }
+    if (tid === threadIdRef.current) return; // already have it (we created or loaded it)
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/chat/threads/${tid}`);
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (cancelled) return;
+        const messages: Message[] = Array.isArray(data?.messages) ? data.messages : [];
+        setState({ messages, streaming: false, awaiting: null, threadId: tid });
+      } catch {
+        /* best-effort — leave state as-is */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [initialThreadId]);
 
   const openSocket = useCallback((): Promise<WebSocket | null> => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -195,6 +224,7 @@ export function useChat(): UseChatResult {
     awaiting: state.awaiting,
     connected,
     reason,
+    threadId: state.threadId,
     send,
     decide,
     connectDone,

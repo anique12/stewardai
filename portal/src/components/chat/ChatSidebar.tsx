@@ -6,6 +6,7 @@
 // crashing the page.
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { MessageSquarePlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -19,7 +20,13 @@ function isThreadArray(value: unknown): value is Thread[] {
   return Array.isArray(value) && value.every((t) => t && typeof t === "object" && "id" in t);
 }
 
-export function ChatSidebar({ onNewChat }: { onNewChat: () => void }) {
+export function ChatSidebar({
+  activeThreadId,
+  onNewChat,
+}: {
+  activeThreadId?: string | null;
+  onNewChat: () => void;
+}) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -76,12 +83,15 @@ export function ChatSidebar({ onNewChat }: { onNewChat: () => void }) {
           <ul className="flex flex-col gap-0.5">
             {threads.map((t) => (
               <li key={t.id}>
-                <button
-                  type="button"
-                  className="w-full truncate rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
+                <Link
+                  href={`/app/chat?thread=${t.id}`}
+                  className={cn(
+                    "block w-full truncate rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-secondary/60 hover:text-foreground",
+                    t.id === activeThreadId ? "bg-secondary/60 text-foreground" : "text-muted-foreground",
+                  )}
                 >
                   {t.title || "Untitled chat"}
-                </button>
+                </Link>
               </li>
             ))}
           </ul>

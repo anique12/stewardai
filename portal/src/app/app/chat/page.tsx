@@ -1,23 +1,35 @@
 "use client";
 
+import { Suspense, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useChat } from "@/hooks/useChat";
 import { ChatMessages } from "@/components/chat/ChatMessages";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { Composer } from "@/components/chat/Composer";
 
-export default function ChatPage() {
-  const { messages, streaming, connected, reason, send, decide, connectDone } = useChat();
+function ChatInner() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const threadParam = searchParams.get("thread");
+  const { messages, streaming, connected, reason, threadId, send, decide, connectDone } =
+    useChat(threadParam ?? undefined);
+
+  // When a new thread gets created (first message on a fresh chat), reflect its
+  // id in the URL so a refresh — and the sidebar — can restore this conversation.
+  useEffect(() => {
+    if (threadId && threadId !== threadParam) {
+      router.replace(`/app/chat?thread=${threadId}`);
+    }
+  }, [threadId, threadParam, router]);
 
   function handleNewChat() {
-    // Simplest v1 reset: reload the page to drop in-memory state; the next
-    // message opens a fresh socket/thread.
-    window.location.reload();
+    router.push("/app/chat");
   }
 
   return (
     <div className="flex h-full min-h-[calc(100vh-8rem)] gap-6">
       <aside className="hidden w-56 shrink-0 lg:block">
-        <ChatSidebar onNewChat={handleNewChat} />
+        <ChatSidebar activeThreadId={threadParam} onNewChat={handleNewChat} />
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -44,5 +56,13 @@ export default function ChatPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading…</div>}>
+      <ChatInner />
+    </Suspense>
   );
 }
