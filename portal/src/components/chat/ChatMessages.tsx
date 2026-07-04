@@ -190,20 +190,12 @@ function ActivityLine({ activity }: { activity: Activity }) {
   );
 }
 
-// Render activity lines, grouping into a single collapsible line when there are
-// many so a busy turn stays compact.
+// Collapse all of a turn's actions into one "Worked through N actions" line
+// (Claude-chat style) that expands to reveal every tool call.
 function ActivityGroup({ activities }: { activities: Activity[] }) {
   if (activities.length === 0) return null;
-  if (activities.length <= 3) {
-    return (
-      <div className="flex flex-col gap-0.5">
-        {activities.map((a, i) => (
-          <ActivityLine key={`${a.kind}-${a.name ?? i}`} activity={a} />
-        ))}
-      </div>
-    );
-  }
-  const allDone = activities.every((a) => a.status !== "started");
+  const running = activities.some((a) => a.status === "started");
+  const n = activities.length;
   return (
     <details className="group">
       <summary
@@ -213,15 +205,15 @@ function ActivityGroup({ activities }: { activities: Activity[] }) {
           "[&::-webkit-details-marker]:hidden",
         )}
       >
-        {allDone ? (
-          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
-        ) : (
+        {running ? (
           <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+        ) : (
+          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
         )}
-        <span>Worked through {activities.length} steps</span>
+        <span>{running ? "Working…" : `Worked through ${n} action${n === 1 ? "" : "s"}`}</span>
         <ChevronDown className="h-3 w-3 shrink-0 transition-transform group-open:rotate-180" aria-hidden />
       </summary>
-      <div className="mt-0.5 flex flex-col gap-0.5">
+      <div className="mt-0.5 flex flex-col gap-0.5 border-l border-border pl-2">
         {activities.map((a, i) => (
           <ActivityLine key={`${a.kind}-${a.name ?? i}`} activity={a} />
         ))}
