@@ -270,11 +270,10 @@ function AssistantTurn({
 }) {
   const citationsByN = new Map(message.citations.map((c) => [c.n, c]));
   const sources = groupCitationsByMeeting(message.citations);
-  // Hide the KB-search read line when a Sources strip is shown (redundant); keep
-  // all other activity (calendar reads, writes, sends).
-  const activities = message.activities.filter(
-    (a) => !(sources.length > 0 && a.kind === "tool" && a.name === "kb_search"),
-  );
+  // Show EVERY action Steward takes (like the artifact) — including "Searched
+  // your knowledge base". We only hide the *inner* detail (query/params), not
+  // the action line itself.
+  const activities = message.activities;
 
   return (
     <div className="flex flex-col gap-3">
