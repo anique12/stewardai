@@ -7,28 +7,42 @@
 
 import { Fragment } from "react";
 import Link from "next/link";
-import { CheckCircle2, Loader2, XCircle } from "lucide-react";
+import { CheckCircle2, FileText, Loader2, XCircle } from "lucide-react";
 import type { Activity, Citation as CitationType, Message } from "@/lib/chat/types";
 import type { PermissionDecision } from "@/hooks/useChat";
+import { useMeetingTitles, type MeetingInfo } from "@/hooks/useMeetingTitles";
 import { Citation } from "./Citation";
 import { ConnectCard } from "./ConnectCard";
 import { PermissionCard } from "./PermissionCard";
 import { cn } from "@/lib/utils";
 
-type AnswerPart = { type: "text"; value: string } | { type: "cite"; n: number };
+// A run of plain text, or a bracket of one-or-more citation numbers ([1] or [1, 6]).
+type AnswerPart = { type: "text"; value: string } | { type: "cites"; ns: number[]; raw: string };
 
 function parseAnswer(text: string): AnswerPart[] {
   const parts: AnswerPart[] = [];
-  const re = /\[(\d+)\]/g;
+  // Match single OR grouped markers: [1], [1, 6], [1, 2, 3].
+  const re = /\[([\d\s,]+)\]/g;
   let last = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     if (m.index > last) parts.push({ type: "text", value: text.slice(last, m.index) });
-    parts.push({ type: "cite", n: Number(m[1]) });
+    const ns = m[1]
+      .split(",")
+      .map((s) => Number(s.trim()))
+      .filter((n) => Number.isInteger(n));
+    parts.push({ type: "cites", ns, raw: m[0] });
     last = m.index + m[0].length;
   }
   if (last < text.length) parts.push({ type: "text", value: text.slice(last) });
   return parts;
+}
+
+function formatDate(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 function describeActivity(activity: Activity): string {
@@ -102,12 +116,14 @@ function UserTurn({ message }: { message: Message }) {
 function AssistantTurn({
   message,
   streaming,
+  titles,
   onDecide,
   onConnect,
   onSkip,
 }: {
   message: Message;
   streaming: boolean;
+  titles: Record<string, MeetingInfo>;
   onDecide: (decision: PermissionDecision) => void;
   onConnect: () => void;
   onSkip: () => void;
@@ -135,15 +151,19 @@ function AssistantTurn({
 
       {message.text.length > 0 && (
         <div className="max-w-none whitespace-pre-wrap text-[15px] leading-[1.68] text-foreground/90">
-          {parts.map((part, i) =>
-            part.type === "text" ? (
-              <Fragment key={i}>{part.value}</Fragment>
-            ) : citationsByN.has(part.n) ? (
-              <Citation key={i} citation={citationsByN.get(part.n)!} />
-            ) : (
-              <Fragment key={i}>[{part.n}]</Fragment>
-            ),
-          )}
+          {parts.map((part, i) => {
+            if (part.type === "text") return <Fragment key={i}>{part.value}</Fragment>;
+            const known = part.ns.filter((n) => citationsByN.has(n));
+            // No matching citation → show the model's literal marker rather than dropping it.
+            if (known.length === 0) return <Fragment key={i}>{part.raw}</Fragment>;
+            return (
+              <span key={i} className="inline-flex items-center gap-0.5 align-[2px]">
+                {known.map((n) => (
+                  <Citation key={n} citation={citationsByN.get(n)!} />
+                ))}
+              </span>
+            );
+          })}
         </div>
       )}
 
@@ -164,18 +184,31 @@ function AssistantTurn({
         <div className="mt-1 border-t border-dashed border-border pt-3">
           <div className="mb-2 text-[11px] uppercase tracking-wide text-muted-foreground">Sources</div>
           <div className="flex flex-wrap gap-2">
-            {sources.map((s) => (
-              <Link
-                key={s.meetingId}
-                href={`/app/meetings/${s.meetingId}`}
-                className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-xs shadow-sm transition-colors hover:border-primary/40"
-              >
-                <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10.5px] font-semibold tabular-nums text-primary">
-                  {s.ns.join("·")}
-                </span>
-                <span className="font-medium text-foreground">Meeting {s.meetingId.slice(0, 8)}</span>
-              </Link>
-            ))}
+            {sources.map((s) => {
+              const info = titles[s.meetingId];
+              const date = formatDate(info?.date ?? null);
+              return (
+                <Link
+                  key={s.meetingId}
+                  href={`/app/meetings/${s.meetingId}`}
+                  className="group flex items-center gap-2.5 rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-sm transition-colors hover:border-primary/40 hover:bg-secondary/40"
+                >
+                  <FileText
+                    className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary"
+                    aria-hidden
+                  />
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate font-medium text-foreground">
+                      {info?.title ?? `Meeting ${s.meetingId.slice(0, 8)}`}
+                    </span>
+                    {date && <span className="text-[11px] text-muted-foreground">{date}</span>}
+                  </span>
+                  <span className="ml-1 shrink-0 rounded bg-primary/15 px-1.5 py-0.5 text-[10.5px] font-semibold tabular-nums text-primary">
+                    {s.ns.join(" · ")}
+                  </span>
+                </Link>
+              );
+            })}
           </div>
         </div>
       )}
@@ -207,6 +240,13 @@ export function ChatMessages({
   onConnect: () => void;
   onSkip: () => void;
 }) {
+  // Fetch titles/dates for every cited meeting across the thread (RLS-scoped).
+  // Called unconditionally (before any early return) to keep hook order stable.
+  const citedMeetingIds = messages.flatMap((m) =>
+    m.role === "assistant" ? m.citations.map((c) => c.meeting_id) : [],
+  );
+  const titles = useMeetingTitles(citedMeetingIds);
+
   if (messages.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 py-24 text-center">
@@ -230,6 +270,7 @@ export function ChatMessages({
             key={i}
             message={message}
             streaming={streaming && isLast}
+            titles={titles}
             onDecide={onDecide}
             onConnect={onConnect}
             onSkip={onSkip}
