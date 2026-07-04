@@ -24,11 +24,53 @@ def _supports_reasoning(model: str) -> bool:
         return False
 
 
+def _install_gemini_content_shim() -> None:
+    """Work around a litellm Gemini bug that breaks multi-round tool turns when
+    reasoning is on.
+
+    ``GoogleAIStudioGeminiConfig._transform_messages`` iterates a message's
+    ``content`` list assuming every element is a dict (``element.get("type")``).
+    With ``reasoning_effort`` set, gemini-2.5-pro's assistant messages come back
+    on a later tool-call round as a content list containing a bare STRING, so
+    ``str.get`` raises ``AttributeError`` and the whole turn errors. We coerce
+    string elements to ``{"type": "text", "text": ...}`` before the original
+    runs -- exactly what litellm should do. Idempotent + fully guarded."""
+    try:
+        import litellm
+
+        cfg = litellm.GoogleAIStudioGeminiConfig
+        if getattr(cfg, "_stewardai_content_shim", False):
+            return
+        orig = cfg._transform_messages
+
+        def _patched(self, messages, *args, **kwargs):  # noqa: ANN001
+            _coerce_string_content_elements(messages)
+            return orig(self, messages, *args, **kwargs)
+
+        cfg._transform_messages = _patched
+        cfg._stewardai_content_shim = True
+    except Exception:  # noqa: BLE001 - never let a shim failure break model creation
+        pass
+
+
+def _coerce_string_content_elements(messages) -> None:  # noqa: ANN001
+    """In-place: turn any bare-string element of a message's ``content`` list into
+    a ``{"type": "text", "text": ...}`` block, so litellm's Gemini transform
+    (which calls ``element.get("type")``) doesn't choke on a string."""
+    for m in messages or []:
+        content = m.get("content") if isinstance(m, dict) else None
+        if isinstance(content, list):
+            m["content"] = [
+                {"type": "text", "text": el} if isinstance(el, str) else el for el in content
+            ]
+
+
 def make_chat_llm(role: str = "reasoning", *, tools=None):  # noqa: ANN001
     import os  # type: ignore
 
     from langchain_litellm import ChatLiteLLM  # type: ignore  # lazy
 
+    _install_gemini_content_shim()
     s = get_settings()
     if s.gemini_api_key:
         os.environ.setdefault("GEMINI_API_KEY", s.gemini_api_key)
