@@ -64,6 +64,20 @@ def test_tier_of_unknown_tool_defaults_to_outward():
     assert tier_of("some_never_seen_tool") == "outward"
 
 
+def test_tier_of_composio_read_actions_are_read_not_gated():
+    """Composio retrieval actions (read verbs) run without approval."""
+    for name in (
+        "GOOGLECALENDAR_EVENTS_LIST",
+        "GMAIL_FETCH_EMAILS",
+        "GMAIL_GET_ATTACHMENT",
+        "GOOGLECALENDAR_FIND_FREE_SLOTS",
+    ):
+        assert tier_of(name) == "read"
+    # Composio writes/sends still gate.
+    for name in ("GMAIL_SEND_EMAIL", "GOOGLECALENDAR_CREATE_EVENT", "GOOGLECALENDAR_UPDATE_EVENT"):
+        assert tier_of(name) == "outward"
+
+
 # --- gate: read / reversible --------------------------------------------
 
 
