@@ -212,6 +212,20 @@ async def _insert_row(row: dict) -> None:
     await client.table("usage_logs").insert(row).execute()
 
 
+async def purge_usage_logs(older_than_days: int = 90) -> int | None:
+    """Delete usage_logs rows older than ``older_than_days`` (full prompt/response
+    is sensitive at rest). Returns the deleted count, or None if no client.
+    Call from a scheduled job / cron; safe to run repeatedly."""
+    from datetime import UTC, datetime, timedelta
+
+    client = await _get_client()
+    if client is None:
+        return None
+    cutoff = (datetime.now(UTC) - timedelta(days=older_than_days)).isoformat()
+    res = await client.table("usage_logs").delete().lt("created_at", cutoff).execute()
+    return len(getattr(res, "data", None) or [])
+
+
 class UsageLogger(CustomLogger):  # type: ignore[misc,valid-type]
     """litellm callback: write one ``usage_logs`` row per completion/embedding.
 

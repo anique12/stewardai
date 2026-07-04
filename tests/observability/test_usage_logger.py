@@ -142,3 +142,35 @@ async def test_failure_event_records_error(monkeypatch):
     assert len(fake.rows) == 1
     assert fake.rows[0]["status"] == "error"
     assert fake.rows[0]["error"] == "rate limited"
+
+
+class _FakeDelete:
+    def __init__(self, store):
+        self.store = store
+
+    def delete(self):
+        return self
+
+    def lt(self, col, val):
+        self.store["col"] = col
+        self.store["val"] = val
+        return self
+
+    async def execute(self):
+        return SimpleNamespace(data=[{"id": "x"}])
+
+    def table(self, name):
+        self.store["table"] = name
+        return self
+
+
+async def test_purge_deletes_old_rows(monkeypatch):
+    store: dict = {}
+    fake = _FakeDelete(store)
+    monkeypatch.setattr(ul, "_client", fake)
+    monkeypatch.setattr(ul, "_client_factory", None)
+    n = await ul.purge_usage_logs(older_than_days=30)
+    assert store["table"] == "usage_logs"
+    assert store["col"] == "created_at"
+    assert isinstance(store["val"], str) and "T" in store["val"]  # ISO timestamp
+    assert n == 1
