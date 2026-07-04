@@ -6,6 +6,7 @@ import os
 
 from stewardai.common.audio import Message
 from stewardai.common.logging import get_logger
+from stewardai.observability.usage_context import usage_scope
 
 _log = get_logger("agent.summary")
 
@@ -21,18 +22,21 @@ _SUMMARY_SYSTEM = (
 )
 
 
-async def generate_summary(llm, transcript: list[str]) -> dict:  # noqa: ANN001
+async def generate_summary(
+    llm, transcript: list[str], *, user_id: str | None = None  # noqa: ANN001
+) -> dict:
     body = (
         "\n".join(f"{i}: {line}" for i, line in enumerate(transcript))
         if transcript
         else "(no transcript captured)"
     )
     chunks = []
-    async for delta in llm.complete(
-        [Message(role="user", content=body)], system=_SUMMARY_SYSTEM, temperature=0.2
-    ):
-        if delta:
-            chunks.append(delta)
+    with usage_scope(feature="summary", user_id=user_id):
+        async for delta in llm.complete(
+            [Message(role="user", content=body)], system=_SUMMARY_SYSTEM, temperature=0.2
+        ):
+            if delta:
+                chunks.append(delta)
     raw = "".join(chunks).strip()
     if raw.startswith("```"):  # strip markdown fences if the model adds them
         raw = raw.strip("`")

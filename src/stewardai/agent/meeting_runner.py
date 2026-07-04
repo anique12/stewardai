@@ -617,7 +617,8 @@ class MeetingSession:
                     if transcript is None:
                         transcript = self._transcript_for_output()
                     summary = await asyncio.wait_for(
-                        generate_summary(self._llm, transcript), timeout=15.0
+                        generate_summary(self._llm, transcript, user_id=self.user_id),
+                        timeout=15.0,
                     )
                     write_summary(self._mid, summary)
                     _log.info("summary_written", trigger=trigger, meeting=self._mid)

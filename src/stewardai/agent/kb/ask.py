@@ -8,6 +8,7 @@ from stewardai.agent.kb.retrieval import retrieve
 from stewardai.common.audio import Message
 from stewardai.common.logging import get_logger
 from stewardai.config import get_settings
+from stewardai.observability.usage_context import usage_scope
 
 _log = get_logger("agent.kb.ask")
 
@@ -30,29 +31,35 @@ def _snippet(text: str, limit: int = 160) -> str:
 
 async def answer_question(client, llm, *, user_id: str, query: str,
                           space_id: str | None = None) -> dict:
-    rows = await retrieve(client, llm, user_id=user_id, query=query, space_id=space_id,
-                          k=get_settings().ask_top_k)
-    if not rows:
-        return {"answer": _NO_CONTEXT, "citations": []}
+    # Attribute the embedding (retrieve) + the synthesis LLM call to feature="ask".
+    with usage_scope(
+        feature="ask",
+        user_id=user_id,
+        context={"space_id": space_id} if space_id else None,
+    ):
+        rows = await retrieve(client, llm, user_id=user_id, query=query, space_id=space_id,
+                              k=get_settings().ask_top_k)
+        if not rows:
+            return {"answer": _NO_CONTEXT, "citations": []}
 
-    citations = [{
-        "n": i + 1,
-        "meeting_id": r.get("meeting_id"),
-        "source_seq": r.get("source_seq"),
-        "kind": r.get("kind"),
-        "snippet": _snippet(r.get("text", "")),
-    } for i, r in enumerate(rows)]
+        citations = [{
+            "n": i + 1,
+            "meeting_id": r.get("meeting_id"),
+            "source_seq": r.get("source_seq"),
+            "kind": r.get("kind"),
+            "snippet": _snippet(r.get("text", "")),
+        } for i, r in enumerate(rows)]
 
-    context = "\n".join(
-        f"[{c['n']}] {r.get('text', '')}" for c, r in zip(citations, rows, strict=True)
-    )
-    user_msg = f"Question: {query}\n\nContext:\n{context}"
+        context = "\n".join(
+            f"[{c['n']}] {r.get('text', '')}" for c, r in zip(citations, rows, strict=True)
+        )
+        user_msg = f"Question: {query}\n\nContext:\n{context}"
 
-    parts: list[str] = []
-    async for token in llm.complete([Message(role="user", content=user_msg)],
-                                    system=_SYSTEM, temperature=0.2):
-        parts.append(token)
-    answer = "".join(parts).strip()
-    _log.info("kb_ask_answered", user_id=user_id, space_id=space_id,
-              hits=len(rows), chars=len(answer))
-    return {"answer": answer, "citations": citations}
+        parts: list[str] = []
+        async for token in llm.complete([Message(role="user", content=user_msg)],
+                                        system=_SYSTEM, temperature=0.2):
+            parts.append(token)
+        answer = "".join(parts).strip()
+        _log.info("kb_ask_answered", user_id=user_id, space_id=space_id,
+                  hits=len(rows), chars=len(answer))
+        return {"answer": answer, "citations": citations}
