@@ -72,6 +72,22 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-2.0-flash"
     llm_model: str | None = None  # explicit override; else derived from gemini_model
+    # KB embeddings (Plan B): single-provider Gemini embedding model. gemini-embedding-001
+    # defaults to 3072 dims but supports Matryoshka truncation to embedding_dim (768) via
+    # litellm's `dimensions` param, matching the vector(768) column. (text-embedding-004 is
+    # not available via embedContent on current Gemini API keys.)
+    embedding_model: str = "gemini/gemini-embedding-001"
+    embedding_dim: int = 768
+    # Agentic chat (Plan C1+): per-role models, all via litellm (any provider swappable).
+    # Reasoning uses PRO: with the full agentic toolset (~20 tools incl. Composio's
+    # Gmail/Calendar schemas), gemini-2.5-flash intermittently returns an EMPTY response
+    # (a known flash weakness with many/complex function declarations); pro is reliable.
+    # Override per-env with CHAT_REASONING_MODEL.
+    chat_reasoning_model: str = "gemini/gemini-2.5-pro"
+    chat_utility_model: str = "gemini/gemini-2.5-flash-lite"
+    # Ask (RAG) retrieval depth + allowed browser origins for the /api/ask endpoint.
+    ask_top_k: int = 8
+    ask_cors_origins: str = ""  # comma-separated portal origins; empty = no CORS added
     # Backstop so a stalled LLM stream can't silently hang a turn forever (the agent
     # would produce no reply and no error). Surfaces as an error instead.
     llm_timeout_s: float = 20.0

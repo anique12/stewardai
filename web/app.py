@@ -20,22 +20,39 @@ each ``/pipeline`` connection builds a session that REUSES those shared backends
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from stewardai.agent.chat.composio_tools import build_composio_tools
+from stewardai.agent.chat.registry import load_available as load_available_integrations
+from stewardai.agent.chat.session import ChatSession
+from stewardai.agent.chat.store import (
+    append_message,
+    create_thread,
+    get_thread_messages,
+    thread_owned,
+    update_message,
+)
+from stewardai.agent.chat.tools import build_read_tools
+from stewardai.agent.chat.write_tools import build_write_tools
+from stewardai.agent.kb.ask import answer_question
 from stewardai.common.audio import SAMPLE_RATE
 from stewardai.common.logging import TurnTimer, configure_logging, get_logger
 from stewardai.config import get_settings
 from stewardai.factory import make_llm, make_stt, make_tts
+from stewardai.integrations.supabase_client import create_service_client
 from stewardai.llm.warmup import warmup_llm
 from stewardai.turn.endpointer import SilenceEndpointer
 
 from .demo_auth import verify_demo_token
+from .kb_auth import user_id_from_bearer
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -92,6 +109,36 @@ async def lifespan(app: FastAPI):
     app.state.stt = None if _is_cloud(settings.stt_backend) else make_stt(settings)
     app.state.tts = None if _is_cloud(settings.tts_backend) else make_tts(settings)
     app.state.llm = make_llm(settings)
+    app.state.supabase = None
+    try:
+        app.state.supabase = await create_service_client(settings)
+    except Exception as exc:  # noqa: BLE001 - Ask is optional; don't block startup
+        log.warning("supabase_client_unavailable", error=str(exc))
+    # Register the global litellm usage/cost callback once, reusing the service
+    # client. Best-effort: if the client is unavailable, rows just aren't written.
+    try:
+        from stewardai.observability.usage_logger import install_usage_logger
+
+        install_usage_logger(lambda: app.state.supabase)
+    except Exception as exc:  # noqa: BLE001 - logging must never block startup
+        log.warning("usage_logger_install_failed", error=str(exc))
+    # Composio (Gmail/Calendar/Notion/Slack chat tools) is optional: only built
+    # when COMPOSIO_API_KEY is set, and never allowed to block startup. Same
+    # guarded-construction pattern as meeting_runner.run_multiplexer.
+    # Process-global chat sessions keyed by thread_id, so a paused turn (waiting
+    # on a permission/connect interrupt) survives a client reconnect/refresh and
+    # can still be resumed against the same in-memory graph checkpoint. (Lost on
+    # a process restart — that's the documented limit; the paused turn is still
+    # persisted so it re-renders, and the decision then reports "expired".)
+    app.state.chat_sessions = {}
+    app.state.composio_service = None
+    if settings.composio_enabled:
+        try:
+            from stewardai.integrations.composio_service import ComposioService
+
+            app.state.composio_service = ComposioService()
+        except Exception as exc:  # noqa: BLE001 - chat still works without it
+            log.warning("composio_service_unavailable", error=str(exc))
     log.info(
         "web_startup",
         stt=app.state.stt.name if app.state.stt is not None else f"{settings.stt_backend} (cloud)",
@@ -113,6 +160,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="StewardAI test pages", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+_origins = [o.strip() for o in get_settings().ask_cors_origins.split(",") if o.strip()]
+if _origins:
+    app.add_middleware(
+        CORSMiddleware, allow_origins=_origins, allow_methods=["POST"],
+        allow_headers=["authorization", "content-type"],
+    )
 
 
 def _page(name: str) -> FileResponse:
@@ -166,6 +220,27 @@ async def api_tts(req: TTSRequest):
             yield frame.pcm
 
     return StreamingResponse(gen(), media_type="application/octet-stream")
+
+
+class AskRequest(BaseModel):
+    query: str
+    space_id: str | None = None
+
+
+@app.post("/api/ask")
+async def api_ask(req: AskRequest, request: Request):
+    if app.state.supabase is None:
+        return JSONResponse({"error": "ask unavailable"}, status_code=503)
+    user_id = await user_id_from_bearer(
+        request.headers.get("authorization"), app.state.supabase
+    )
+    if not user_id:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    result = await answer_question(
+        app.state.supabase, app.state.llm,
+        user_id=user_id, query=req.query, space_id=req.space_id,
+    )
+    return JSONResponse(result)
 
 
 def _new_endpointer() -> SilenceEndpointer:
@@ -372,3 +447,220 @@ async def ws_pipeline(ws: WebSocket) -> None:
         with suppress(Exception):
             await http_session_cm.__aexit__(None, None, None)
         log.info("pipeline_agent_stopped")
+
+
+@app.websocket("/ws/chat")
+async def ws_chat(ws: WebSocket) -> None:
+    """Agentic chat over a websocket: streamed token/activity events ending in
+    ``done`` -- or, mid-turn, in ``permission_request``/``connect_required``
+    when a write tool interrupts for a human decision -- backed by C2's
+    :class:`~stewardai.agent.chat.session.ChatSession`.
+
+    Browsers can't set headers on a websocket, so auth rides a ``?token=``
+    query param instead (same Supabase-bearer resolution as ``/api/ask``).
+    Threads/messages are persisted via the chat store, which is itself
+    best-effort (swallows DB errors) -- the per-turn try/except below is a
+    second guard so a lost store or agent error never kills the connection.
+
+    A ``ChatSession`` is built fresh on every ``user_message`` (its full
+    history is reloaded from the store each time, same as C1), but the
+    interrupt/resume protocol needs the *same* session object that raised the
+    interrupt, so ``sessions`` keeps the most recent session per thread_id and
+    ``suspended`` remembers which thread (if any) is paused awaiting a
+    ``permission_decision``/``connect_done`` from the client.
+    """
+    await ws.accept()
+
+    if app.state.supabase is None:
+        await _safe_send(ws, {"type": "error", "text": "chat unavailable"})
+        with suppress(Exception):
+            await ws.close(code=1011)  # internal error / server misconfig
+        return
+
+    token = ws.query_params.get("token", "")
+    user_id = await user_id_from_bearer(f"Bearer {token}", app.state.supabase)
+    if not user_id:
+        await _safe_send(ws, {"type": "error", "text": "unauthorized"})
+        with suppress(Exception):
+            await ws.close(code=1008)  # policy violation
+        return
+
+    if getattr(app.state, "chat_sessions", None) is None:
+        app.state.chat_sessions = {}  # defensive (e.g. tests that skip lifespan)
+    sessions: dict[str, ChatSession] = app.state.chat_sessions
+    suspended: tuple[str, str | None] | None = None
+
+    async def _persist_assistant(session, thread_id: str, parts: list, *, final: bool) -> None:
+        """Persist the assistant turn as ONE row. A paused turn is written with a
+        `pending` part (so it survives refresh + re-renders its card); resuming
+        updates that same row in place (final=True clears pending), so a
+        pause→resume→done turn never duplicates into two rows."""
+        pid = getattr(session, "_pending_row_id", None)
+        if pid:
+            await update_message(app.state.supabase, message_id=pid, parts=parts)
+            if final:
+                session._pending_row_id = None
+        else:
+            new_id = await append_message(
+                app.state.supabase, user_id=user_id, thread_id=thread_id,
+                role="assistant", parts=parts,
+            )
+            if not final:
+                session._pending_row_id = new_id
+
+    async def _drain(session, stream, thread_id: str) -> tuple[str, str | None] | None:
+        """Forward every event from a ``stream_turn``/``resume`` stream to the
+        client, accumulating text/thinking/activities so a mid-turn pause can be
+        persisted. Returns a ``suspended`` marker if the turn paused on a
+        permission/connect interrupt (persisting the partial turn + its pending
+        card), or ``None`` if it ran to ``done`` (persisting the final turn)."""
+        text = ""
+        thinking = ""
+        acts: dict = {}  # (kind, name) -> {kind, name, status}
+        async for ev in stream:
+            await ws.send_json(ev)
+            et = ev.get("type")
+            if et == "token":
+                text += ev.get("delta", "")
+            elif et == "thinking":
+                thinking += ev.get("delta", "")
+            elif et == "activity":
+                acts[(ev.get("kind"), ev.get("name"))] = {
+                    "kind": ev.get("kind"), "name": ev.get("name"), "status": ev.get("status"),
+                }
+            if et in ("permission_request", "connect_required"):
+                kind = "permission" if et == "permission_request" else "connect"
+                payload = {k: v for k, v in ev.items() if k != "type"}
+                await _persist_assistant(
+                    session, thread_id,
+                    parts=[
+                        {"type": "text", "text": text},
+                        {"type": "activity_group", "activities": list(acts.values())},
+                        {"type": "thinking_block", "thinking": thinking, "thinking_seconds": None},
+                        {"type": "pending", "pending": kind, "data": payload},
+                    ],
+                    final=False,
+                )
+                return (thread_id, ev.get("call_id"))
+            if et == "done":
+                await _persist_assistant(
+                    session, thread_id,
+                    parts=[
+                        {"type": "text", "text": ev.get("answer", "")},
+                        {"type": "citation_group", "citations": ev.get("citations", [])},
+                        {"type": "activity_group", "activities": ev.get("activities", [])},
+                        {
+                            "type": "thinking_block",
+                            "thinking": ev.get("thinking", ""),
+                            "thinking_seconds": ev.get("thinking_seconds"),
+                        },
+                    ],
+                    final=True,
+                )
+        return None
+
+    try:
+        while True:
+            try:
+                msg = await ws.receive_json()
+            except json.JSONDecodeError:
+                await _safe_send(ws, {"type": "error", "text": "could not parse message"})
+                continue
+
+            msg_type = msg.get("type")
+
+            if msg_type == "user_message":
+                text = (msg.get("text") or "").strip()
+                if not text:
+                    continue
+                try:
+                    thread_id = msg.get("thread_id")
+                    if thread_id and not await thread_owned(
+                        app.state.supabase, user_id=user_id, thread_id=thread_id
+                    ):
+                        thread_id = None
+                    if not thread_id:
+                        thread_id = await create_thread(
+                            app.state.supabase, user_id=user_id, title=text[:60]
+                        )
+                        await _safe_send(ws, {"type": "thread", "id": thread_id})
+
+                    stored = await get_thread_messages(
+                        app.state.supabase, user_id=user_id, thread_id=thread_id
+                    )
+                    history = [
+                        {
+                            "role": m["role"],
+                            "content": "".join(
+                                part.get("text", "")
+                                for part in (m.get("parts") or [])
+                                if isinstance(part, dict) and part.get("type") == "text"
+                            ),
+                        }
+                        for m in stored
+                    ]
+
+                    await append_message(
+                        app.state.supabase, user_id=user_id, thread_id=thread_id,
+                        role="user", parts=[{"type": "text", "text": text}],
+                    )
+
+                    tools = build_read_tools(
+                        app.state.supabase, app.state.llm, user_id=user_id
+                    ) + build_write_tools(app.state.supabase, user_id=user_id)
+                    try:
+                        available = await load_available_integrations(app.state.supabase)
+                        tools += build_composio_tools(
+                            user_id=user_id,
+                            composio_service=getattr(app.state, "composio_service", None),
+                            client=app.state.supabase,
+                            available=available,
+                        )
+                    except Exception as exc:  # noqa: BLE001 - chat still works without Composio
+                        log.warning("composio_tools_unavailable", error=str(exc))
+                    session = ChatSession(
+                        app.state.supabase, app.state.llm,
+                        user_id=user_id, thread_id=thread_id, tools=tools,
+                        tz=msg.get("tz"),
+                    )
+                    sessions[thread_id] = session
+
+                    suspended = await _drain(session, session.stream_turn(text, history), thread_id)
+                except Exception as exc:  # noqa: BLE001 - keep the socket alive across a bad turn
+                    log.warning("chat_turn_error", error=str(exc))
+                    await _safe_send(
+                        ws, {"type": "error", "text": "something went wrong on this turn"}
+                    )
+
+            elif msg_type in ("permission_decision", "connect_done"):
+                # Prefer the client-supplied thread_id (so a decision made AFTER a
+                # refresh, on a fresh socket with no local `suspended`, still finds
+                # its paused session); fall back to this connection's suspended one.
+                thread_id = msg.get("thread_id") or (suspended[0] if suspended else None)
+                session = sessions.get(thread_id) if thread_id else None
+                if session is None:
+                    # Paused session is gone (e.g. the server restarted since the
+                    # turn paused) — we can't resume the in-memory graph.
+                    await _safe_send(
+                        ws, {"type": "error", "text": "This request expired — please ask again."}
+                    )
+                    suspended = None
+                    continue
+                # permission → {decision, args} so edits made in the approval card
+                # take effect; connect_done → "retry" to re-attempt the paused action.
+                if msg_type == "permission_decision":
+                    resume_value = {"decision": msg.get("decision"), "args": msg.get("args")}
+                else:
+                    resume_value = "retry"
+                try:
+                    suspended = await _drain(session, session.resume(resume_value), thread_id)
+                except Exception as exc:  # noqa: BLE001 - keep the socket alive across a bad turn
+                    log.warning("chat_turn_error", error=str(exc))
+                    await _safe_send(
+                        ws, {"type": "error", "text": "something went wrong on this turn"}
+                    )
+
+            else:
+                continue
+    except WebSocketDisconnect:
+        return

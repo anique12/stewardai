@@ -48,6 +48,17 @@ def _coerce_due(value: Any) -> str | None:
     return None
 
 
+def _coerce_seq(value: Any) -> int | None:
+    """Keep only real integer transcript indices; everything else → None."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().lstrip("-").isdigit():
+        return int(value.strip())
+    return None
+
+
 async def persist_transcript_segment(
     client: AsyncClient,
     meeting_uuid: str,
@@ -133,6 +144,7 @@ async def persist_meeting_artifacts(
                     "owner": str(a.get("owner") or "").strip() or "Unassigned",
                     "task": task,
                     "due": _coerce_due(a.get("due")),
+                    "source_seq": _coerce_seq(a.get("source_line")),
                 }
             )
         await client.table("action_items").delete().eq(

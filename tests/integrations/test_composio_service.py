@@ -15,8 +15,8 @@ import pytest
 from stewardai.integrations.composio_service import (
     _ALLOW_LIST,
     _ALLOWED_SLUGS,
+    _DEFINED_TOOLKITS,
     _RISK_MAP,
-    TOOLKITS,
     ComposioService,
 )
 
@@ -74,11 +74,21 @@ def _service_with_mock(
 
 
 class TestAllowList:
-    def test_all_four_toolkits_present(self):
-        assert set(_ALLOW_LIST.keys()) == {"gmail", "googlecalendar", "notion", "slack"}
+    def test_defined_toolkits(self):
+        assert set(_ALLOW_LIST.keys()) == {
+            "gmail",
+            "googlecalendar",
+            "googledrive",
+            "googledocs",
+            "googlesheets",
+            "notion",
+            "slack",
+        }
 
-    def test_toolkits_constant_matches_allow_list(self):
-        assert set(TOOLKITS) == set(_ALLOW_LIST.keys())
+    def test_defined_toolkits_constant_matches_allow_list(self):
+        # _DEFINED_TOOLKITS is the superset; which are OFFERED is decided at
+        # runtime by the DB registry, not a constant here.
+        assert set(_DEFINED_TOOLKITS) == set(_ALLOW_LIST.keys())
 
     def test_each_toolkit_has_at_least_two_actions(self):
         for tk, actions in _ALLOW_LIST.items():
@@ -157,13 +167,13 @@ class TestRiskOf:
 
 class TestListConnected:
     def test_returns_only_connected_toolkits(self):
-        svc, mock_client = _service_with_mock(["gmail", "slack"])
+        svc, mock_client = _service_with_mock(["gmail", "googlecalendar"])
         result = svc.list_connected("user-123")
-        assert sorted(result) == ["gmail", "slack"]
+        assert sorted(result) == ["gmail", "googlecalendar"]
         mock_client.connected_accounts.list.assert_called_once_with(
             user_ids=["user-123"],
             statuses=["ACTIVE"],
-            toolkit_slugs=TOOLKITS,
+            toolkit_slugs=_DEFINED_TOOLKITS,
         )
 
     def test_empty_when_nothing_connected(self):
@@ -189,10 +199,10 @@ class TestListConnected:
     def test_handles_toolkit_as_string_attribute(self):
         """Account with toolkit_slug attr instead of .toolkit.slug."""
         svc, mock_client = _service_with_mock([])
-        acct = SimpleNamespace(toolkit_slug="notion", toolkit=None)
+        acct = SimpleNamespace(toolkit_slug="googlecalendar", toolkit=None)
         mock_client.connected_accounts.list.return_value = SimpleNamespace(items=[acct])
         result = svc.list_connected("user-y")
-        assert result == ["notion"]
+        assert result == ["googlecalendar"]
 
 
 # ---------------------------------------------------------------------------
@@ -234,6 +244,32 @@ class TestGetTools:
         svc, _ = _service_with_mock(["gmail"])
         result = svc.get_tools("user-3", toolkits=["notion"])
         assert result == []
+
+    def test_only_connected_false_exposes_unconnected_toolkits(self):
+        # gmail connected; googlecalendar (enabled) is NOT. With only_connected=
+        # False the schema fetch still returns calendar tools (Composio serves
+        # schemas without a live connection), so the agent can call one and trip
+        # the connect gate — the "tool available but not authorized → ask to
+        # connect" contract.
+        svc, mock_client = _service_with_mock(["gmail"])
+        mock_client.tools.get.side_effect = lambda user_id, tools: [
+            {"type": "function", "function": {"name": s, "description": "t", "parameters": {}}}
+            for s in tools
+        ]
+        names = {t["function"]["name"] for t in svc.get_tools("user-1", only_connected=False)}
+        cal_slugs = {s for s, _ in _ALLOW_LIST["googlecalendar"]}
+        assert cal_slugs.issubset(names)
+
+    def test_only_connected_true_is_the_default_and_still_filters(self):
+        # Default behavior unchanged: unconnected calendar yields no tools.
+        svc, mock_client = _service_with_mock(["gmail"])
+        mock_client.tools.get.side_effect = lambda user_id, tools: [
+            {"type": "function", "function": {"name": s, "description": "t", "parameters": {}}}
+            for s in tools
+        ]
+        names = {t["function"]["name"] for t in svc.get_tools("user-1")}
+        cal_slugs = {s for s, _ in _ALLOW_LIST["googlecalendar"]}
+        assert not cal_slugs.intersection(names)
 
     def test_schema_has_expected_openai_shape(self):
         svc, mock_client = _service_with_mock(["gmail"])

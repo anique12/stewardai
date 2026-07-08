@@ -1,5 +1,7 @@
 import { InstantJoin } from "@/components/meetings/InstantJoin";
 import { MeetingRow } from "@/components/meetings/MeetingRow";
+import { SeriesCard } from "@/components/meetings/SeriesCard";
+import { PageHeader } from "@/components/app-shell/PageHeader";
 import { requireUserPage } from "@/lib/auth-helpers";
 import { createServerClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -19,7 +21,8 @@ export default async function AppPage() {
 
   if (!conn) {
     return (
-      <div className="space-y-8">
+      <div className="space-y-6">
+        <PageHeader title="Meetings" subtitle="Your upcoming and past meetings." />
         <InstantJoin />
         <div className="rounded-lg border border-border bg-card p-8 text-center">
           <h2 className="text-xl font-semibold text-foreground">Connect your calendar</h2>
@@ -58,45 +61,63 @@ export default async function AppPage() {
   }
 
   const now = new Date().toISOString();
-  const { data: upcoming } = await db
-    .from("meetings")
-    .select("id,title,start_time,meet_url,opted_in,bot_status")
-    .eq("user_id", user.id)
-    .gte("start_time", now)
-    .order("start_time");
+  const [{ data: upcomingRows }, { data: pastRows }] = await Promise.all([
+    db.from("meetings")
+      .select("id,title,start_time,meet_url,opted_in,bot_status,recurring_event_id,google_event_id")
+      .eq("user_id", user.id)
+      .gte("start_time", now)
+      .order("start_time"),
+    db.from("meetings")
+      .select("id,title,start_time,meet_url,opted_in,bot_status,recurring_event_id,google_event_id")
+      .eq("user_id", user.id)
+      .lt("start_time", now)
+      .eq("bot_status", "done")
+      .order("start_time", { ascending: false })
+      .limit(40),
+  ]);
 
-  const { data: past } = await db
-    .from("meetings")
-    .select("id,title,start_time,meet_url,opted_in,bot_status")
-    .eq("user_id", user.id)
-    .lt("start_time", now)
-    .eq("bot_status", "done")
-    .order("start_time", { ascending: false })
-    .limit(20);
+  const upcomingList = upcomingRows ?? [];
+  const pastList = pastRows ?? [];
+
+  // Attach a one-line summary to past occurrences for the series history.
+  const pastIds = pastList.map((m) => m.id);
+  const tldrById = new Map<string, string>();
+  if (pastIds.length) {
+    const { data: sums } = await db
+      .from("summaries")
+      .select("meeting_id,tldr")
+      .in("meeting_id", pastIds);
+    for (const s of sums ?? []) if (s.tldr) tldrById.set(s.meeting_id, s.tldr);
+  }
+
+  const { groupMeetings } = await import("@/lib/meetings/series");
+  const meetings = [...upcomingList, ...pastList].map((m) => ({
+    ...m,
+    tldr: tldrById.get(m.id) ?? null,
+  }));
+  const entries = groupMeetings(meetings, now);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
+      <PageHeader title="Meetings" subtitle="Your recurring series and one-off meetings." />
       <InstantJoin />
-      <section>
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Upcoming</h2>
-        {upcoming?.length ? (
-          <div className="space-y-2">
-            {upcoming.map((m) => <MeetingRow key={m.id} meeting={m} isPast={false} />)}
-          </div>
-        ) : (
-          <p className="text-muted-foreground">No upcoming meetings in the next 3 days.</p>
-        )}
-      </section>
-      <section>
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Past meetings</h2>
-        {past?.length ? (
-          <div className="space-y-2">
-            {past.map((m) => <MeetingRow key={m.id} meeting={m} isPast={true} />)}
-          </div>
-        ) : (
-          <p className="text-muted-foreground">No completed meetings yet.</p>
-        )}
-      </section>
+      {entries.length ? (
+        <div className="space-y-2">
+          {entries.map((e) =>
+            e.kind === "series" ? (
+              <SeriesCard key={e.key} entry={e} />
+            ) : (
+              <MeetingRow
+                key={e.meeting.id}
+                meeting={e.meeting}
+                isPast={e.meeting.start_time < now && e.meeting.bot_status === "done"}
+              />
+            )
+          )}
+        </div>
+      ) : (
+        <p className="text-muted-foreground">No upcoming or past meetings yet.</p>
+      )}
     </div>
   );
 }

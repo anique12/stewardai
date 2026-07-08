@@ -72,6 +72,17 @@ def test_native_id_parsing():
     assert _native_id("not a url") is None
 
 
+def test_rows_carry_recurring_event_id():
+    ev = _ev(id="abc_20260702T140000Z", recurringEventId="abc")
+    rows = _rows_for_events("u1", [ev])
+    assert rows[0]["recurring_event_id"] == "abc"
+
+
+def test_rows_recurring_event_id_null_for_one_off():
+    rows = _rows_for_events("u1", [_ev()])
+    assert rows[0]["recurring_event_id"] is None
+
+
 # --- end-to-end sync with mocks --------------------------------------------
 
 

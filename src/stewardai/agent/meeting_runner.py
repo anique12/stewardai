@@ -607,14 +607,18 @@ class MeetingSession:
             keyterms=self._keyterms,
         )
 
-        async def _write_summary(trigger: str) -> None:
+        async def _write_summary(
+            trigger: str, transcript: list[str] | None = None
+        ) -> None:
             # Serialize: the "summarize" voice command and teardown can both call
             # this; the persist delete-then-insert must not interleave with itself.
             async with self._summary_lock:
                 with contextlib.suppress(Exception):
-                    transcript = self._transcript_for_output()
+                    if transcript is None:
+                        transcript = self._transcript_for_output()
                     summary = await asyncio.wait_for(
-                        generate_summary(self._llm, transcript), timeout=15.0
+                        generate_summary(self._llm, transcript, user_id=self.user_id),
+                        timeout=15.0,
                     )
                     write_summary(self._mid, summary)
                     _log.info("summary_written", trigger=trigger, meeting=self._mid)
@@ -825,8 +829,12 @@ class MeetingSession:
             with contextlib.suppress(asyncio.CancelledError):
                 await t
         # Best-effort summary backup (the "summarize" command trigger is reliable).
+        # Snapshot once so the summary's persisted transcript_segments.seq and the
+        # extraction's action source_seq index into the SAME list (see
+        # _transcript_for_output docstring: best-effort, can change across calls).
+        teardown_transcript = self._transcript_for_output()
         with contextlib.suppress(Exception):
-            await self._write_summary("shutdown")
+            await self._write_summary("shutdown", teardown_transcript)
         # Post-meeting action extraction (best-effort, guarded, timed out).
         if (
             self._composio is not None
@@ -839,7 +847,7 @@ class MeetingSession:
                 await asyncio.wait_for(
                     extract_post_meeting_actions(
                         self._llm,
-                        self._transcript_for_output(),
+                        teardown_transcript,
                         user_id=self.user_id,
                         meeting_id=self._meeting_uuid,
                         composio_service=self._composio,
@@ -849,6 +857,41 @@ class MeetingSession:
                     timeout=15.0,
                 )
                 _log.info("post_meeting_actions_extracted", meeting=self._mid)
+        # Knowledge Base ingestion (best-effort; never blocks teardown). Resolves
+        # recurring_event_id/title from the meetings row the same way
+        # _resolve_keyterms/_resolve_profile do; attendee_emails aren't stored
+        # structured yet (Plan A1), so we pass [] until A2/B persist them.
+        try:
+            from stewardai.agent.kb.teardown import run_kb_ingest
+
+            recurring_event_id = None
+            meeting_title = ""
+            if self._supabase is not None and self._meeting_uuid:
+                with contextlib.suppress(Exception):
+                    resp = await (
+                        self._supabase.table("meetings")
+                        .select("recurring_event_id,title")
+                        .eq("id", self._meeting_uuid)
+                        .limit(1)
+                        .execute()
+                    )
+                    rows = resp.data or []
+                    if rows:
+                        recurring_event_id = rows[0].get("recurring_event_id")
+                        meeting_title = (rows[0].get("title") or "").strip()
+
+            await run_kb_ingest(
+                client=self._supabase,
+                llm=self._llm,
+                user_id=self.user_id,
+                meeting_id=self._meeting_uuid,
+                transcript=teardown_transcript,
+                recurring_event_id=recurring_event_id,
+                attendee_emails=[],
+                title=meeting_title,
+            )
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("kb_ingest_wire_failed", error=str(exc))
         with contextlib.suppress(Exception):
             await self._session.aclose()
         if self._control is not None:

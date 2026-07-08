@@ -7,6 +7,12 @@ import {
 } from "@/lib/composio";
 import { NextRequest, NextResponse } from "next/server";
 
+// Superset of SUPPORTED_TOOLKITS: keeps a revoke path open for apps that
+// were previously connectable (e.g. notion/slack) but have since been
+// removed from the connect surface, so existing connections can still be
+// disconnected.
+const DISCONNECTABLE_TOOLKITS = [...SUPPORTED_TOOLKITS, "notion", "slack"] as const;
+
 export async function POST(
   _request: NextRequest,
   { params }: { params: { app: string } }
@@ -17,7 +23,7 @@ export async function POST(
   }
 
   const app = params.app as SupportedToolkit;
-  if (!SUPPORTED_TOOLKITS.includes(app)) {
+  if (!DISCONNECTABLE_TOOLKITS.includes(app as never)) {
     return NextResponse.json({ error: "Unknown app" }, { status: 400 });
   }
 

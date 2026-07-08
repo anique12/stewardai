@@ -63,6 +63,7 @@ class AgentActionsWriter:
         state: str,
         result: dict[str, Any] | None = None,
         error: str | None = None,
+        source_seq: int | None = None,
     ) -> str | None:
         """Insert a new agent_actions row, return the row id (or None on error)."""
         row: dict[str, Any] = {
@@ -76,6 +77,8 @@ class AgentActionsWriter:
             "title": title,
             "state": state,
         }
+        if source_seq is not None:
+            row["source_seq"] = source_seq
         if result is not None:
             row["result"] = result
         if error is not None:
@@ -115,6 +118,27 @@ class AgentActionsWriter:
                 "agent_actions_update_state_failed", row_id=row_id, state=state
             )
 
+    async def existing_action_keys(self) -> set[tuple[str, str]]:
+        """(action_slug, canonical-args-json) for rows already stored for this
+        meeting — used to skip re-proposing actions already inserted live."""
+        keys: set[tuple[str, str]] = set()
+        try:
+            resp = await (
+                self._client.table("agent_actions")
+                .select("action_slug,args")
+                .eq("meeting_id", self._meeting_id)
+                .execute()
+            )
+            for r in resp.data or []:
+                slug = r.get("action_slug")
+                if not slug:
+                    continue
+                canon = json.dumps(r.get("args") or {}, sort_keys=True, separators=(",", ":"))
+                keys.add((slug, canon))
+        except Exception:
+            _log.exception("agent_actions_existing_keys_failed")
+        return keys
+
 
 # ---------------------------------------------------------------------------
 # Post-meeting extraction prompt
@@ -128,7 +152,9 @@ _EXTRACT_SYSTEM = (
     "  title: short human-readable description (e.g. 'Send recap to team')\n"
     "  action_slug: the exact 'name' of one of the AVAILABLE ACTIONS listed below\n"
     "  toolkit: that action's toolkit (e.g. 'gmail', 'googlecalendar')\n"
-    "  args: a JSON object whose keys/types match that action's params schema EXACTLY\n\n"
+    "  args: a JSON object whose keys/types match that action's params schema EXACTLY\n"
+    "  source_line: the 0-based index of the transcript line that motivated this "
+    "item (an integer shown as 'N:' at the start of each line below), or null if none\n\n"
     "Rules:\n"
     "- Only emit items you can map to one of the AVAILABLE ACTIONS (by its exact name). "
     "Skip anything you cannot map. Do NOT invent action names or arg keys.\n"
@@ -152,6 +178,17 @@ def _now_in_tz(tz: str) -> str:
         return datetime.now(ZoneInfo(tz)).isoformat(timespec="seconds")
     except Exception:  # noqa: BLE001 — bad/unknown tz → local time
         return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _coerce_source_line(value: Any) -> int | None:
+    """Accept an int or int-like string transcript index; else None."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().lstrip("-").isdigit():
+        return int(value.strip())
+    return None
 
 
 def _build_extraction_prompt(
@@ -183,7 +220,11 @@ def _build_extraction_prompt(
         if lines
         else "No actions available — respond with []."
     )
-    body = "\n".join(transcript) if transcript else "(no transcript captured)"
+    body = (
+        "\n".join(f"{i}: {line}" for i, line in enumerate(transcript))
+        if transcript
+        else "(no transcript captured)"
+    )
     return (
         f"Current date and time: {now_iso}\nUser timezone (IANA): {timezone}\n\n"
         f"{tools_text}\n\nTranscript:\n{body}"
@@ -296,6 +337,8 @@ async def extract_post_meeting_actions(
         if isinstance(t, dict) and (t.get("function") or {}).get("name")
     )
 
+    existing_keys = await writer.existing_action_keys()
+
     written = 0
     for item in items:
         if not isinstance(item, dict):
@@ -317,6 +360,11 @@ async def extract_post_meeting_actions(
             )
             continue
 
+        canon_args = json.dumps(args or {}, sort_keys=True, separators=(",", ":"))
+        if (slug, canon_args) in existing_keys:
+            _log.debug("post_meeting_extract_dedup_skipped", slug=slug)
+            continue
+
         try:
             risk = composio_service.risk_of(slug)
         except KeyError:
@@ -328,6 +376,7 @@ async def extract_post_meeting_actions(
         else:
             state = "proposed"
 
+        src_line = _coerce_source_line(item.get("source_line"))
         row_id = await writer.insert(
             source=source,
             toolkit=toolkit,
@@ -336,6 +385,7 @@ async def extract_post_meeting_actions(
             risk=risk,
             title=title,
             state=state,
+            source_seq=src_line,
         )
         if row_id:
             written += 1

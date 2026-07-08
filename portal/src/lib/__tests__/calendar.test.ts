@@ -32,3 +32,25 @@ describe("buildMeetingUpsert", () => {
     expect(row.title).toBe("Untitled");
   });
 });
+
+describe("buildMeetingUpsert recurring_event_id", () => {
+  it("copies recurringEventId when present", () => {
+    const row = buildMeetingUpsert("u1", {
+      id: "abc_20260702T140000Z",
+      summary: "Sync",
+      recurringEventId: "abc",
+      start: { dateTime: "2026-07-02T14:00:00Z" },
+      end: { dateTime: "2026-07-02T14:30:00Z" },
+    } as never);
+    expect(row.recurring_event_id).toBe("abc");
+  });
+  it("is null for a one-off event", () => {
+    const row = buildMeetingUpsert("u1", {
+      id: "xyz",
+      summary: "One-off",
+      start: { dateTime: "2026-07-02T14:00:00Z" },
+      end: { dateTime: "2026-07-02T14:30:00Z" },
+    } as never);
+    expect(row.recurring_event_id).toBeNull();
+  });
+});

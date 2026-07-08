@@ -1,7 +1,7 @@
 import { requireUserRoute } from "@/lib/auth-helpers";
 import { createServerClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
-import { getComposio, SUPPORTED_TOOLKITS } from "@/lib/composio";
+import { getComposio, getSupportedToolkits } from "@/lib/composio";
 import { NextResponse } from "next/server";
 
 // Maps a Composio connected-account status to our local `connected_apps.status`
@@ -23,22 +23,38 @@ function localStatus(composioStatus: string | undefined): string {
   }
 }
 
+// Best-effort human label for a connected account (email/username), or null.
+function accountLabel(account: Record<string, unknown>): string | null {
+  const data = (account.data ?? account.params ?? {}) as Record<string, unknown>;
+  const candidates = [
+    (data as { email?: unknown }).email,
+    (data as { username?: unknown }).username,
+    (data as { login?: unknown }).login,
+    (account as { email?: unknown }).email,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim()) return c.trim();
+  }
+  return null;
+}
+
 export async function GET() {
   const { user, response } = await requireUserRoute();
   if (!user) return response;
 
   const db = createServerClient();     // RLS-scoped reads
   const service = createServiceClient(); // elevated: reconcile upsert
+  const supported = await getSupportedToolkits(); // registry-driven (fallback baked in)
 
   // Fetch all Composio connected accounts for this entity (user). The list
   // items carry `id`, `status`, and `toolkit.slug` (no userId echo — we filter
   // by userIds on input, so every item belongs to this user).
-  const byApp = new Map<string, { id: string; status: string }>();
+  const byApp = new Map<string, { id: string; status: string; label: string | null }>();
   try {
     const composio = getComposio();
     const response = await composio.connectedAccounts.list({
       userIds: [user.id],
-      toolkitSlugs: [...SUPPORTED_TOOLKITS],
+      toolkitSlugs: supported,
     });
     for (const account of response.items) {
       const slug = (account.toolkit?.slug ?? "").toLowerCase();
@@ -46,7 +62,11 @@ export async function GET() {
       // Prefer the ACTIVE account if multiple exist for the same toolkit.
       const current = byApp.get(slug);
       if (!current || account.status === "ACTIVE") {
-        byApp.set(slug, { id: account.id, status: account.status });
+        byApp.set(slug, {
+          id: account.id,
+          status: account.status,
+          label: accountLabel(account as unknown as Record<string, unknown>),
+        });
       }
     }
   } catch (err) {
@@ -56,13 +76,16 @@ export async function GET() {
     const { data: existing } = await db
       .from("connected_apps")
       .select("app,status,connected_account_id,connected_at,updated_at")
-      .eq("user_id", user.id);
-    return NextResponse.json({ apps: existing ?? [] });
+      .eq("user_id", user.id)
+      .in("app", supported);
+    return NextResponse.json({
+      apps: (existing ?? []).map((r) => ({ ...r, account_label: null })),
+    });
   }
 
   // Reconcile our local table to match Composio's truth for the 4 apps.
   const now = new Date().toISOString();
-  const upserts = SUPPORTED_TOOLKITS.map((app) => {
+  const upserts = supported.map((app) => {
     const conn = byApp.get(app);
     const status = conn ? localStatus(conn.status) : "disconnected";
     return {
@@ -83,7 +106,12 @@ export async function GET() {
   const { data: rows } = await db
     .from("connected_apps")
     .select("app,status,connected_account_id,connected_at,updated_at")
-    .eq("user_id", user.id);
+    .eq("user_id", user.id)
+    .in("app", supported);
 
-  return NextResponse.json({ apps: rows ?? [] });
+  const withLabels = (rows ?? []).map((r) => ({
+    ...r,
+    account_label: byApp.get(r.app)?.label ?? null,
+  }));
+  return NextResponse.json({ apps: withLabels });
 }

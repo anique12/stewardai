@@ -22,6 +22,9 @@ dependencies = [
     "jiwer>=3.0",
     "supabase>=2.7",
     "composio==0.17.1",
+    "langgraph>=0.2",
+    "langchain-litellm",
+    "langchain-core",
 ]
 
 [project.optional-dependencies]

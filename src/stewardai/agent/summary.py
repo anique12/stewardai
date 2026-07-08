@@ -6,6 +6,7 @@ import os
 
 from stewardai.common.audio import Message
 from stewardai.common.logging import get_logger
+from stewardai.observability.usage_context import usage_scope
 
 _log = get_logger("agent.summary")
 
@@ -13,20 +14,29 @@ _SUMMARY_SYSTEM = (
     "You summarize a meeting from a speaker-labeled transcript (lines look like "
     "'[Anique]: ...'). Respond with ONLY a JSON object, no prose, with keys: "
     "tldr (string, 2-3 sentences), decisions (array of strings), action_items "
-    "(array of {owner, task, due} where due may be null), discrepancies (array of "
-    "strings describing contradictions raised). Attribute action items to the "
-    "speaker responsible by name."
+    "(array of {owner, task, due, source_line} where due may be null and "
+    "source_line is the 0-based index of the transcript line that produced the "
+    "item — an integer shown as 'N:' at the start of each line — or null), "
+    "discrepancies (array of strings describing contradictions raised). "
+    "Attribute action items to the speaker responsible by name."
 )
 
 
-async def generate_summary(llm, transcript: list[str]) -> dict:  # noqa: ANN001
-    body = "\n".join(transcript) if transcript else "(no transcript captured)"
+async def generate_summary(
+    llm, transcript: list[str], *, user_id: str | None = None  # noqa: ANN001
+) -> dict:
+    body = (
+        "\n".join(f"{i}: {line}" for i, line in enumerate(transcript))
+        if transcript
+        else "(no transcript captured)"
+    )
     chunks = []
-    async for delta in llm.complete(
-        [Message(role="user", content=body)], system=_SUMMARY_SYSTEM, temperature=0.2
-    ):
-        if delta:
-            chunks.append(delta)
+    with usage_scope(feature="summary", user_id=user_id):
+        async for delta in llm.complete(
+            [Message(role="user", content=body)], system=_SUMMARY_SYSTEM, temperature=0.2
+        ):
+            if delta:
+                chunks.append(delta)
     raw = "".join(chunks).strip()
     if raw.startswith("```"):  # strip markdown fences if the model adds them
         raw = raw.strip("`")

@@ -38,10 +38,11 @@ def _make_service(connected=None, risk_map=None):
     return svc
 
 
-def _make_writer():
+def _make_writer(existing_keys=None):
     writer = MagicMock()
     writer.insert = AsyncMock(return_value="row-1")
     writer.update_state = AsyncMock()
+    writer.existing_action_keys = AsyncMock(return_value=existing_keys or set())
     return writer
 
 
@@ -177,3 +178,81 @@ async def test_no_connected_toolkits_returns_zero():
     )
     assert count == 0
     writer.insert.assert_not_called()
+
+
+async def test_dedup_skips_action_already_stored_live():
+    items = [
+        {
+            "source": "directed",
+            "title": "Fetch emails",
+            "action_slug": "GMAIL_FETCH_EMAILS",
+            "toolkit": "gmail",
+            "args": {"foo": "bar"},
+        }
+    ]
+    llm = _make_llm(items)
+    service = _make_service()
+    existing_key = (
+        "GMAIL_FETCH_EMAILS",
+        json.dumps({"foo": "bar"}, sort_keys=True, separators=(",", ":")),
+    )
+    writer = _make_writer(existing_keys={existing_key})
+    count = await extract_post_meeting_actions(
+        llm,
+        ["[Alice]: Steward, fetch my emails"],
+        user_id="u1",
+        meeting_id="m1",
+        composio_service=service,
+        writer=writer,
+    )
+    assert count == 0
+    writer.insert.assert_not_called()
+
+
+async def test_dedup_does_not_skip_same_slug_different_args():
+    items = [
+        {
+            "source": "directed",
+            "title": "Fetch emails",
+            "action_slug": "GMAIL_FETCH_EMAILS",
+            "toolkit": "gmail",
+            "args": {"foo": "different"},
+        }
+    ]
+    llm = _make_llm(items)
+    service = _make_service()
+    existing_key = (
+        "GMAIL_FETCH_EMAILS",
+        json.dumps({"foo": "bar"}, sort_keys=True, separators=(",", ":")),
+    )
+    writer = _make_writer(existing_keys={existing_key})
+    count = await extract_post_meeting_actions(
+        llm,
+        ["[Alice]: Steward, fetch my emails"],
+        user_id="u1",
+        meeting_id="m1",
+        composio_service=service,
+        writer=writer,
+    )
+    assert count == 1
+    writer.insert.assert_called_once()
+
+
+def test_extraction_prompt_numbers_transcript_lines():
+    from stewardai.agent.actions import _build_extraction_prompt
+    prompt = _build_extraction_prompt(
+        tools=[{"function": {"name": "GMAIL_SEND_EMAIL", "description": "d", "parameters": {}}}],
+        transcript=["[Anique]: do X", "[Sam]: ok"],
+        now_iso="2026-07-02T10:00:00",
+        timezone="UTC",
+    )
+    assert "0: [Anique]: do X" in prompt
+    assert "1: [Sam]: ok" in prompt
+
+
+def test_coerce_source_line():
+    from stewardai.agent.actions import _coerce_source_line
+    assert _coerce_source_line(3) == 3
+    assert _coerce_source_line("2") == 2
+    assert _coerce_source_line("nope") is None
+    assert _coerce_source_line(None) is None
