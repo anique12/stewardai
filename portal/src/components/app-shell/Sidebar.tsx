@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CalendarClock, Blocks, Settings, Menu, X, Layers, MessageSquare, BarChart3 } from "lucide-react";
 import { UserMenu } from "./UserMenu";
+import { ThemeToggle } from "./ThemeToggle";
 import { cn } from "@/lib/utils";
 
 type NavItem = {
@@ -75,7 +76,8 @@ export function Sidebar({ email }: { email: string }) {
         <div className="flex-1 overflow-y-auto px-3">
           <NavLinks pathname={pathname} />
         </div>
-        <div className="border-t border-border p-3">
+        <div className="space-y-1 border-t border-border p-3">
+          <ThemeToggle />
           <UserMenu email={email} />
         </div>
       </aside>
@@ -112,7 +114,8 @@ export function Sidebar({ email }: { email: string }) {
             <div className="flex-1 overflow-y-auto px-3">
               <NavLinks pathname={pathname} onNavigate={() => setOpen(false)} />
             </div>
-            <div className="border-t border-border p-3">
+            <div className="space-y-1 border-t border-border p-3">
+              <ThemeToggle />
               <UserMenu email={email} />
             </div>
           </div>
