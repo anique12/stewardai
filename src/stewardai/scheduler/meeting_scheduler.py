@@ -42,8 +42,11 @@ _log = get_logger("scheduler.meeting_scheduler")
 
 # Join window: catch meetings that started up to LOOK_BEHIND_S ago (join grace
 # for already-running meetings) and that will start within LOOK_AHEAD_S.
+# LOOK_AHEAD_S controls how early the bot joins: with a 30s poll, a 60s lookahead
+# dispatches the bot ~30–60s before start (it should be in the room about a
+# minute before). Raise it to join earlier.
 LOOK_BEHIND_S = 300   # 5 minutes grace for already-started meetings
-LOOK_AHEAD_S = 600    # 10 minutes lookahead
+LOOK_AHEAD_S = 60     # join ~1 minute before start
 
 # Calendar sync runs on this cadence (not every dispatch poll) — events change
 # slowly and each sync is a Composio API call.
