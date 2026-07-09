@@ -12,11 +12,13 @@ export function NewSpaceDialog() {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function create() {
     if (busy) return;
     if (!name.trim()) return;
     setBusy(true);
+    setError(null);
     try {
       const res = await fetch("/api/spaces", {
         method: "POST",
@@ -27,7 +29,12 @@ export function NewSpaceDialog() {
         setOpen(false);
         setName("");
         router.refresh();
+      } else {
+        const body = await res.json().catch(() => null);
+        setError(body?.error ?? `Couldn't create space (${res.status}).`);
       }
+    } catch {
+      setError("Couldn't reach the server. Check your connection and try again.");
     } finally {
       setBusy(false);
     }
@@ -50,6 +57,7 @@ export function NewSpaceDialog() {
               placeholder="e.g. Acme Corp"
             />
           </div>
+          {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
           <Button disabled={busy || !name.trim()} onClick={create} className="w-full">
             {busy ? "Creating…" : "Create"}
           </Button>

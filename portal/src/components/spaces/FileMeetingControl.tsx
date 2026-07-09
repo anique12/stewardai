@@ -20,18 +20,26 @@ export function FileMeetingControl({
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [picking, setPicking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function file(spaceId: string) {
     setBusy(true);
+    setError(null);
     try {
       const res = await fetch(`/api/meetings/${meetingId}/space`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ space_id: spaceId }),
       });
-      if (res.ok) router.refresh();
-      else setBusy(false);
+      if (res.ok) {
+        router.refresh();
+      } else {
+        const body = await res.json().catch(() => null);
+        setError(body?.error ?? `Couldn't file meeting (${res.status}).`);
+        setBusy(false);
+      }
     } catch {
+      setError("Couldn't reach the server. Try again.");
       setBusy(false);
     }
   }
@@ -58,6 +66,7 @@ export function FileMeetingControl({
           {suggestedSpaceId ? "Choose another" : "File…"}
         </Button>
       )}
+      {error ? <span role="alert" className="w-full text-xs text-destructive">{error}</span> : null}
     </div>
   );
 }

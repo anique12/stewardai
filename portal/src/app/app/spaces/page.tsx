@@ -18,7 +18,9 @@ export default async function SpacesPage() {
       db.from("spaces").select("id,name,parent_id,kind,status").eq("user_id", user.id).eq("status", "active"),
       db.from("meetings").select("space_id").eq("user_id", user.id).not("space_id", "is", null),
       db.from("space_facts").select("space_id").eq("user_id", user.id).is("superseded_by", null),
-      db.from("meetings").select("id").eq("user_id", user.id).or("space_source.in.(suggested,unfiled),space_id.is.null"),
+      // Count only processed (done) meetings as "to review" — upcoming meetings
+      // have nothing to file yet and would otherwise inflate the count forever.
+      db.from("meetings").select("id").eq("user_id", user.id).eq("bot_status", "done").or("space_source.in.(suggested,unfiled),space_id.is.null"),
     ]);
 
   const meetingCounts = new Map<string, number>();
