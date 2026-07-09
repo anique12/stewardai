@@ -5,6 +5,7 @@ import { MeetingSpaceSection } from "@/components/spaces/MeetingSpaceSection";
 import type { SpaceEntity } from "@/components/spaces/SpaceEntities";
 import { requireUserPage } from "@/lib/auth-helpers";
 import { createServerClient } from "@/lib/supabase/server";
+import { meetingToMarkdown } from "@/lib/meetings/export";
 import { notFound } from "next/navigation";
 
 export const dynamic = "force-dynamic";
@@ -54,6 +55,13 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
     .map((row) => (row as unknown as { entities: SpaceEntity | null }).entities)
     .filter((e): e is SpaceEntity => !!e);
 
+  const exportMarkdown = meetingToMarkdown({
+    title: meeting.title,
+    startTime: meeting.start_time,
+    summary: (summary as unknown as import("@/lib/meetings/export").ExportSummary) ?? null,
+    actionItems: (actionItems ?? []) as import("@/lib/meetings/export").ExportAction[],
+  });
+
   return (
     <div className="flex flex-col gap-6 lg:h-full">
       <div className="shrink-0">
@@ -63,6 +71,7 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
           endTime={meeting.end_time}
           meetUrl={meeting.meet_url}
           botStatus={meeting.bot_status}
+          markdown={exportMarkdown}
         />
       </div>
       <div className="grid gap-8 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:gap-12">

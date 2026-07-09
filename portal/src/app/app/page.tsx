@@ -1,6 +1,6 @@
 import { InstantJoin } from "@/components/meetings/InstantJoin";
-import { MeetingRow } from "@/components/meetings/MeetingRow";
-import { SeriesCard } from "@/components/meetings/SeriesCard";
+import { UpcomingMeetingRow } from "@/components/meetings/UpcomingMeetingRow";
+import { PastMeetingRow } from "@/components/meetings/PastMeetingRow";
 import { PageHeader } from "@/components/app-shell/PageHeader";
 import { requireUserPage } from "@/lib/auth-helpers";
 import { createServerClient } from "@/lib/supabase/server";
@@ -90,33 +90,52 @@ export default async function AppPage() {
     for (const s of sums ?? []) if (s.tldr) tldrById.set(s.meeting_id, s.tldr);
   }
 
-  const { groupMeetings } = await import("@/lib/meetings/series");
+  const { buildHomeSections } = await import("@/lib/meetings/series");
   const meetings = [...upcomingList, ...pastList].map((m) => ({
     ...m,
     tldr: tldrById.get(m.id) ?? null,
   }));
-  const entries = groupMeetings(meetings, now);
+  const { upcoming, past } = buildHomeSections(meetings, now);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <PageHeader title="Meetings" subtitle="Your recurring series and one-off meetings." />
       <InstantJoin />
-      {entries.length ? (
-        <div className="space-y-2">
-          {entries.map((e) =>
-            e.kind === "series" ? (
-              <SeriesCard key={e.key} entry={e} />
-            ) : (
-              <MeetingRow
-                key={e.meeting.id}
-                meeting={e.meeting}
-                isPast={e.meeting.start_time < now && e.meeting.bot_status === "done"}
-              />
-            )
-          )}
-        </div>
-      ) : (
+
+      {upcoming.length === 0 && past.length === 0 ? (
         <p className="text-muted-foreground">No upcoming or past meetings yet.</p>
+      ) : (
+        <>
+          <section>
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Upcoming
+            </h2>
+            {upcoming.length ? (
+              <div className="space-y-2">
+                {upcoming.map((row) => (
+                  <UpcomingMeetingRow key={row.meeting.id} row={row} />
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No upcoming meetings.</p>
+            )}
+          </section>
+
+          <section>
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Past
+            </h2>
+            {past.length ? (
+              <div className="space-y-2">
+                {past.map((m) => (
+                  <PastMeetingRow key={m.id} meeting={m} />
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No past meetings yet.</p>
+            )}
+          </section>
+        </>
       )}
     </div>
   );

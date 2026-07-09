@@ -22,24 +22,19 @@ export function ActionItemsPanel({ items: initial }: { items: ActionItem[] }) {
   if (!items.length) return <p className="text-sm text-muted-foreground">No action items.</p>;
 
   return (
-    <ul className="space-y-1.5">
+    <ul className="space-y-2">
       {items.map((item) => (
         <li key={item.id} className="flex items-start gap-2.5">
-          <Checkbox
-            className="mt-0.5"
-            checked={item.done}
-            onCheckedChange={(v) => toggleDone(item.id, Boolean(v))}
-          />
-          <p className={`text-sm leading-relaxed ${item.done ? "text-muted-foreground line-through" : "text-foreground/90"}`}>
+          <Checkbox className="mt-0.5" checked={item.done} onCheckedChange={(v) => toggleDone(item.id, Boolean(v))} />
+          <div className={`text-sm leading-relaxed ${item.done ? "text-muted-foreground line-through" : "text-foreground/90"}`}>
             {hasOwner(item.owner) && (
-              <>
-                <span className="font-medium text-primary">@{item.owner.trim()}</span>
-                {" — "}
-              </>
+              <span className="mr-1.5 rounded bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary">
+                @{item.owner.trim()}
+              </span>
             )}
-            {item.task}
-            {item.due ? <span className="text-muted-foreground"> (due {item.due})</span> : null}
-          </p>
+            <span>{item.task}</span>
+            {item.due ? <span className="ml-1.5 text-xs text-muted-foreground">due {item.due}</span> : null}
+          </div>
         </li>
       ))}
     </ul>

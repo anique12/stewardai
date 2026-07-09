@@ -3,8 +3,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarClock, Blocks, Settings, Menu, X, Layers, MessageCircle, MessageSquare, BarChart3 } from "lucide-react";
+import { CalendarClock, Blocks, Settings, Menu, X, Layers, MessageSquare, BarChart3, ListChecks } from "lucide-react";
 import { UserMenu } from "./UserMenu";
+import { ThemeToggle } from "./ThemeToggle";
 import { cn } from "@/lib/utils";
 
 type NavItem = {
@@ -17,7 +18,7 @@ type NavItem = {
 const NAV: NavItem[] = [
   { href: "/app/chat", label: "Chat", icon: MessageSquare, isActive: (p) => p.startsWith("/app/chat") },
   { href: "/app", label: "Meetings", icon: CalendarClock, isActive: (p) => p === "/app" || p.startsWith("/app/meetings") },
-  { href: "/app/ask", label: "Ask", icon: MessageCircle, isActive: (p) => p.startsWith("/app/ask") },
+  { href: "/app/actions", label: "Action items", icon: ListChecks, isActive: (p) => p.startsWith("/app/actions") },
   { href: "/app/spaces", label: "Spaces", icon: Layers, isActive: (p) => p.startsWith("/app/spaces") },
   { href: "/app/settings/connections", label: "Connected Apps", icon: Blocks, isActive: (p) => p.startsWith("/app/settings/connections") },
   { href: "/app/usage", label: "Usage", icon: BarChart3, isActive: (p) => p.startsWith("/app/usage") },
@@ -76,7 +77,8 @@ export function Sidebar({ email }: { email: string }) {
         <div className="flex-1 overflow-y-auto px-3">
           <NavLinks pathname={pathname} />
         </div>
-        <div className="border-t border-border p-3">
+        <div className="space-y-1 border-t border-border p-3">
+          <ThemeToggle />
           <UserMenu email={email} />
         </div>
       </aside>
@@ -113,7 +115,8 @@ export function Sidebar({ email }: { email: string }) {
             <div className="flex-1 overflow-y-auto px-3">
               <NavLinks pathname={pathname} onNavigate={() => setOpen(false)} />
             </div>
-            <div className="border-t border-border p-3">
+            <div className="space-y-1 border-t border-border p-3">
+              <ThemeToggle />
               <UserMenu email={email} />
             </div>
           </div>
