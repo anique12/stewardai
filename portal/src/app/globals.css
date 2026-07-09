@@ -4,8 +4,32 @@
 
 @layer base {
   :root {
-    /* Refined dark-premium palette. Near-black, slightly blue-shifted ground,
-       a single confident teal/cyan accent, hairline borders. */
+    /* Light — Circleback-style: white ground, near-black text, gray hairlines,
+       teal accent retained. */
+    --background: 0 0% 100%;
+    --foreground: 220 26% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 26% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 26% 12%;
+    --primary: 172 74% 38%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 16% 96%;
+    --secondary-foreground: 220 26% 12%;
+    --muted: 220 16% 96%;
+    --muted-foreground: 220 10% 42%;
+    --accent: 172 74% 38%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 72% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 16% 90%;
+    --input: 220 16% 90%;
+    --ring: 172 74% 38%;
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    /* Original dark-premium palette. */
     --background: 220 26% 5%;
     --foreground: 210 22% 96%;
     --card: 220 24% 8%;

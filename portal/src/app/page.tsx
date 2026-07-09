@@ -23,7 +23,7 @@ export default async function HomePage() {
   const isAuthed = !!user;
 
   return (
-    <>
+    <div className="dark bg-background text-foreground">
       <LandingNav isAuthed={isAuthed} />
       <main>
         <Hero isAuthed={isAuthed} />
@@ -39,6 +39,6 @@ export default async function HomePage() {
         <FinalCTA />
       </main>
       <LandingFooter />
-    </>
+    </div>
   );
 }
