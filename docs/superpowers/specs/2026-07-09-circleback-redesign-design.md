@@ -25,17 +25,18 @@ landing page is untouched).
 - **Scope:** Meetings surfaces restyle + a new global Action Items page + all
   four detail-page features (structured outline, action items with assignees,
   searchable speaker transcript, copy/export).
-- **Ask:** Delete the page/nav; keep `lib/ask/client.ts`; reuse it for a
-  per-meeting ask box. Global Chat remains the primary conversational surface.
+- **Ask:** Delete the Ask page, panel, nav entry, **and** `lib/ask/*` entirely.
+  Chat already provides RAG + tools and is the single conversational surface.
+  No per-meeting ask box in this redesign.
 
 ## Architecture & Components
 
 ### 1. Navigation & routing
 
-- **Delete:** `src/app/app/ask/page.tsx`, `src/components/ask/AskPanel.tsx`, and
-  the "Ask" entry in `src/components/app-shell/Sidebar.tsx` (`NAV`).
-- **Keep:** `src/lib/ask/client.ts` and its test — repurposed by the per-meeting
-  ask box.
+- **Delete:** `src/app/app/ask/page.tsx`, `src/components/ask/AskPanel.tsx`,
+  `src/lib/ask/client.ts`, `src/lib/ask/client.test.ts`, and the "Ask" entry in
+  `src/components/app-shell/Sidebar.tsx` (`NAV`). Verified: nothing else imports
+  `lib/ask` after these deletions.
 - **New nav order:** Chat · Meetings · Action Items (new) · Spaces ·
   Connected Apps · Usage · Settings.
 
@@ -74,8 +75,6 @@ landing page is untouched).
     Decisions → Open questions → Steward's actions.
   - **Action items** (`ActionItemsPanel`) upgraded with assignee chips, checkbox,
     and due date (mostly present; refine visual grouping).
-  - **Ask about this meeting** (`MeetingAsk.tsx`, new): a compact input +
-    answer thread powered by `lib/ask/client.ts`, scoped to this `meetingId`.
 - **Right column — Transcript** (`MeetingTimeline`): add an **in-transcript
   search** box that filters/highlights matching segments client-side.
 
@@ -104,9 +103,8 @@ landing page is untouched).
   `action_items`, `agent_actions`, `transcript_segments`, `meeting_entities`.
 - Action Items page and toggles rely on existing RLS policies for
   `action_items`.
-- Per-meeting ask reuses the existing ask endpoint via `lib/ask/client.ts`; if
-  the client needs a meeting filter, pass `meetingId` through its existing
-  request shape (verify during planning; extend minimally if needed).
+- No changes to the ask/RAG backend; the Chat surface already provides
+  conversational RAG and tools.
 
 ## Error handling
 
@@ -127,5 +125,4 @@ landing page is untouched).
 
 - Theme flip is the highest-visibility change; because token names are
   preserved, existing components keep working — only palette values change.
-- Removing Ask is safe: Chat covers global Q&A and the per-meeting box covers
-  meeting-scoped Q&A.
+- Removing Ask is safe: Chat already covers Q&A over meetings (RAG + tools).
