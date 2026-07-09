@@ -1,4 +1,4 @@
-import { deriveSeriesKey, groupMeetings, type MeetingListItem } from "@/lib/meetings/series";
+import { buildHomeSections, deriveSeriesKey, groupMeetings, type MeetingListItem } from "@/lib/meetings/series";
 
 const m = (over: Partial<MeetingListItem>): MeetingListItem => ({
   id: "x", title: "T", start_time: "2026-07-01T10:00:00Z", meet_url: null,
@@ -58,5 +58,47 @@ describe("groupMeetings", () => {
     const entries = groupMeetings(items, now);
     const firstId = entries[0].kind === "single" ? entries[0].meeting.id : entries[0].upcoming[0]?.id;
     expect(firstId).toBe("soon");
+  });
+});
+
+describe("buildHomeSections", () => {
+  const now = "2026-07-05T00:00:00Z";
+
+  it("collapses a series to its next occurrence in upcoming but expands all past occurrences", () => {
+    const items = [
+      m({ id: "p1", recurring_event_id: "r1", start_time: "2026-07-02T10:00:00Z", bot_status: "done" }),
+      m({ id: "p2", recurring_event_id: "r1", start_time: "2026-07-04T10:00:00Z", bot_status: "done" }),
+      m({ id: "u1", recurring_event_id: "r1", start_time: "2026-07-09T10:00:00Z" }),
+      m({ id: "u2", recurring_event_id: "r1", start_time: "2026-07-16T10:00:00Z" }),
+    ];
+    const { upcoming, past } = buildHomeSections(items, now);
+    // only the next future occurrence surfaces, tagged with the series size
+    expect(upcoming.map((r) => r.meeting.id)).toEqual(["u1"]);
+    expect(upcoming[0].seriesCount).toBe(4);
+    // every completed occurrence appears, most recent first
+    expect(past.map((x) => x.id)).toEqual(["p2", "p1"]);
+  });
+
+  it("places one-offs in the correct section with seriesCount 1", () => {
+    const items = [
+      m({ id: "future", google_event_id: "f", start_time: "2026-07-06T10:00:00Z" }),
+      m({ id: "old", google_event_id: "o", start_time: "2026-07-01T10:00:00Z", bot_status: "done" }),
+    ];
+    const { upcoming, past } = buildHomeSections(items, now);
+    expect(upcoming.map((r) => r.meeting.id)).toEqual(["future"]);
+    expect(upcoming[0].seriesCount).toBe(1);
+    expect(past.map((x) => x.id)).toEqual(["old"]);
+  });
+
+  it("sorts upcoming ascending and past descending across mixed entries", () => {
+    const items = [
+      m({ id: "u_late", google_event_id: "a", start_time: "2026-07-20T10:00:00Z" }),
+      m({ id: "u_soon", google_event_id: "b", start_time: "2026-07-06T10:00:00Z" }),
+      m({ id: "p_old", google_event_id: "c", start_time: "2026-07-01T10:00:00Z", bot_status: "done" }),
+      m({ id: "p_recent", google_event_id: "d", start_time: "2026-07-04T10:00:00Z", bot_status: "done" }),
+    ];
+    const { upcoming, past } = buildHomeSections(items, now);
+    expect(upcoming.map((r) => r.meeting.id)).toEqual(["u_soon", "u_late"]);
+    expect(past.map((x) => x.id)).toEqual(["p_recent", "p_old"]);
   });
 });
