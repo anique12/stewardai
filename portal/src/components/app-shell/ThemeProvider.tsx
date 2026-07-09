@@ -18,7 +18,13 @@ export function ThemeProvider({ initial, children }: { initial: Theme; children:
 
   const toggle = useCallback(() => setTheme((t) => (t === "dark" ? "light" : "dark")), []);
 
-  return <ThemeContext.Provider value={{ theme, toggle }}>{children}</ThemeContext.Provider>;
+  return (
+    <ThemeContext.Provider value={{ theme, toggle }}>
+      <div className={`${theme === "dark" ? "dark " : ""}flex h-screen flex-col bg-background lg:flex-row`}>
+        {children}
+      </div>
+    </ThemeContext.Provider>
+  );
 }
 
 export function useTheme(): Ctx {

@@ -15,13 +15,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <ThemeProvider initial={theme}>
-      <div className={`${theme === "dark" ? "dark " : ""}flex h-screen flex-col bg-background lg:flex-row`}>
-        <TimezoneSync />
-        <Sidebar email={user.email ?? "Account"} />
-        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8 sm:py-8 lg:px-10 lg:py-10">
-          {children}
-        </main>
-      </div>
+      <TimezoneSync />
+      <Sidebar email={user.email ?? "Account"} />
+      <main className="min-h-0 min-w-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8 sm:py-8 lg:px-10 lg:py-10">
+        {children}
+      </main>
     </ThemeProvider>
   );
 }
