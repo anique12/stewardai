@@ -14,12 +14,13 @@ export async function GET(request: Request) {
     ? `${origin}/auth/callback?next=${encodeURIComponent(next)}`
     : `${origin}/auth/callback`;
 
+  // Identity-only sign-in/sign-up: default Google OAuth scopes (no calendar
+  // access requested here). Calendar access is a separate, explicit consent
+  // step — see /auth/connect-calendar.
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
       redirectTo,
-      scopes: "https://www.googleapis.com/auth/calendar.readonly",
-      queryParams: { access_type: "offline", prompt: "consent" },
     },
   });
 

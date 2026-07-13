@@ -17,7 +17,7 @@ const TIERS = [
       "1 connected calendar",
     ],
     cta: "Start free",
-    href: "/auth/login",
+    href: "/welcome",
     highlight: false,
   },
   {
@@ -34,7 +34,7 @@ const TIERS = [
       "Export to Notion & Slack",
     ],
     cta: "Start Pro",
-    href: "/auth/login",
+    href: "/welcome",
     highlight: true,
   },
   {

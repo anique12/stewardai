@@ -311,7 +311,7 @@ export default function SettingsPage() {
               {hasCalendar ? "Connected" : "Not connected"}
             </span>
             <a
-              href="/auth/login"
+              href="/auth/connect-calendar"
               className="inline-flex items-center rounded-md border border-line-2 px-[13px] py-[7px] text-[12.5px] font-semibold text-foreground transition-colors hover:bg-surface-2"
             >
               {hasCalendar ? "Reconnect" : "Connect Google Calendar"}

@@ -61,7 +61,7 @@ export default async function MeetingsPage({
         action={
           <div className="flex flex-col items-center gap-5">
             <Button asChild>
-              <Link href="/app/settings?connect=calendar">Connect Google Calendar</Link>
+              <Link href="/welcome">Connect Google Calendar</Link>
             </Button>
             <div className="flex flex-wrap justify-center gap-2">
               {["🔒 Read-only access", "SOC 2 Type II", "You choose every meeting"].map((t) => (

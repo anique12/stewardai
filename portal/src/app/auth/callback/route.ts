@@ -27,9 +27,17 @@ export async function GET(request: Request) {
     { onConflict: "user_id" }
   );
 
-  // Persist refresh token if we got one
+  // Only persist a calendar connection when this OAuth round-trip was
+  // explicitly requesting calendar access (see /auth/connect-calendar,
+  // which tags its callback URL with `calendar=1`). A plain identity
+  // sign-in via /auth/login can still return a provider_refresh_token from
+  // Google without the calendar scope ever having been granted — storing
+  // that token here would falsely mark the account as "connected" and
+  // later break calendar sync (no calendar scope actually authorized).
+  const calendarRequested = searchParams.get("calendar") === "1";
   const refreshToken = extractRefreshToken(data.session);
-  if (refreshToken) {
+  const calendarConnected = calendarRequested && Boolean(refreshToken);
+  if (calendarConnected) {
     await service.from("calendar_connections").upsert(
       {
         user_id: data.user.id,
@@ -48,10 +56,18 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${origin}${next}`);
   }
 
-  const hasCalendar = Boolean(refreshToken);
-  return NextResponse.redirect(
-    hasCalendar
-      ? `${origin}/app`
-      : `${origin}/welcome`
-  );
+  // No explicit `next`: send users with a calendar connection straight into
+  // the app; everyone else (new identity-only sign-ups, or existing users
+  // who still haven't connected a calendar) continues the onboarding wizard.
+  let hasCalendar = calendarConnected;
+  if (!hasCalendar) {
+    const { data: existingConn } = await service
+      .from("calendar_connections")
+      .select("id")
+      .eq("user_id", data.user.id)
+      .maybeSingle();
+    hasCalendar = Boolean(existingConn);
+  }
+
+  return NextResponse.redirect(hasCalendar ? `${origin}/app` : `${origin}/welcome`);
 }

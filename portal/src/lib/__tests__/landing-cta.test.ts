@@ -6,14 +6,16 @@ describe("landingCta", () => {
       href: "/app",
       primaryLabel: "Go to app",
       secondaryLabel: null,
+      signInHref: "/auth/login",
     });
   });
 
-  it("points logged-out users to sign in", () => {
+  it("points logged-out users to our onboarding page, with a separate sign-in link", () => {
     expect(landingCta(false)).toEqual({
-      href: "/auth/login",
+      href: "/welcome",
       primaryLabel: "Start free",
       secondaryLabel: "Sign in",
+      signInHref: "/auth/login",
     });
   });
 });
