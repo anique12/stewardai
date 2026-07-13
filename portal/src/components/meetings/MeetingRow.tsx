@@ -24,9 +24,9 @@ export function MeetingRow({ meeting, isPast }: { meeting: Meeting; isPast: bool
 
   const body = (
     <div className="flex items-start gap-[13px] border-b border-line px-4 py-[13px] transition-colors last:border-0 hover:bg-surface-2">
-      <div className="w-11 shrink-0 text-center">
-        <div className="font-mono text-[11px] text-ink-3">{day}</div>
-        <div className="font-mono text-[11px] font-semibold text-ink">{time}</div>
+      <div className="w-[68px] shrink-0 text-center">
+        <div className="whitespace-nowrap font-mono text-[11px] text-ink-3">{day}</div>
+        <div className="whitespace-nowrap font-mono text-[11px] font-semibold text-ink">{time}</div>
       </div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-[13.5px] font-semibold text-ink">{meeting.title}</p>

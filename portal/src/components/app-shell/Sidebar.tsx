@@ -64,7 +64,7 @@ function NavGroup({
               />
             ) : null}
             {count ? (
-              <span className="min-w-[19px] rounded-pill bg-attention px-1.5 py-0.5 text-center font-mono text-[10px] font-bold text-on-attention">
+              <span className="min-w-[19px] rounded-pill bg-attention-weak px-1.5 py-0.5 text-center font-mono text-[10px] font-bold text-attention-strong">
                 {count}
               </span>
             ) : null}
