@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LogOut, Moon, Sun } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { LogOut, Moon, ShieldCheck, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -11,6 +12,7 @@ import { ErrorState } from "@/components/common/ErrorState";
 import { AppIcon } from "@/components/integrations/AppCard";
 import { useTheme } from "@/components/app-shell/ThemeProvider";
 import { createBrowserClient } from "@/lib/supabase/client";
+import { toolFriendlyLabel } from "@/lib/tool-permissions";
 import { cn } from "@/lib/utils";
 
 function CardLabel({ children }: { children: React.ReactNode }) {
@@ -26,6 +28,84 @@ function initials(email: string): string {
   const parts = name.split(/[.\-_]+/).filter(Boolean);
   const letters = (parts[0]?.[0] ?? email[0] ?? "?") + (parts[1]?.[0] ?? "");
   return letters.toUpperCase();
+}
+
+type ToolPermission = { id: string; tool_name: string; scope: string | null; created_at: string };
+
+/** "Automatic approvals" card — view & revoke the tools a user has "Always allow"-ed in chat. */
+function AutoApprovalsCard() {
+  const queryClient = useQueryClient();
+  const [revokingId, setRevokingId] = useState<string | null>(null);
+
+  const { data: permissions, isLoading, isError } = useQuery({
+    queryKey: ["tool-permissions"],
+    queryFn: async () => {
+      const res = await fetch("/api/tool-permissions");
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      const { permissions } = (await res.json()) as { permissions: ToolPermission[] };
+      return permissions;
+    },
+  });
+
+  const revoke = useMutation({
+    mutationFn: async (id: string) => {
+      setRevokingId(id);
+      const res = await fetch(`/api/tool-permissions?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`status ${res.status}`);
+    },
+    onSettled: () => {
+      setRevokingId(null);
+      queryClient.invalidateQueries({ queryKey: ["tool-permissions"] });
+    },
+  });
+
+  return (
+    <section className="rounded-lg border border-line bg-surface p-[18px]">
+      <CardLabel>Automatic approvals</CardLabel>
+      <p className="mb-3.5 text-[12.5px] leading-relaxed text-ink-2">
+        Tools you&apos;ve told Steward to always run without asking first. Revoke any of these to have
+        Steward ask again next time.
+      </p>
+
+      {isLoading ? (
+        <div className="space-y-2">
+          {Array.from({ length: 2 }).map((_, i) => (
+            <Skeleton key={i} className="h-14 w-full rounded-md" />
+          ))}
+        </div>
+      ) : isError || !permissions || permissions.length === 0 ? (
+        <div className="flex items-center gap-2.5 rounded-md border border-dashed border-line-2 px-3.5 py-3 text-[12.5px] text-ink-3">
+          <ShieldCheck className="h-4 w-4 shrink-0 text-ink-4" aria-hidden />
+          No automatic approvals — Steward asks before every outward action.
+        </div>
+      ) : (
+        <ul className="space-y-2">
+          {permissions.map((p) => (
+            <li
+              key={p.id}
+              className="flex flex-wrap items-center gap-3 rounded-md border border-line-2 bg-paper px-3.5 py-3"
+            >
+              <div className="min-w-[160px] flex-1">
+                <div className="text-[13px] font-semibold text-foreground">{toolFriendlyLabel(p.tool_name)}</div>
+                <div className="text-[11.5px] text-ink-4">
+                  {p.tool_name}
+                  {p.scope ? ` · ${p.scope}` : ""} · Always allows
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => revoke.mutate(p.id)}
+                disabled={revokingId === p.id}
+                className="inline-flex items-center rounded-md border border-danger bg-danger-weak px-3 py-[6px] text-[12px] font-semibold text-danger transition-colors hover:opacity-90 disabled:opacity-60"
+              >
+                {revokingId === p.id ? "Revoking…" : "Revoke"}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
 }
 
 export default function SettingsPage() {
@@ -196,6 +276,9 @@ export default function SettingsPage() {
             </Button>
           </div>
         </section>
+
+        {/* Automatic approvals */}
+        <AutoApprovalsCard />
 
         {/* Appearance */}
         <section className="rounded-lg border border-line bg-surface p-[18px]">
