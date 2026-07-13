@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { FileMeetingControl, type SpaceOption } from "@/components/spaces/FileMeetingControl";
 import { SpaceEntities, type SpaceEntity } from "@/components/spaces/SpaceEntities";
+import { SpaceChip } from "@/components/common/SpaceChip";
 
 export function MeetingSpaceSection({
   meetingId,
@@ -22,16 +22,17 @@ export function MeetingSpaceSection({
     <div className="flex flex-wrap items-center gap-4">
       <div className="flex flex-wrap items-center gap-2.5">
         {space ? (
-          <Link
+          <SpaceChip
+            name={space.name}
             href={`/app/spaces/${space.id}`}
-            className="inline-flex items-center gap-[7px] rounded-pill border border-brand-weak-2 bg-brand-weak px-2.5 py-[5px] text-[12.5px] font-semibold text-brand-ink transition-colors hover:bg-brand-weak-2"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-              <path d="M12 3.5l8 4-8 4-8-4 8-4z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-              <path d="M4 12l8 4 8-4" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-            </svg>
-            {space.name}
-          </Link>
+            size="md"
+            icon={
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                <path d="M12 3.5l8 4-8 4-8-4 8-4z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                <path d="M4 12l8 4 8-4" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+              </svg>
+            }
+          />
         ) : (
           <span className="inline-flex items-center gap-[7px] rounded-pill border border-line-2 bg-surface-2 px-2.5 py-[5px] text-[12.5px] font-semibold text-ink-3">
             Unfiled
