@@ -54,6 +54,18 @@
 }
 
 @layer base {
+  :root {
+    /* Original (pre-paper) shadcn radii — keep landing's corners unchanged. */
+    --r-xs: 4px;
+    --r-sm: 8px;
+    --r-md: 10px;
+    --r-lg: 12px;
+    --r-xl: 12px;
+    --r-pill: 999px;
+  }
+}
+
+@layer base {
   * {
     @apply border-border;
   }
@@ -183,6 +195,14 @@
     --input: 42 24% 86%;
     --ring: 162 42% 30%;
     --radius: 9px;
+
+    /* Paper radii — override the global (landing) defaults inside the app. */
+    --r-xs: 4px;
+    --r-sm: 6px;
+    --r-md: 9px;
+    --r-lg: 13px;
+    --r-xl: 18px;
+    --r-pill: 999px;
 
     /* extended (raw colors) */
     --paper: #f4f1ea; --surface: #fffdf8; --surface-2: #ece8df; --surface-3: #e3ded3;

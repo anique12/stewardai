@@ -11,7 +11,7 @@ const config: Config = {
     extend: {
       fontFamily: {
         sans: ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
-        mono: ["var(--font-mono-plex)", "var(--font-mono)", "ui-monospace", "monospace"],
+        mono: ["var(--font-mono-plex, var(--font-mono))", "ui-monospace", "SFMono-Regular", "monospace"],
         display: ["var(--font-display)", "ui-sans-serif", "sans-serif"],
         ui: ["var(--font-ui)", "ui-sans-serif", "sans-serif"],
       },
@@ -67,12 +67,12 @@ const config: Config = {
         "on-danger": "var(--on-danger)",
       },
       borderRadius: {
-        xs: "4px",
-        sm: "6px",
-        md: "9px",
-        lg: "13px",
-        xl: "18px",
-        pill: "999px",
+        xs: "var(--r-xs)",
+        sm: "var(--r-sm)",
+        md: "var(--r-md)",
+        lg: "var(--r-lg)",
+        xl: "var(--r-xl)",
+        pill: "var(--r-pill)",
       },
       boxShadow: { "sh-1": "var(--sh-1)", "sh-2": "var(--sh-2)", "sh-pop": "var(--sh-pop)" },
     },
