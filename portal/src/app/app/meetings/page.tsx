@@ -6,13 +6,13 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { buildHomeSections, type MeetingListItem, type UpcomingRow } from "@/lib/meetings/series";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { InstantJoin } from "@/components/meetings/InstantJoin";
 import { MeetingsHeader, type MeetingsTab } from "@/components/meetings/MeetingsHeader";
 import { LiveNowCard, type LiveMeeting } from "@/components/meetings/LiveNowCard";
 import { UpcomingGroups, type UpcomingMeeting } from "@/components/meetings/UpcomingGroups";
 import { PastList, type PastMeeting } from "@/components/meetings/PastList";
 import { MeetingsError } from "@/components/meetings/MeetingsError";
+import { MeetingsSkeleton } from "@/components/meetings/MeetingsSkeleton";
 
 export const dynamic = "force-dynamic";
 
@@ -218,24 +218,4 @@ async function MeetingsContent({ userId, tab }: { userId: string; tab: MeetingsT
   } catch {
     return <MeetingsError />;
   }
-}
-
-function MeetingsSkeleton() {
-  return (
-    <div className="mx-auto max-w-[1080px]">
-      <Skeleton className="mb-[6px] h-[26px] w-[180px]" />
-      <Skeleton className="mb-[26px] h-[13px] w-[280px]" />
-      <Skeleton className="mb-[22px] h-[34px] w-[220px] rounded-lg" />
-      {Array.from({ length: 5 }).map((_, i) => (
-        <div key={i} className="mb-3 flex items-center gap-4 rounded-[13px] border border-line bg-surface p-[18px]">
-          <Skeleton className="h-11 w-[58px] rounded-lg" />
-          <div className="flex-1">
-            <Skeleton className="mb-[9px] h-[15px] w-[52%]" />
-            <Skeleton className="h-[11px] w-[32%]" />
-          </div>
-          <Skeleton className="h-[26px] w-24 rounded-pill" />
-        </div>
-      ))}
-    </div>
-  );
 }
