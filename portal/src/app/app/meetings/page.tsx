@@ -110,6 +110,13 @@ async function MeetingsContent({ userId, tab }: { userId: string; tab: MeetingsT
     const db = createServerClient();
     const now = new Date();
     const nowIso = now.toISOString();
+    // A meeting is only "live" if it's in_meeting AND started recently. Bot
+    // status write-backs are best-effort, so a crashed/abandoned session can
+    // leave a row stuck in `in_meeting` indefinitely — without this window it
+    // would show as "Happening now" for days ("128h elapsed"). 6h comfortably
+    // covers real meetings while excluding stale rows.
+    const LIVE_MAX_MS = 6 * 60 * 60 * 1000;
+    const liveCutoffIso = new Date(now.getTime() - LIVE_MAX_MS).toISOString();
     const FIELDS = "id,title,start_time,end_time,meet_url,opted_in,bot_status,recurring_event_id,google_event_id,space_id";
 
     const [{ data: upcomingRows }, { data: pastRows }, { data: liveRows }, { data: spacesRows }, { data: profile }] =
@@ -136,6 +143,7 @@ async function MeetingsContent({ userId, tab }: { userId: string; tab: MeetingsT
           .select("id,title,start_time")
           .eq("user_id", userId)
           .eq("bot_status", "in_meeting")
+          .gte("start_time", liveCutoffIso)
           .order("start_time", { ascending: false })
           .limit(1),
         db.from("spaces").select("id,name").eq("user_id", userId).eq("status", "active"),
