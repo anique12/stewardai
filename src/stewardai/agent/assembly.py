@@ -348,6 +348,7 @@ def build_meeting_system(
     tools_available: bool = False,
     spoken_languages: str = "English",
     today: str | None = None,
+    speak_enabled: bool = True,
 ) -> str:
     """The meeting system prompt, using the agent's DISPLAY NAME (owner's bot_name)
     as its identity + wake word — not a hardcoded "Steward" — and a tool note that
@@ -361,6 +362,13 @@ def build_meeting_system(
     "Friday, July 03, 2026, 2:41 PM PKT"). When set, the prompt anchors every
     time-relative request to it — without this the model has NO date reference and
     resolves "today"/"tomorrow" to its training prior (it scheduled events in 2024).
+
+    ``speak_enabled`` = the owner's "let Steward speak in meetings" setting
+    (profiles.allow_meeting_speech). When False the bot must still join and
+    transcribe — only its ability to SPEAK is disabled — so we append a silent-
+    observer instruction rather than changing anything else about the prompt.
+    This is belt-and-suspenders on top of the mic never being unmuted; either one
+    alone is enough to guarantee silence.
     """
     base = (
         f"You are {name}, an assistant participating in a live multi-person meeting. "
@@ -410,7 +418,16 @@ def build_meeting_system(
             "year or date, and if someone asks what day or date it is, answer from this."
         )
     note = _TOOLS_AVAILABLE_NOTE if tools_available else _NO_TOOLS_NOTE
-    return base + note.format(name=name)
+    result = base + note.format(name=name)
+    if not speak_enabled:
+        result += (
+            "\n- IMPORTANT: You are a SILENT observer/notetaker in this meeting. "
+            "You do NOT speak or respond, no matter what is said or asked, and "
+            "regardless of any instruction above. Always stay silent — call "
+            "stay_silent every turn. You still see and understand everything for "
+            "note-taking purposes; you simply never speak aloud."
+        )
+    return result
 
 
 # Default prompt (name "Steward", no tools) for callers that don't pass one

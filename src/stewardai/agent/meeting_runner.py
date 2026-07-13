@@ -178,6 +178,11 @@ class MeetingSession:
         # Owner's IANA timezone (profiles.timezone) so calendar actions use their
         # LOCAL time, not UTC. Resolved in build(); defaults to UTC if unset.
         self._user_timezone: str = "UTC"
+        # Owner's "let Steward speak in meetings" setting (profiles.allow_meeting_
+        # speech). Resolved in build(); defaults to True (today's behavior) if the
+        # column/row is missing or the query fails. When False the bot still joins
+        # + transcribes, it just never speaks (mic never unmuted + prompt says so).
+        self._speak_enabled: bool = True
         self._transcript: list[str] = []
         # Attributed transcript built by the per-speaker path (real speaker names).
         # Preferred over _transcript for persistence/summary when populated.
@@ -335,8 +340,9 @@ class MeetingSession:
                 )
 
     async def _resolve_profile(self) -> None:
-        """Load the owner's bot display name + timezone from their profile. Two
-        separate guarded queries so a missing ``timezone`` column can't lose the name."""
+        """Load the owner's bot display name + timezone + speak setting from their
+        profile. Separate guarded queries so a missing column (e.g. ``timezone`` or
+        ``allow_meeting_speech``) can't lose the others."""
         if self._supabase is None or not self.user_id:
             return
         with contextlib.suppress(Exception):
@@ -363,6 +369,17 @@ class MeetingSession:
             tz = ((rows[0].get("timezone") if rows else None) or "").strip()
             if tz:
                 self._user_timezone = tz
+        with contextlib.suppress(Exception):
+            resp = await (
+                self._supabase.table("profiles")
+                .select("allow_meeting_speech")
+                .eq("user_id", self.user_id)
+                .limit(1)
+                .execute()
+            )
+            rows = resp.data or []
+            if rows and rows[0].get("allow_meeting_speech") is not None:
+                self._speak_enabled = bool(rows[0]["allow_meeting_speech"])
 
     async def _tapped_speaker_frames(self):  # noqa: ANN202 - async generator
         """Wrap the per-speaker frame stream, updating the SpeakerTracker with each
@@ -590,6 +607,7 @@ class MeetingSession:
             tools_available=self._has_action_tools,
             spoken_languages=_spoken,
             today=_today,
+            speak_enabled=self._speak_enabled,
         )
 
         # Shared backends passed through; build_session builds fresh nodes/plugins
@@ -786,9 +804,17 @@ class MeetingSession:
         def _unmute_once() -> None:
             loop.create_task(self._control.mic_on())
 
+        # When the owner has turned OFF "let Steward speak in meetings", never wire
+        # the unmute callback at all — the mic stays muted for the ENTIRE session no
+        # matter what the LLM decides (defense in depth alongside the prompt-level
+        # silent-observer instruction in build_meeting_system). Transcription is
+        # untouched: it rides the per-speaker frame tap + combined feed below, both
+        # of which run regardless of on_first_frame.
+        _on_first_frame = _unmute_once if self._speak_enabled else None
+
         pump = asyncio.create_task(_pump_paced(self._audio_out, self._conn))
         feed = asyncio.create_task(
-            _feed_inbound(self._conn, self._audio_in, on_first_frame=_unmute_once)
+            _feed_inbound(self._conn, self._audio_in, on_first_frame=_on_first_frame)
         )
         # Per-speaker transcription runs alongside the combined feed (Deepgram
         # streaming); harmless no-op for legacy bots (speaker_frames() stays empty).

@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/app-shell/PageHeader";
 import { ErrorState } from "@/components/common/ErrorState";
 import { AppIcon } from "@/components/integrations/AppCard";
+import { Switch } from "@/components/ui/switch";
 import { useTheme } from "@/components/app-shell/ThemeProvider";
 import { createBrowserClient } from "@/lib/supabase/client";
 import { toolFriendlyLabel } from "@/lib/tool-permissions";
@@ -198,6 +199,8 @@ export default function SettingsPage() {
   const [hasCalendar, setHasCalendar] = useState(false);
   const [autoJoinPolicy, setAutoJoinPolicy] = useState<AutoJoinPolicy>("all");
   const [savingPolicy, setSavingPolicy] = useState(false);
+  const [allowMeetingSpeech, setAllowMeetingSpeech] = useState(true);
+  const [savingSpeech, setSavingSpeech] = useState(false);
 
   const load = useCallback(async () => {
     setPhase("loading");
@@ -205,7 +208,11 @@ export default function SettingsPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("no user");
       const [{ data: profile, error: profileErr }, { data: conn }] = await Promise.all([
-        supabase.from("profiles").select("bot_name,plan,timezone,auto_join_policy").eq("user_id", user.id).single(),
+        supabase
+          .from("profiles")
+          .select("bot_name,plan,timezone,auto_join_policy,allow_meeting_speech")
+          .eq("user_id", user.id)
+          .single(),
         supabase.from("calendar_connections").select("id").eq("user_id", user.id).single(),
       ]);
       if (profileErr) throw profileErr;
@@ -215,6 +222,8 @@ export default function SettingsPage() {
         setPlan(profile.plan ?? "free");
         setTimezone(profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone);
         setAutoJoinPolicy(((profile as { auto_join_policy?: string }).auto_join_policy as AutoJoinPolicy) ?? "all");
+        const speech = (profile as { allow_meeting_speech?: boolean }).allow_meeting_speech;
+        setAllowMeetingSpeech(speech ?? true);
       }
       setHasCalendar(Boolean(conn));
       setPhase("ready");
@@ -249,6 +258,25 @@ export default function SettingsPage() {
       setAutoJoinPolicy(prev); // revert on failure
     } finally {
       setSavingPolicy(false);
+    }
+  }
+
+  async function saveAllowMeetingSpeech(next: boolean) {
+    const prev = allowMeetingSpeech;
+    setAllowMeetingSpeech(next); // optimistic
+    setSavingSpeech(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("no user");
+      const { error } = await supabase
+        .from("profiles")
+        .update({ allow_meeting_speech: next })
+        .eq("user_id", user.id);
+      if (error) throw error;
+    } catch {
+      setAllowMeetingSpeech(prev); // revert on failure
+    } finally {
+      setSavingSpeech(false);
     }
   }
 
@@ -347,6 +375,23 @@ export default function SettingsPage() {
             <Button onClick={saveProfile} disabled={saving}>
               {saving ? "Saving…" : "Save"}
             </Button>
+          </div>
+        </section>
+
+        {/* Speak in meetings */}
+        <section className="rounded-lg border border-line bg-surface p-[18px]">
+          <CardLabel>Let Steward speak in meetings</CardLabel>
+          <div className="flex items-start justify-between gap-3">
+            <p className="max-w-[440px] text-[12.5px] leading-relaxed text-ink-2">
+              When off, Steward silently takes notes and does everything after the
+              meeting — it won&apos;t talk in the room.
+            </p>
+            <Switch
+              checked={allowMeetingSpeech}
+              onCheckedChange={saveAllowMeetingSpeech}
+              disabled={savingSpeech}
+              aria-label="Let Steward speak in meetings"
+            />
           </div>
         </section>
 
