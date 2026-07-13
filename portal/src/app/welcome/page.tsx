@@ -1,0 +1,200 @@
+import Link from "next/link";
+import { requireUserPage } from "@/lib/auth-helpers";
+import { createServerClient } from "@/lib/supabase/server";
+import { Button } from "@/components/ui/button";
+
+export const dynamic = "force-dynamic";
+
+/**
+ * Post-signin onboarding wizard. Sign-in itself happens on the landing page
+ * (server-redirect OAuth flow) — by the time a user reaches this route they
+ * are already authenticated, so this only covers the two remaining design
+ * steps: "Connect calendar" and "Done" (StewardAI.design.html ~1834-1856).
+ */
+export default async function WelcomePage({
+  searchParams,
+}: {
+  searchParams: { connected?: string };
+}) {
+  const user = await requireUserPage();
+  const db = createServerClient();
+
+  const { data: conn } = await db
+    .from("calendar_connections")
+    .select("id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  const isDone = searchParams.connected === "1" || Boolean(conn);
+
+  return (
+    <div className="grid min-h-screen w-full grid-cols-1 bg-paper text-ink lg:grid-cols-2">
+      {/* BRAND PANE */}
+      <div className="relative hidden flex-col overflow-hidden bg-brand p-12 text-on-brand lg:flex">
+        <div className="inline-flex items-center gap-[9px]">
+          <div className="flex h-[29px] w-[29px] items-center justify-center rounded-md bg-on-brand/[.16]">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="3" fill="currentColor" />
+              <path
+                d="M6.5 6.5a7.8 7.8 0 000 11M17.5 6.5a7.8 7.8 0 010 11"
+                stroke="currentColor"
+                strokeWidth="1.9"
+                strokeLinecap="round"
+              />
+            </svg>
+          </div>
+          <span className="font-display text-lg font-bold">
+            Steward<span className="opacity-70">AI</span>
+          </span>
+        </div>
+        <div className="flex max-w-[420px] flex-1 flex-col justify-center">
+          <div className="mb-[18px] font-mono text-[11px] uppercase tracking-[.14em] opacity-70">
+            Your always-on agent
+          </div>
+          <p className="mb-[26px] font-display text-[28px] font-bold leading-[1.25] tracking-[-.02em]">
+            &ldquo;It joins the call, remembers every commitment, and nudges me before anything
+            slips. I stopped taking notes months ago.&rdquo;
+          </p>
+          <div className="flex items-center gap-3">
+            <span className="flex h-[42px] w-[42px] items-center justify-center rounded-full bg-on-brand/[.18] text-[15px] font-bold">
+              DW
+            </span>
+            <div>
+              <div className="text-sm font-semibold">Dana Whitfield</div>
+              <div className="text-xs opacity-75">VP Operations, Northwind</div>
+            </div>
+          </div>
+        </div>
+        <div className="flex gap-[22px] text-xs opacity-80">
+          <span>SOC 2 Type II</span>
+          <span>·</span>
+          <span>Read-only calendar</span>
+          <span>·</span>
+          <span>Revoke anytime</span>
+        </div>
+      </div>
+
+      {/* FORM PANE */}
+      <div className="flex items-center justify-center p-8">
+        <div className="w-full max-w-[400px] rounded-lg border border-line bg-surface p-8 shadow-sh-1">
+          {isDone ? <DoneStep /> : <ConnectCalendarStep />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConnectCalendarStep() {
+  return (
+    <div>
+      <div className="mb-[18px] flex items-center gap-[10px]">
+        <span className="font-mono text-[11px] font-semibold text-brand">STEP 1 OF 1</span>
+        <span className="h-px flex-1 bg-line" />
+        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-weak text-brand">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M5 12l4.5 4.5L19 7"
+              stroke="currentColor"
+              strokeWidth="2.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </span>
+      </div>
+      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-[13px] border border-line bg-surface-2">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+          <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" stroke="#4285F4" strokeWidth="1.7" />
+          <path
+            d="M3.5 9.5h17M8 3v3.5M16 3v3.5"
+            stroke="#4285F4"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+          />
+          <rect x="6.5" y="12" width="4" height="4" rx="1" fill="#34A853" />
+        </svg>
+      </div>
+      <h1 className="mb-[6px] font-display text-[22px] font-bold tracking-[-.01em]">
+        Connect your calendar
+      </h1>
+      <p className="mb-5 text-[13.5px] leading-[1.55] text-ink-2">
+        This is how Steward knows when to show up. We only ever read your schedule.
+      </p>
+      <div className="mb-5 flex flex-col gap-[11px] rounded-xl border border-line bg-surface-2 p-[14px]">
+        <Reassurance>
+          <strong className="text-ink">Read-only.</strong> Steward cannot create, move or delete
+          events.
+        </Reassurance>
+        <Reassurance>
+          <strong className="text-ink">Encrypted &amp; revocable.</strong> Disconnect in Settings
+          at any time.
+        </Reassurance>
+      </div>
+      <Button asChild className="w-full">
+        <Link href={`/auth/login?next=${encodeURIComponent("/welcome?connected=1")}`}>
+          Connect Google Calendar
+        </Link>
+      </Button>
+      <Button asChild variant="link" className="mt-1 w-full text-ink-3">
+        <Link href="/app">I&rsquo;ll do this later</Link>
+      </Button>
+    </div>
+  );
+}
+
+function DoneStep() {
+  return (
+    <div className="text-center">
+      <div className="mx-auto mb-[18px] flex h-14 w-14 items-center justify-center rounded-full bg-brand-weak text-brand">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
+          <path
+            d="M5 12l4.5 4.5L19 7"
+            stroke="currentColor"
+            strokeWidth="2.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </div>
+      <h1 className="mb-2 font-display text-[23px] font-bold tracking-[-.01em]">
+        You&rsquo;re all set
+      </h1>
+      <p className="mb-[22px] text-[13.5px] leading-[1.55] text-ink-2">
+        Calendar connected. Steward will start joining your meetings and rolling up what was
+        said — pick which ones from your Meetings home.
+      </p>
+      <Button asChild className="w-full gap-2">
+        <Link href="/app">
+          Enter Steward
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M5 12h14M13 6l6 6-6 6"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </Link>
+      </Button>
+    </div>
+  );
+}
+
+function Reassurance({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-[9px]">
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        className="mt-[1px] shrink-0 text-brand"
+      >
+        <rect x="4" y="10" width="16" height="10" rx="2" stroke="currentColor" strokeWidth="1.7" />
+        <path d="M8 10V7a4 4 0 018 0v3" stroke="currentColor" strokeWidth="1.7" />
+      </svg>
+      <span className="text-[12.5px] leading-[1.45] text-ink-2">{children}</span>
+    </div>
+  );
+}

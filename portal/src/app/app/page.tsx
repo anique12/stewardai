@@ -46,7 +46,7 @@ export default async function AppPage() {
         body="Connect your calendar and Steward starts joining your meetings. Your day, your commitments, and everything said will roll up here."
         action={
           <Button asChild>
-            <Link href="/app/settings?connect=calendar">Connect a calendar</Link>
+            <Link href="/welcome">Connect a calendar</Link>
           </Button>
         }
       />

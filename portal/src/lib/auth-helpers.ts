@@ -8,6 +8,17 @@ export function extractRefreshToken(session: Session): string | null {
   return (session as Session & { provider_refresh_token?: string }).provider_refresh_token ?? null;
 }
 
+/**
+ * Guards against open-redirect: only same-origin relative paths are safe to
+ * bounce a user to after auth. Rejects absolute URLs (`https://evil.com`)
+ * and protocol-relative paths (`//evil.com`, which browsers resolve as
+ * `https://evil.com`).
+ */
+export function isSafeNextPath(value: string | null | undefined): value is string {
+  if (!value) return false;
+  return value.startsWith("/") && !value.startsWith("//");
+}
+
 /** Server-component guard. Returns the user, or redirects to the login surface. */
 export async function requireUserPage(): Promise<User> {
   const supabase = createServerClient();
