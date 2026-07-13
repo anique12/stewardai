@@ -29,7 +29,7 @@ export function AgentActionsPanel({
 
   if (!sorted.length) {
     return (
-      <p className="text-muted-foreground">
+      <p className="text-[12.5px] leading-[1.5] text-ink-3">
         No actions proposed yet. Steward will suggest actions after the meeting.
       </p>
     );

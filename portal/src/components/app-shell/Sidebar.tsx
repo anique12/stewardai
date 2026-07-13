@@ -1,46 +1,49 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarClock, Blocks, Settings, Menu, X, Layers, MessageSquare, BarChart3, ListChecks } from "lucide-react";
+import { MessageCircle, X } from "lucide-react";
 import { UserMenu } from "./UserMenu";
-import { ThemeToggle } from "./ThemeToggle";
+import { WORKSPACE_NAV, ACCOUNT_NAV, type NavCounts, type NavItem } from "./nav";
 import { cn } from "@/lib/utils";
 
-type NavItem = {
-  href: string;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  isActive: (path: string) => boolean;
-};
-
-const NAV: NavItem[] = [
-  { href: "/app/chat", label: "Chat", icon: MessageSquare, isActive: (p) => p.startsWith("/app/chat") },
-  { href: "/app", label: "Meetings", icon: CalendarClock, isActive: (p) => p === "/app" || p.startsWith("/app/meetings") },
-  { href: "/app/actions", label: "Action items", icon: ListChecks, isActive: (p) => p.startsWith("/app/actions") },
-  { href: "/app/spaces", label: "Spaces", icon: Layers, isActive: (p) => p.startsWith("/app/spaces") },
-  { href: "/app/settings/connections", label: "Connected Apps", icon: Blocks, isActive: (p) => p.startsWith("/app/settings/connections") },
-  { href: "/app/usage", label: "Usage", icon: BarChart3, isActive: (p) => p.startsWith("/app/usage") },
-  { href: "/app/settings", label: "Settings", icon: Settings, isActive: (p) => p === "/app/settings" },
-];
-
-function Wordmark() {
+function Wordmark({ compact }: { compact?: boolean }) {
   return (
     <Link href="/app" className="flex items-center gap-2.5">
-      <span className="grid h-7 w-7 place-items-center rounded-md bg-primary/15">
-        <span className="h-3 w-3 rotate-45 rounded-[3px] bg-primary" aria-hidden />
+      <span className={cn("grid shrink-0 place-items-center rounded-md bg-brand shadow-sh-1", compact ? "h-7 w-7" : "h-[30px] w-[30px]")}>
+        <span className="h-2.5 w-2.5 rounded-full border-2 border-on-brand" aria-hidden />
       </span>
-      <span className="text-[15px] font-semibold tracking-tight text-foreground">StewardAI</span>
+      <span className="leading-tight">
+        <span className="block font-display text-[16px] font-bold tracking-tight text-ink">
+          Steward<span className="text-brand">AI</span>
+        </span>
+        {!compact ? (
+          <span className="block font-mono text-[9.5px] uppercase tracking-[0.08em] text-ink-3">Personal agent</span>
+        ) : null}
+      </span>
     </Link>
   );
 }
 
-function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
+function NavGroup({
+  label,
+  items,
+  pathname,
+  counts,
+  onNavigate,
+}: {
+  label: string;
+  items: NavItem[];
+  pathname: string;
+  counts: NavCounts;
+  onNavigate?: () => void;
+}) {
   return (
-    <nav className="flex flex-col gap-1">
-      {NAV.map((item) => {
+    <div className="flex flex-col gap-0.5">
+      <div className="px-[11px] pb-[5px] pt-2 font-mono text-[9.5px] uppercase tracking-[0.09em] text-ink-4">{label}</div>
+      {items.map((item) => {
         const active = item.isActive(pathname);
+        const count = item.countKey ? counts[item.countKey] : undefined;
         return (
           <Link
             key={item.href}
@@ -48,80 +51,100 @@ function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () 
             onClick={onNavigate}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-              active
-                ? "bg-primary/10 text-primary"
-                : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+              "flex items-center gap-[9px] rounded-md px-[11px] py-2 text-[13.5px] font-medium transition-colors",
+              active ? "bg-brand-weak text-brand-ink" : "text-ink-2 hover:bg-surface-2 hover:text-ink"
             )}
           >
-            <item.icon className="h-[18px] w-[18px] shrink-0" aria-hidden />
-            {item.label}
+            <item.icon className="h-[17px] w-[17px] shrink-0" aria-hidden />
+            <span className="flex-1 text-left">{item.label}</span>
+            {item.liveKey && counts[item.liveKey] ? (
+              <span
+                className="h-[7px] w-[7px] shrink-0 rounded-pill bg-brand anim-pulse"
+                aria-label="Meeting in progress"
+              />
+            ) : null}
+            {count ? (
+              <span className="min-w-[19px] rounded-pill bg-attention px-1.5 py-0.5 text-center font-mono text-[10px] font-bold text-on-attention">
+                {count}
+              </span>
+            ) : null}
           </Link>
         );
       })}
-    </nav>
+    </div>
   );
 }
 
-export function Sidebar({ email }: { email: string }) {
+export function Sidebar({ email, counts }: { email: string; counts: NavCounts }) {
   const pathname = usePathname();
-  const [open, setOpen] = useState(false);
 
   return (
-    <>
-      {/* Desktop sidebar */}
-      <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-card/40 lg:flex">
-        <div className="px-4 py-5">
-          <Wordmark />
-        </div>
-        <div className="flex-1 overflow-y-auto px-3">
-          <NavLinks pathname={pathname} />
-        </div>
-        <div className="space-y-1 border-t border-border p-3">
-          <ThemeToggle />
-          <UserMenu email={email} />
-        </div>
-      </aside>
-
-      {/* Mobile top bar */}
-      <div className="flex items-center justify-between border-b border-border bg-card/40 px-4 py-3 lg:hidden">
+    <aside className="hidden w-[252px] shrink-0 flex-col border-r border-line bg-surface lg:flex">
+      <div className="px-[18px] pb-3.5 pt-[18px]">
         <Wordmark />
-        <button
-          type="button"
-          aria-label="Open menu"
-          onClick={() => setOpen(true)}
-          className="rounded-md p-2 text-foreground"
-        >
-          <Menu className="h-5 w-5" />
-        </button>
       </div>
 
-      {/* Mobile drawer */}
-      {open && (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="absolute inset-0 bg-background/70 backdrop-blur-sm" onClick={() => setOpen(false)} />
-          <div className="absolute inset-y-0 left-0 flex w-64 flex-col border-r border-border bg-card">
-            <div className="flex items-center justify-between px-4 py-5">
-              <Wordmark />
-              <button
-                type="button"
-                aria-label="Close menu"
-                onClick={() => setOpen(false)}
-                className="rounded-md p-2 text-foreground"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto px-3">
-              <NavLinks pathname={pathname} onNavigate={() => setOpen(false)} />
-            </div>
-            <div className="space-y-1 border-t border-border p-3">
-              <ThemeToggle />
-              <UserMenu email={email} />
-            </div>
-          </div>
+      <div className="px-3 pb-0.5 pt-1">
+        <Link
+          href="/app/chat"
+          className="flex w-full items-center justify-center gap-[9px] rounded-md bg-brand px-[11px] py-2.5 text-[13.5px] font-semibold text-on-brand shadow-sh-1 transition-colors hover:bg-brand-2"
+        >
+          <MessageCircle className="h-4 w-4" aria-hidden />
+          Ask Steward
+        </Link>
+      </div>
+
+      <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-3 pt-2.5">
+        <NavGroup label="Workspace" items={WORKSPACE_NAV} pathname={pathname} counts={counts} />
+        <NavGroup label="Account" items={ACCOUNT_NAV} pathname={pathname} counts={counts} />
+      </nav>
+
+      <div className="border-t border-line p-[10px]">
+        <UserMenu email={email} />
+      </div>
+    </aside>
+  );
+}
+
+/** Restyled mobile drawer — state (`open`) is owned by AppChrome. */
+export function MobileNavDrawer({
+  open,
+  onClose,
+  email,
+  counts,
+}: {
+  open: boolean;
+  onClose: () => void;
+  email: string;
+  counts: NavCounts;
+}) {
+  const pathname = usePathname();
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 lg:hidden">
+      <div className="absolute inset-0 bg-black/40 anim-fadeup" onClick={onClose} aria-hidden />
+      <div className="absolute inset-y-0 left-0 flex w-[270px] flex-col gap-0.5 overflow-y-auto border-r border-line bg-surface p-4 anim-fadeup">
+        <div className="flex items-center justify-between gap-2 pb-3.5">
+          <Wordmark compact />
+          <button
+            type="button"
+            aria-label="Close menu"
+            onClick={onClose}
+            className="grid h-8 w-8 place-items-center rounded-md text-ink-2 hover:bg-surface-2"
+          >
+            <X className="h-[18px] w-[18px]" aria-hidden />
+          </button>
         </div>
-      )}
-    </>
+
+        <NavGroup label="Workspace" items={WORKSPACE_NAV} pathname={pathname} counts={counts} onNavigate={onClose} />
+        <NavGroup label="Account" items={ACCOUNT_NAV} pathname={pathname} counts={counts} onNavigate={onClose} />
+
+        <div className="flex-1" />
+        <div className="border-t border-line pt-3">
+          <UserMenu email={email} />
+        </div>
+      </div>
+    </div>
   );
 }

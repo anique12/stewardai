@@ -18,8 +18,19 @@ function highlight(text: string, q: string): React.ReactNode {
   const parts = text.split(new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "ig"));
   return parts.map((p, i) =>
     p.toLowerCase() === q.toLowerCase()
-      ? <mark key={i} className="rounded bg-primary/20 text-foreground">{p}</mark>
+      ? <mark key={i} className="rounded bg-brand-weak text-ink">{p}</mark>
       : <span key={i}>{p}</span>);
+}
+
+function StewardAvatar() {
+  return (
+    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-brand">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="3" fill="var(--on-brand)" />
+        <path d="M6.5 6.5a7.8 7.8 0 000 11M17.5 6.5a7.8 7.8 0 010 11" stroke="var(--on-brand)" strokeWidth="1.9" strokeLinecap="round" />
+      </svg>
+    </div>
+  );
 }
 
 export function MeetingTimeline({
@@ -51,57 +62,99 @@ export function MeetingTimeline({
 
   const { items } = buildTimeline(segments, actions);
   const [query, setQuery] = useState("");
-
-  if (!items.length) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        {live ? "Transcript will appear here as the meeting proceeds." : "No transcript captured."}
-      </p>
-    );
-  }
-
   const q = query.trim().toLowerCase();
   const shown = q
     ? items.filter(({ segment }) =>
         segment.text.toLowerCase().includes(q) || segment.speaker.toLowerCase().includes(q))
     : items;
 
+  if (!items.length) {
+    return (
+      <p className="text-sm text-ink-3">
+        {live ? "Transcript will appear here as the meeting proceeds." : "No transcript captured."}
+      </p>
+    );
+  }
+
   return (
-    <div className="space-y-4">
-      <input
-        type="search"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search transcript…"
-        className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-      />
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-2.5">
+        <label className="flex flex-1 items-center gap-2 rounded-md border border-line bg-surface-2 px-[11px] py-[7px] text-ink-3">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="shrink-0">
+            <circle cx="11" cy="11" r="6.5" stroke="currentColor" strokeWidth="1.8" />
+            <path d="M20 20l-4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          </svg>
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search this transcript…"
+            className="w-full bg-transparent text-[12.5px] text-ink placeholder:text-ink-3 focus:outline-none"
+          />
+        </label>
+        <span className="whitespace-nowrap font-mono text-[11px] text-ink-3">
+          {shown.length} line{shown.length === 1 ? "" : "s"}
+        </span>
+      </div>
+
       {shown.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No lines match “{query}”.</p>
+        <p className="text-sm text-ink-3">No lines match “{query}”.</p>
       ) : (
-        shown.map(({ segment, actions: attached }) => {
-          const isAgent = segment.speaker.trim().toLowerCase() === botName.trim().toLowerCase();
-          return (
-            <div key={segment.id} className="flex gap-3">
-              <SpeakerAvatar name={segment.speaker} />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-baseline gap-2">
-                  <span className={`text-sm font-semibold ${isAgent ? "text-primary" : "text-foreground"}`}>
-                    {segment.speaker}{isAgent ? " · Steward" : ""}
-                  </span>
-                  <span className="text-[11px] tabular-nums text-muted-foreground">{clock(segment.created_at)}</span>
+        <div className="flex flex-col gap-1">
+          {shown.map(({ segment, actions: attached }) => {
+            const isAgent = segment.speaker.trim().toLowerCase() === botName.trim().toLowerCase();
+            return (
+              <div key={segment.id} className="flex gap-3 rounded-lg px-1 py-2">
+                {isAgent ? <StewardAvatar /> : <SpeakerAvatar name={segment.speaker} />}
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`text-sm font-semibold ${isAgent ? "text-brand" : "text-ink"}`}>
+                      {segment.speaker}
+                    </span>
+                    {isAgent && (
+                      <span className="inline-flex items-center gap-1 rounded-pill border border-brand-weak-2 bg-surface px-[7px] py-[2px] font-mono text-[9px] font-semibold uppercase tracking-[0.05em] text-brand">
+                        <span className="h-[5px] w-[5px] rounded-pill bg-brand" />
+                        Spoke in room
+                      </span>
+                    )}
+                    <span className="flex-1" />
+                    <span className="font-mono text-[10.5px] text-ink-4">{clock(segment.created_at)}</span>
+                  </div>
+                  <p className="mt-[3px] text-sm leading-relaxed text-ink">
+                    {highlight(segment.text, q)}
+                  </p>
+                  <ActionStepStrip
+                    actions={attached as unknown as AgentAction[]}
+                    meetingId={meetingId}
+                    onMutate={() => router.refresh()}
+                  />
                 </div>
-                <p className={`text-sm leading-relaxed ${isAgent ? "text-foreground/90" : "text-foreground"}`}>
-                  {highlight(segment.text, q)}
-                </p>
-                <ActionStepStrip
-                  actions={attached as unknown as AgentAction[]}
-                  meetingId={meetingId}
-                  onMutate={() => router.refresh()}
-                />
+              </div>
+            );
+          })}
+
+          {live && (
+            <div className="flex gap-3 rounded-lg border border-dashed border-line-2 bg-surface-2 px-3.5 py-3.5">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-brand opacity-70">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="3" fill="var(--on-brand)" />
+                  <path d="M6.5 6.5a7.8 7.8 0 000 11M17.5 6.5a7.8 7.8 0 010 11" stroke="var(--on-brand)" strokeWidth="1.9" strokeLinecap="round" />
+                </svg>
+              </div>
+              <div className="flex flex-1 items-center gap-2.5">
+                <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.05em] text-brand">
+                  Listening
+                </span>
+                <span className="flex h-[14px] items-end gap-[3px]">
+                  <span className="h-[6px] w-[3px] rounded-sm bg-brand anim-pulse" />
+                  <span className="h-3 w-[3px] rounded-sm bg-brand anim-pulse" style={{ animationDelay: "0.2s" }} />
+                  <span className="h-[9px] w-[3px] rounded-sm bg-brand anim-pulse" style={{ animationDelay: "0.4s" }} />
+                  <span className="h-[14px] w-[3px] rounded-sm bg-brand anim-pulse" style={{ animationDelay: "0.6s" }} />
+                </span>
               </div>
             </div>
-          );
-        })
+          )}
+        </div>
       )}
     </div>
   );

@@ -26,12 +26,13 @@ export function MeetingExportActions({ markdown, filename }: { markdown: string;
     URL.revokeObjectURL(url);
   }
 
-  const btn = "inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground";
+  const btn =
+    "inline-flex items-center gap-1.5 rounded-md border border-line-2 bg-surface px-2.5 py-1.5 font-mono text-[11.5px] font-semibold text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink";
 
   return (
     <div className="flex items-center gap-2">
       <button type="button" onClick={copy} className={btn}>
-        {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+        {copied ? <Check className="h-3.5 w-3.5 text-brand" /> : <Copy className="h-3.5 w-3.5" />}
         {copied ? "Copied" : "Copy"}
       </button>
       <button type="button" onClick={download} className={btn}>

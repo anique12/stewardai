@@ -1,4 +1,4 @@
-import { extractRefreshToken } from "@/lib/auth-helpers";
+import { extractRefreshToken, isSafeNextPath } from "@/lib/auth-helpers";
 import { createServerClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { NextResponse } from "next/server";
@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
+  const next = searchParams.get("next");
 
   if (!code) {
     return NextResponse.redirect(`${origin}/?error=missing_code`);
@@ -40,10 +41,17 @@ export async function GET(request: Request) {
     );
   }
 
+  // A caller-supplied destination (e.g. the onboarding wizard resuming at
+  // `/welcome?connected=1` after the user connects their calendar) wins over
+  // the default routing below. Only same-origin relative paths are honored.
+  if (isSafeNextPath(next)) {
+    return NextResponse.redirect(`${origin}${next}`);
+  }
+
   const hasCalendar = Boolean(refreshToken);
   return NextResponse.redirect(
     hasCalendar
       ? `${origin}/app`
-      : `${origin}/app/settings?connect=calendar`
+      : `${origin}/welcome`
   );
 }

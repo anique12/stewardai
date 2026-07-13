@@ -1,8 +1,6 @@
-import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
 import { FileMeetingControl, type SpaceOption } from "@/components/spaces/FileMeetingControl";
 import { SpaceEntities, type SpaceEntity } from "@/components/spaces/SpaceEntities";
+import { SpaceChip } from "@/components/common/SpaceChip";
 
 export function MeetingSpaceSection({
   meetingId,
@@ -21,16 +19,25 @@ export function MeetingSpaceSection({
 }) {
   const unconfirmed = !space || spaceSource === "suggested" || spaceSource === "unfiled";
   return (
-    <Card className="p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold">Space</h2>
-          {space ? (
-            <Link href={`/app/spaces/${space.id}`} className="text-sm hover:underline">{space.name}</Link>
-          ) : (
-            <p className="text-sm text-muted-foreground">Unfiled</p>
-          )}
-        </div>
+    <div className="flex flex-wrap items-center gap-4">
+      <div className="flex flex-wrap items-center gap-2.5">
+        {space ? (
+          <SpaceChip
+            name={space.name}
+            href={`/app/spaces/${space.id}`}
+            size="md"
+            icon={
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                <path d="M12 3.5l8 4-8 4-8-4 8-4z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                <path d="M4 12l8 4 8-4" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+              </svg>
+            }
+          />
+        ) : (
+          <span className="inline-flex items-center gap-[7px] rounded-pill border border-line-2 bg-surface-2 px-2.5 py-[5px] text-[12.5px] font-semibold text-ink-3">
+            Unfiled
+          </span>
+        )}
         <FileMeetingControl
           meetingId={meetingId}
           spaces={allSpaces}
@@ -38,12 +45,25 @@ export function MeetingSpaceSection({
           suggestedSpaceName={unconfirmed && space ? space.name : null}
         />
       </div>
+
       {tags.length > 0 ? (
-        <div className="mt-3 flex flex-wrap gap-1">
-          {tags.map((t) => <Badge key={t} variant="outline">#{t}</Badge>)}
+        <div className="flex flex-wrap items-center gap-[6px]">
+          {tags.map((t) => (
+            <span
+              key={t}
+              className="inline-flex items-center rounded-pill border border-line-2 bg-surface-2 px-[9px] py-[2px] font-mono text-[10.5px] font-medium text-ink-3"
+            >
+              #{t}
+            </span>
+          ))}
         </div>
       ) : null}
-      {entities.length > 0 ? <div className="mt-3"><SpaceEntities entities={entities} /></div> : null}
-    </Card>
+
+      {entities.length > 0 ? (
+        <div className="min-w-0">
+          <SpaceEntities entities={entities} />
+        </div>
+      ) : null}
+    </div>
   );
 }

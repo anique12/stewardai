@@ -5,7 +5,9 @@ import { ChevronRight } from "lucide-react";
 import type { SeriesEntry } from "@/lib/meetings/series";
 import { cadenceLabel } from "@/lib/meetings/cadence";
 import { OptInToggle } from "./OptInToggle";
-import { StatusBadge } from "./StatusBadge";
+import { StatusPill, type StatusPillStatus } from "@/components/common/StatusPill";
+
+const KNOWN_STATUSES: StatusPillStatus[] = ["in_meeting", "done", "failed", "scheduled", "pending"];
 
 function dateLabel(iso: string): string {
   const d = new Date(iso);
@@ -20,16 +22,19 @@ export function SeriesCard({ entry }: { entry: SeriesEntry }) {
   const cadence = cadenceLabel(entry.occurrences.map((o) => o.start_time));
 
   return (
-    <div className="rounded-lg border border-border bg-card">
+    <div className="border-b border-line last:border-0">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left"
+        className="flex w-full items-center gap-3 px-4 py-[13px] text-left transition-colors hover:bg-surface-2"
       >
-        <ChevronRight className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} aria-hidden />
+        <ChevronRight
+          className={`h-4 w-4 shrink-0 text-ink-3 transition-transform ${open ? "rotate-90" : ""}`}
+          aria-hidden
+        />
         <span className="min-w-0 flex-1">
-          <span className="block truncate font-medium text-foreground">{entry.title}</span>
-          <span className="block text-xs text-muted-foreground">
+          <span className="block truncate text-[13.5px] font-semibold text-ink">{entry.title}</span>
+          <span className="block font-mono text-[11px] text-ink-3">
             {cadence}
             {entry.nextOccurrence
               ? ` · next ${dateLabel(entry.nextOccurrence.start_time)}`
@@ -40,14 +45,16 @@ export function SeriesCard({ entry }: { entry: SeriesEntry }) {
       </button>
 
       {open && (
-        <div className="space-y-4 border-t border-border px-4 py-3">
+        <div className="flex flex-col gap-4 bg-surface-2/50 px-4 py-3">
           {entry.upcoming.length > 0 && (
             <div>
-              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Upcoming</h4>
-              <ul className="space-y-1.5">
+              <h4 className="mb-2 font-mono text-[10px] font-semibold uppercase tracking-wide text-ink-3">
+                Upcoming
+              </h4>
+              <ul className="flex flex-col gap-1.5">
                 {entry.upcoming.map((o) => (
-                  <li key={o.id} className="flex items-center justify-between gap-3 text-sm">
-                    <span className="text-foreground/90">
+                  <li key={o.id} className="flex items-center justify-between gap-3 text-[13px]">
+                    <span className="text-ink-2">
                       {dateLabel(o.start_time)} · {timeLabel(o.start_time)}
                     </span>
                     <OptInToggle meetingId={o.id} initialValue={o.opted_in} />
@@ -58,20 +65,29 @@ export function SeriesCard({ entry }: { entry: SeriesEntry }) {
           )}
           {entry.past.length > 0 && (
             <div>
-              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Past</h4>
-              <ul className="space-y-2">
-                {entry.past.map((o) => (
-                  <li key={o.id} className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm text-foreground/90">{dateLabel(o.start_time)}</p>
-                      {o.tldr ? <p className="truncate text-xs text-muted-foreground">{o.tldr}</p> : null}
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <StatusBadge status={o.bot_status} />
-                      <Link href={`/app/meetings/${o.id}`} className="text-sm text-primary hover:underline">View</Link>
-                    </div>
-                  </li>
-                ))}
+              <h4 className="mb-2 font-mono text-[10px] font-semibold uppercase tracking-wide text-ink-3">
+                Past
+              </h4>
+              <ul className="flex flex-col gap-2">
+                {entry.past.map((o) => {
+                  const status = KNOWN_STATUSES.includes(o.bot_status as StatusPillStatus)
+                    ? (o.bot_status as StatusPillStatus)
+                    : "done";
+                  return (
+                    <li key={o.id} className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-[13px] text-ink-2">{dateLabel(o.start_time)}</p>
+                        {o.tldr ? <p className="truncate text-[12px] text-ink-3">{o.tldr}</p> : null}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <StatusPill status={status} />
+                        <Link href={`/app/meetings/${o.id}`} className="text-[13px] text-brand hover:underline">
+                          View
+                        </Link>
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}

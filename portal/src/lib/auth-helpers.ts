@@ -8,6 +8,21 @@ export function extractRefreshToken(session: Session): string | null {
   return (session as Session & { provider_refresh_token?: string }).provider_refresh_token ?? null;
 }
 
+/**
+ * Guards against open-redirect: only same-origin relative paths are safe to
+ * bounce a user to after auth. Rejects absolute URLs (`https://evil.com`),
+ * protocol-relative paths (`//evil.com`), and backslash tricks (`/\evil.com`).
+ * Browsers normalize backslashes to forward slashes, so we must reject them
+ * to prevent bypassing the `//` check.
+ */
+export function isSafeNextPath(value: string | null | undefined): value is string {
+  if (!value) return false;
+  // Reject any string containing backslashes (including `/\` and `\` prefixes)
+  if (value.includes("\\")) return false;
+  // Must start with exactly one `/`, not `//` (protocol-relative) or other schemes
+  return value.startsWith("/") && !value.startsWith("//");
+}
+
 /** Server-component guard. Returns the user, or redirects to the login surface. */
 export async function requireUserPage(): Promise<User> {
   const supabase = createServerClient();

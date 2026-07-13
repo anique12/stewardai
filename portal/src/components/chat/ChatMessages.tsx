@@ -1,6 +1,6 @@
 "use client";
 
-// Renders the message list: user turns as a right-aligned soft-grey bubble,
+// Renders the message list: user turns as a right-aligned soft bubble,
 // assistant turns as a full-width block with quiet/expandable activity lines,
 // the streamed answer (with [n] citation chips), a sources strip, and — when
 // the run is paused — the permission/connect action card.
@@ -40,6 +40,23 @@ import { ConnectCard } from "./ConnectCard";
 import { PermissionCard } from "./PermissionCard";
 import { cn } from "@/lib/utils";
 
+// The Steward brand mark — two arcs + a dot, reused from the empty states
+// elsewhere in the app (dashboard/meetings) so the assistant's identity reads
+// consistently across the product.
+function StewardMark({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle cx="12" cy="12" r="3" fill="var(--on-brand)" />
+      <path
+        d="M6.5 6.5a7.8 7.8 0 000 11M17.5 6.5a7.8 7.8 0 010 11"
+        stroke="var(--on-brand)"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 // Lightweight markdown → React for the streamed answer: paragraphs, bullet lists,
 // **bold**, and inline [n]/[1, 6] citation chips. (Full markdown lib is overkill
 // for what the model emits here.)
@@ -60,7 +77,7 @@ function renderInline(
       if (!seg) continue;
       if (seg.startsWith("**") && seg.endsWith("**")) {
         nodes.push(
-          <strong key={`${keyBase}-b${idx++}`} className="font-semibold text-foreground">
+          <strong key={`${keyBase}-b${idx++}`} className="font-semibold text-ink">
             {seg.slice(2, -2)}
           </strong>,
         );
@@ -132,11 +149,11 @@ function AnswerContent({
       const k = key++;
       const items = [...list];
       blocks.push(
-        <ul key={`u${k}`} className="mb-3 flex list-none flex-col gap-1.5 last:mb-0">
+        <ul key={`u${k}`} className="mb-3 flex list-none flex-col gap-2 last:mb-0">
           {items.map((it, i) => (
-            <li key={i} className="flex gap-2">
-              <span className="mt-[9px] h-1 w-1 shrink-0 rounded-full bg-muted-foreground/60" aria-hidden />
-              <span className="min-w-0">{renderInline(it, cite, `u${k}-${i}`)}</span>
+            <li key={i} className="flex gap-2.5">
+              <span className="mt-[8px] h-[5px] w-[5px] shrink-0 rounded-pill bg-brand" aria-hidden />
+              <span className="min-w-0 text-[13.5px] leading-[1.55] text-ink">{renderInline(it, cite, `u${k}-${i}`)}</span>
             </li>
           ))}
         </ul>,
@@ -159,7 +176,7 @@ function AnswerContent({
   }
   flushPara();
   flushList();
-  return <div className="text-[15px] leading-[1.68] text-foreground/90">{blocks}</div>;
+  return <div className="text-[14px] leading-[1.62] text-ink">{blocks}</div>;
 }
 
 function formatDate(iso: string | null): string {
@@ -261,12 +278,12 @@ function ActivityLine({ activity, paused }: { activity: Activity; paused?: boole
         : toolIcon(activity.name);
 
   return (
-    <div className="flex w-fit max-w-full items-center gap-1.5 px-1.5 py-1 text-[12.5px] text-muted-foreground">
+    <div className="flex w-fit max-w-full items-center gap-[7px] rounded-pill bg-surface-2 px-2.5 py-1 text-[11.5px] font-medium text-ink-2">
       <Icon
         className={cn(
           "h-3.5 w-3.5 shrink-0",
-          spinning && "animate-spin",
-          activity.status === "error" && "text-destructive",
+          spinning && "animate-spin text-brand",
+          activity.status === "error" && "text-danger",
         )}
         aria-hidden
       />
@@ -286,7 +303,7 @@ function Collapsible({ summary, children }: { summary: ReactNode; children: Reac
         onClick={() => setOpen((o) => !o)}
         className={cn(
           "flex w-fit max-w-full cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1 text-left",
-          "text-[12.5px] text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground",
+          "text-[12.5px] font-medium text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink",
         )}
       >
         {summary}
@@ -327,12 +344,12 @@ function ThinkingBlock({
     <Collapsible
       summary={
         <span className="flex items-center gap-1.5">
-          <Sparkles className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+          <Sparkles className="h-3.5 w-3.5 shrink-0 text-brand" aria-hidden />
           {label}
         </span>
       }
     >
-      <div className="ml-2 mt-0.5 whitespace-pre-wrap border-l border-border py-1 pl-3 text-[12.5px] leading-relaxed text-muted-foreground">
+      <div className="ml-2 mt-0.5 whitespace-pre-wrap border-l-2 border-line-2 py-1 pl-3 text-[12.5px] leading-relaxed text-ink-2">
         {thinking}
       </div>
     </Collapsible>
@@ -352,15 +369,15 @@ function ActivityGroup({ activities, paused }: { activities: Activity[]; paused?
       summary={
         <span className="flex items-center gap-1.5">
           {running ? (
-            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-brand" aria-hidden />
           ) : (
-            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
+            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-brand" aria-hidden />
           )}
           {running ? "Working…" : `Ran ${n} action${n === 1 ? "" : "s"}`}
         </span>
       }
     >
-      <div className="mt-0.5 flex flex-col gap-0.5 border-l border-border pl-2">
+      <div className="mt-1.5 flex flex-col flex-wrap gap-1.5 border-l-2 border-line-2 pl-2.5">
         {activities.map((a, i) => (
           <ActivityLine key={`${a.kind}-${a.name ?? i}`} activity={a} paused={paused} />
         ))}
@@ -397,7 +414,7 @@ function collapseCitations(citations: CitationType[]): {
 function UserTurn({ message }: { message: Message }) {
   return (
     <div className="flex flex-col items-end">
-      <div className="max-w-[78%] whitespace-pre-wrap rounded-2xl rounded-br-md border border-border bg-secondary/50 px-4 py-2.5 text-[15px] leading-relaxed text-foreground">
+      <div className="max-w-[78%] whitespace-pre-wrap rounded-xl rounded-br-sm border border-line-2 bg-surface-2 px-4 py-2.5 text-[14px] leading-relaxed text-ink">
         {message.text}
       </div>
     </div>
@@ -430,13 +447,13 @@ function AssistantTurn({
       <div className="flex items-center gap-2">
         <span
           className={cn(
-            "grid h-6 w-6 shrink-0 place-items-center rounded-md bg-gradient-to-br from-primary to-primary/60 text-primary-foreground",
-            streaming && "animate-pulse",
+            "grid h-[30px] w-[30px] shrink-0 place-items-center rounded-md bg-brand",
+            streaming && "anim-pulse",
           )}
         >
-          <span className="h-2 w-2 rotate-45 rounded-[2px] bg-primary-foreground" aria-hidden />
+          <StewardMark size={16} />
         </span>
-        <span className="text-[12.5px] font-semibold text-foreground">Steward</span>
+        <span className="text-[12.5px] font-semibold text-ink">Steward</span>
       </div>
 
       <ThinkingBlock
@@ -445,8 +462,6 @@ function AssistantTurn({
         seconds={message.thinkingSeconds}
       />
       <ActivityGroup activities={activities} paused={!!message.pending} />
-
-
 
       {message.text.length > 0 && <AnswerContent text={message.text} cite={cite} />}
 
@@ -458,41 +473,31 @@ function AssistantTurn({
       )}
 
       {message.error && (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="text-sm text-danger">
           {message.error}
         </p>
       )}
 
       {sources.length > 0 && (
-        <div className="mt-1 border-t border-dashed border-border pt-3">
-          <div className="mb-2 text-[11px] uppercase tracking-wide text-muted-foreground">Sources</div>
-          <div className="flex flex-wrap gap-2">
-            {sources.map((s) => {
-              const info = titles[s.meetingId];
-              const date = formatDate(info?.date ?? null);
-              return (
-                <Link
-                  key={s.meetingId}
-                  href={`/app/meetings/${s.meetingId}`}
-                  className="group flex items-center gap-2.5 rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-sm transition-colors hover:border-primary/40 hover:bg-secondary/40"
-                >
-                  <FileText
-                    className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary"
-                    aria-hidden
-                  />
-                  <span className="flex min-w-0 flex-col">
-                    <span className="truncate font-medium text-foreground">
-                      {info?.title ?? `Meeting ${s.meetingId.slice(0, 8)}`}
-                    </span>
-                    {date && <span className="text-[11px] text-muted-foreground">{date}</span>}
-                  </span>
-                  <span className="ml-1 shrink-0 rounded bg-primary/15 px-1.5 py-0.5 text-[10.5px] font-semibold tabular-nums text-primary">
-                    {s.num}
-                  </span>
-                </Link>
-              );
-            })}
-          </div>
+        <div className="mt-1 flex items-center gap-[7px] flex-wrap border-t border-dashed border-line pt-3">
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-wide text-ink-4">
+            Sources
+          </span>
+          {sources.map((s) => {
+            const info = titles[s.meetingId];
+            const date = formatDate(info?.date ?? null);
+            return (
+              <Link
+                key={s.meetingId}
+                href={`/app/meetings/${s.meetingId}`}
+                className="group inline-flex items-center gap-[5px] rounded-md border border-brand-weak-2 bg-brand-weak px-2 py-1 font-mono text-[10px] font-semibold text-brand transition-colors hover:bg-brand-weak-2"
+              >
+                <FileText className="h-[11px] w-[11px] shrink-0" aria-hidden />
+                <span className="max-w-[160px] truncate">{info?.title ?? `Meeting ${s.meetingId.slice(0, 8)}`}</span>
+                {date && <span className="text-ink-3">· {date}</span>}
+              </Link>
+            );
+          })}
         </div>
       )}
 
@@ -505,10 +510,17 @@ function AssistantTurn({
         !message.thinking &&
         activities.length === 0 &&
         !message.pending && (
-          <div className="flex items-center gap-1 pt-1" role="status" aria-label="Steward is responding">
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:-0.3s]" />
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:-0.15s]" />
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" />
+          <div
+            className="flex w-fit items-center gap-[9px] rounded-pill border border-line bg-surface-2 px-3 py-[7px]"
+            role="status"
+            aria-label="Steward is responding"
+          >
+            <span className="flex gap-1">
+              <span className="anim-pulse h-[6px] w-[6px] rounded-pill bg-brand" />
+              <span className="anim-pulse h-[6px] w-[6px] rounded-pill bg-brand [animation-delay:.2s]" />
+              <span className="anim-pulse h-[6px] w-[6px] rounded-pill bg-brand [animation-delay:.4s]" />
+            </span>
+            <span className="text-[12px] text-ink-2">Thinking…</span>
           </div>
         )}
     </div>
@@ -521,12 +533,14 @@ export function ChatMessages({
   onDecide,
   onConnect,
   onSkip,
+  onSuggest,
 }: {
   messages: Message[];
   streaming: boolean;
   onDecide: (decision: PermissionDecision, args?: Record<string, unknown>) => void;
   onConnect: () => void;
   onSkip: () => void;
+  onSuggest?: (text: string) => void;
 }) {
   // Fetch titles/dates for every cited meeting across the thread (RLS-scoped).
   // Called unconditionally (before any early return) to keep hook order stable.
@@ -538,11 +552,33 @@ export function ChatMessages({
   if (messages.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 py-24 text-center">
-        <p className="text-lg font-medium text-foreground">Ask Steward anything</p>
-        <p className="max-w-sm text-sm text-muted-foreground">
-          Or tell it to do something — draft an email, file a meeting, log a recap. It cites its sources and
-          asks before anything leaves your workspace.
+        <div className="mb-1 grid h-[52px] w-[52px] shrink-0 place-items-center rounded-xl bg-brand shadow-sh-2">
+          <StewardMark size={28} />
+        </div>
+        <p className="font-display text-2xl font-bold tracking-tight text-ink">Ask Steward anything</p>
+        <p className="max-w-md text-sm leading-relaxed text-ink-2">
+          Steward reads across every meeting you&apos;ve had, cites its sources, and can act on your behalf — with
+          your approval on anything that leaves your workspace.
         </p>
+        <div className="mt-4 flex w-full max-w-md flex-col gap-2">
+          {[
+            "What did we commit to in the last renewal call?",
+            "Draft a follow-up to everyone from Tuesday's kickoff",
+            "What's still open from last week's meetings?",
+            "Summarize everything we know about Acme Corp",
+          ].map((suggestion) => (
+            <button
+              key={suggestion}
+              type="button"
+              onClick={() => onSuggest?.(suggestion)}
+              className="flex items-center gap-2.5 rounded-lg border border-line bg-surface px-3.5 py-3 text-left text-[13px] text-ink shadow-sh-1 transition-colors hover:border-brand-weak-2 hover:bg-surface-2"
+            >
+              <Sparkles className="h-[15px] w-[15px] shrink-0 text-brand" aria-hidden />
+              <span className="flex-1">{suggestion}</span>
+              <ChevronDown className="h-[15px] w-[15px] shrink-0 -rotate-90 text-ink-4" aria-hidden />
+            </button>
+          ))}
+        </div>
       </div>
     );
   }
@@ -552,7 +588,7 @@ export function ChatMessages({
       {messages.map((message, i) => {
         const isLast = i === messages.length - 1;
         return (
-          <div key={i} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <div key={i} className="anim-fadeup">
             {message.role === "user" ? (
               <UserTurn message={message} />
             ) : (
