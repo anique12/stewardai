@@ -22,9 +22,15 @@ export async function GET() {
 
   if (rows.length > 0) {
     const service = createServiceClient(); // elevated write
-    await service
+    // Fail soft: the row shape includes newer columns (e.g. `attendees`) that
+    // may not exist until their migration runs; don't 500 the caller on a
+    // transient/schema error — report how many rows we attempted.
+    const { error } = await service
       .from("meetings")
       .upsert(rows, { onConflict: "user_id,google_event_id", ignoreDuplicates: false });
+    if (error) {
+      return NextResponse.json({ synced: 0, error: error.message }, { status: 200 });
+    }
   }
 
   return NextResponse.json({ synced: rows.length });
