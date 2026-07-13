@@ -1,8 +1,9 @@
 import { cookies } from "next/headers";
 import localFont from "next/font/local";
 import { TimezoneSync } from "@/components/TimezoneSync";
-import { Sidebar } from "@/components/app-shell/Sidebar";
+import { AppChrome } from "@/components/app-shell/AppChrome";
 import { ThemeProvider } from "@/components/app-shell/ThemeProvider";
+import type { NavCounts } from "@/components/app-shell/nav";
 import { THEME_COOKIE, parseTheme } from "@/lib/theme";
 import { createServerClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
@@ -32,20 +33,53 @@ const plex = localFont({
   weight: "400 600",
 });
 
+/** Best-effort count query — a failure here should never break the shell. */
+async function safeCount(query: PromiseLike<{ count: number | null; error: unknown }>): Promise<number> {
+  try {
+    const { count, error } = await query;
+    return error ? 0 : count ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function loadNavCounts(
+  db: ReturnType<typeof createServerClient>,
+  userId: string
+): Promise<NavCounts> {
+  const [actions, review] = await Promise.all([
+    safeCount(
+      db.from("action_items").select("id", { count: "exact", head: true }).eq("done", false)
+    ),
+    safeCount(
+      // Same "meetings needing filing" definition as /app/spaces: only
+      // processed (done) meetings count — upcoming ones have nothing to
+      // file yet.
+      db
+        .from("meetings")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .eq("bot_status", "done")
+        .or("space_source.in.(suggested,unfiled),space_id.is.null")
+    ),
+  ]);
+  return { actions, review };
+}
+
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/");
 
   const theme = parseTheme(cookies().get(THEME_COOKIE)?.value);
+  const counts = await loadNavCounts(supabase, user.id);
 
   return (
     <ThemeProvider initial={theme} className={`steward-app ${display.variable} ${ui.variable} ${plex.variable}`}>
       <TimezoneSync />
-      <Sidebar email={user.email ?? "Account"} />
-      <main className="min-h-0 min-w-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8 sm:py-8 lg:px-10 lg:py-10">
+      <AppChrome email={user.email ?? "Account"} counts={counts}>
         {children}
-      </main>
+      </AppChrome>
     </ThemeProvider>
   );
 }

@@ -3,8 +3,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ChevronsUpDown, LogOut, Shield, FileText } from "lucide-react";
+import { ChevronsUpDown, LogOut } from "lucide-react";
 import { createBrowserClient } from "@/lib/supabase/client";
+import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -12,6 +13,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { ThemeToggle } from "./ThemeToggle";
 
 function initials(email: string): string {
   const name = email.split("@")[0] ?? "";
@@ -20,7 +22,7 @@ function initials(email: string): string {
   return letters.toUpperCase();
 }
 
-export function UserMenu({ email }: { email: string }) {
+export function UserMenu({ email, className }: { email: string; className?: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
 
@@ -37,34 +39,40 @@ export function UserMenu({ email }: { email: string }) {
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="flex w-full items-center gap-2.5 rounded-lg border border-transparent px-2 py-2 text-left transition-colors hover:border-border hover:bg-secondary/50"
+          className={cn(
+            "flex w-full items-center gap-2.5 rounded-md px-[9px] py-2 text-left text-ink transition-colors hover:bg-surface-2",
+            className
+          )}
         >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
+          <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-pill bg-brand-weak-2 text-[12.5px] font-bold text-brand-ink">
             {initials(email)}
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-medium text-foreground">{email}</span>
-            <span className="block text-xs text-muted-foreground">Account</span>
+            <span className="block truncate text-[13px] font-semibold">{email.split("@")[0]}</span>
+            <span className="block truncate text-[11px] text-ink-3">{email}</span>
           </span>
-          <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+          <ChevronsUpDown className="h-[15px] w-[15px] shrink-0 text-ink-3" aria-hidden />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" side="top" className="w-56">
-        <DropdownMenuItem asChild>
-          <Link href="/privacy" className="cursor-pointer">
-            <Shield className="mr-2 h-4 w-4" aria-hidden /> Privacy
-          </Link>
+      <DropdownMenuContent align="end" side="top" className="w-60 rounded-lg border-line-2 p-1.5 shadow-sh-pop">
+        <div className="border-b border-line px-2.5 py-2 pb-2">
+          <div className="truncate text-[12.5px] font-semibold text-ink">{email.split("@")[0]}</div>
+          <div className="truncate text-[11px] text-ink-3">{email}</div>
+        </div>
+        <DropdownMenuItem asChild className="cursor-pointer rounded-md text-[13px]">
+          <Link href="/app/settings">Settings</Link>
         </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link href="/terms" className="cursor-pointer">
-            <FileText className="mr-2 h-4 w-4" aria-hidden /> Terms
-          </Link>
+        <DropdownMenuItem asChild className="cursor-pointer rounded-md text-[13px]">
+          <Link href="/app/usage">Usage &amp; billing</Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild className="cursor-pointer rounded-md p-0 focus:bg-transparent">
+          <ThemeToggle label className="text-[13px] hover:bg-surface-2" />
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onClick={signOut}
           disabled={busy}
-          className="cursor-pointer text-destructive focus:text-destructive"
+          className="cursor-pointer rounded-md text-[13px] text-danger-strong focus:bg-danger-weak focus:text-danger-strong"
         >
           <LogOut className="mr-2 h-4 w-4" aria-hidden /> {busy ? "Signing out…" : "Sign out"}
         </DropdownMenuItem>
