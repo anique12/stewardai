@@ -82,7 +82,10 @@ async function loadNavCounts(
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = createServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  // Local session read (see requireUserPage) — avoids a per-load auth network
+  // round-trip; RLS still enforces real authorization on every query below.
+  const { data: { session } } = await supabase.auth.getSession();
+  const user = session?.user;
   if (!user) redirect("/");
 
   const theme = parseTheme(cookies().get(THEME_COOKIE)?.value);

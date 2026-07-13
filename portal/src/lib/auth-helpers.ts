@@ -26,11 +26,15 @@ export function isSafeNextPath(value: string | null | undefined): value is strin
 /** Server-component guard. Returns the user, or redirects to the login surface. */
 export async function requireUserPage(): Promise<User> {
   const supabase = createServerClient();
+  // getSession reads the token from cookies LOCALLY (network only when the
+  // token is expired) — much faster per navigation than getUser's always-on
+  // auth round-trip. Safe for page reads: every query is RLS-scoped by the
+  // verified JWT, so a user id used only as a filter can't widen access.
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/?login=1");
-  return user;
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.user) redirect("/?login=1");
+  return session.user;
 }
 
 /** Route-handler guard. Returns { user } or { user: null, response } with a 401. */
