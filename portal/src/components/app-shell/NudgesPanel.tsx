@@ -11,6 +11,30 @@ function nudgeKey(n: Nudge) {
   return `${n.kind}:${n.href}:${n.title}`;
 }
 
+// Read/dismissed nudges are persisted so they stay cleared across reloads. A
+// genuinely new nudge (different task/meeting → different key) still surfaces.
+const DISMISSED_STORAGE_KEY = "steward.dismissedNudges";
+
+function loadDismissed(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = window.localStorage.getItem(DISMISSED_STORAGE_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(arr) ? (arr as string[]) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveDismissed(set: Set<string>) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify(Array.from(set)));
+  } catch {
+    /* ignore quota/serialization errors — dismissal is best-effort */
+  }
+}
+
 export function NudgesPanel({
   open,
   onOpenChange,
@@ -21,7 +45,13 @@ export function NudgesPanel({
   onCountChange?: (count: number) => void;
 }) {
   const router = useRouter();
+  // Start empty for a stable SSR/first-client render, then hydrate from
+  // localStorage on mount (localStorage is unavailable during SSR).
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    setDismissed(loadDismissed());
+  }, []);
 
   const { data, isSuccess, isError, refetch } = useQuery({
     queryKey: ["nudges"],
@@ -54,13 +84,24 @@ export function NudgesPanel({
 
   const close = useCallback(() => onOpenChange(false), [onOpenChange]);
 
+  // Mark a nudge read: drop it from the visible list + count and persist so it
+  // stays cleared across reloads.
+  function markRead(n: Nudge) {
+    setDismissed((prev) => {
+      const next = new Set(prev).add(nudgeKey(n));
+      saveDismissed(next);
+      return next;
+    });
+  }
+
   function act(n: Nudge) {
+    markRead(n);
     close();
     router.push(n.href);
   }
 
   function dismiss(n: Nudge) {
-    setDismissed((prev) => new Set(prev).add(nudgeKey(n)));
+    markRead(n);
   }
 
   if (!open || typeof document === "undefined") return null;
