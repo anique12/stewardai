@@ -18,7 +18,11 @@ _SUMMARY_SYSTEM = (
     "source_line is the 0-based index of the transcript line that produced the "
     "item — an integer shown as 'N:' at the start of each line — or null), "
     "discrepancies (array of strings describing contradictions raised). "
-    "Attribute action items to the speaker responsible by name."
+    "Attribute action items to the speaker responsible by name. "
+    "Summarize the human participants' actual discussion only. Exclude meta-conversation with or "
+    "about the AI assistant/notetaker in the room (requests directed at it, its offers to "
+    "draft/send/list, or confusion about what it did) from decisions, action_items, and "
+    "discrepancies — those are not real commitments or contradictions."
 )
 
 

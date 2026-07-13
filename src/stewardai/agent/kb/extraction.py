@@ -22,7 +22,11 @@ _SYSTEM = (
     "'tags' (array of short lowercase topic strings), and 'facts' (array of "
     "{kind:'decision'|'date'|'risk'|'open_question', text, source_line(0-based line "
     "index or null), due('YYYY-MM-DD' or null)}). Only include entities actually "
-    "named. Keep tags to at most 6. Do not invent facts."
+    "named. Keep tags to at most 6. Do not invent facts. "
+    "Extract only substantive knowledge about the participants' actual work. Do NOT extract "
+    "meta-conversation with or about the AI assistant/notetaker in the room — e.g. someone asking "
+    "it to draft, send, or list something, it offering to do so, or confusion about what it did. "
+    "That is never a decision, risk, open_question, or date."
 )
 
 
