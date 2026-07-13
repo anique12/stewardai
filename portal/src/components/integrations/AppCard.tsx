@@ -6,32 +6,34 @@ import type { CatalogApp } from "@/lib/integrations/catalog";
 
 export type CardStatus = "connected" | "pending" | "error" | "disconnected" | "loading";
 
-export function AppIcon({ slug, name }: { slug: string; name: string }) {
-  const cls = "h-6 w-6";
+export function AppIcon({ slug, name, muted }: { slug: string; name: string; muted?: boolean }) {
+  const cls = "h-5 w-5";
   const known: Record<string, React.ComponentType<{ className?: string }>> = {
     gmail: GmailIcon, googlecalendar: GoogleCalendarIcon, notion: NotionIcon, slack: SlackIcon,
   };
   const Brand = known[slug];
   if (Brand) {
     return (
-      <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-white p-1.5">
+      <span
+        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-white p-2 ${muted ? "opacity-70 grayscale" : ""}`}
+      >
         <Brand className={cls} />
       </span>
     );
   }
   return (
-    <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-sm font-semibold text-muted-foreground">
+    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-line bg-surface-2 font-display text-base font-bold text-ink-3">
       {name.charAt(0).toUpperCase()}
     </span>
   );
 }
 
 const STATUS_BADGE: Record<CardStatus, { label: string; cls: string }> = {
-  connected: { label: "Connected", cls: "bg-emerald-500/15 text-emerald-400" },
-  pending: { label: "Pending", cls: "bg-yellow-500/15 text-yellow-400" },
-  error: { label: "Needs reconnect", cls: "bg-red-500/15 text-red-400" },
-  disconnected: { label: "Not connected", cls: "bg-muted text-muted-foreground" },
-  loading: { label: "…", cls: "bg-muted text-muted-foreground" },
+  connected: { label: "Connected", cls: "text-brand bg-brand-weak border-brand-weak-2" },
+  pending: { label: "Pending", cls: "text-attention-strong bg-attention-weak border-attention-weak" },
+  error: { label: "Needs reconnect", cls: "text-danger-strong bg-danger-weak border-danger-weak" },
+  disconnected: { label: "Not connected", cls: "text-ink-3 bg-surface-2 border-line" },
+  loading: { label: "…", cls: "text-ink-4 bg-surface-2 border-line" },
 };
 
 export function AppCard({
@@ -43,56 +45,77 @@ export function AppCard({
   const comingSoon = app.availability === "coming_soon";
   const isConnected = status === "connected";
   const isError = status === "error";
-  const badge = comingSoon ? { label: "Coming soon", cls: "bg-muted text-muted-foreground" } : STATUS_BADGE[status];
+  const badge = STATUS_BADGE[status];
 
-  const meta = isConnected
-    ? [accountLabel, connectedAt ? `since ${new Date(connectedAt).toLocaleDateString()}` : null].filter(Boolean).join(" · ")
+  const accountText = isConnected
+    ? [accountLabel, connectedAt ? `since ${new Date(connectedAt).toLocaleDateString()}` : null]
+        .filter(Boolean)
+        .join(" · ")
     : null;
 
-  return (
-    <div className={`flex flex-col gap-3 rounded-lg border border-border bg-card p-4 ${comingSoon ? "opacity-60" : ""}`}>
-      <div className="flex items-start gap-3">
-        <span className={comingSoon ? "grayscale" : ""}><AppIcon slug={app.slug} name={app.name} /></span>
+  if (comingSoon) {
+    return (
+      <div
+        title={app.description}
+        className="flex items-center gap-3 rounded-lg border border-dashed border-line-2 bg-surface p-4 opacity-90"
+      >
+        <AppIcon slug={app.slug} name={app.name} muted />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="font-medium text-foreground">{app.name}</span>
-            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${badge.cls}`}>{badge.label}</span>
-          </div>
-          <p className="mt-0.5 text-xs text-muted-foreground">{app.description}</p>
-          {meta ? <p className="mt-1 text-xs text-muted-foreground">{meta}</p> : null}
+          <div className="truncate text-[13.5px] font-semibold text-ink-2">{app.name}</div>
+          <div className="truncate text-[11px] text-ink-4">{app.category}</div>
         </div>
+        <button
+          type="button"
+          disabled
+          title="Available soon"
+          className="shrink-0 cursor-not-allowed rounded-md border border-line bg-surface-2 px-3 py-1.5 text-xs font-semibold text-ink-3 opacity-70"
+        >
+          Notify me
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-line bg-surface p-4 shadow-sh-1">
+      <div className="flex items-center gap-3">
+        <AppIcon slug={app.slug} name={app.name} />
+        <div className="min-w-0 flex-1" title={app.description}>
+          <div className="truncate text-sm font-bold text-ink">{app.name}</div>
+          <div className="truncate text-[11.5px] text-ink-3">{app.category}</div>
+        </div>
+        <span
+          className={`inline-flex shrink-0 items-center gap-[5px] rounded-pill border px-2 py-[3px] font-mono text-[9.5px] font-semibold ${badge.cls}`}
+        >
+          <span className="h-[5px] w-[5px] shrink-0 rounded-pill bg-current" />
+          {badge.label}
+        </span>
       </div>
 
-      <div className="mt-auto">
-        {comingSoon ? (
-          <button
-            type="button"
-            disabled
-            title="Available soon"
-            className="w-full cursor-not-allowed rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-muted-foreground opacity-70"
-          >
-            Coming soon
-          </button>
-        ) : isConnected ? (
+      {isConnected ? (
+        <div className="mt-3 flex items-center gap-2 border-t border-line pt-3">
+          <span className="min-w-0 flex-1 truncate text-[11.5px] text-ink-3">
+            {accountText || "Connected"}
+          </span>
           <button
             type="button"
             onClick={onDisconnect}
             disabled={busy}
-            className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:border-destructive hover:text-destructive disabled:opacity-50"
+            className="shrink-0 rounded-md border border-line bg-surface-2 px-[11px] py-1.5 text-xs font-semibold text-ink-2 transition-colors hover:border-danger hover:text-danger-strong disabled:opacity-50"
           >
             {busy ? "Disconnecting…" : "Disconnect"}
           </button>
-        ) : (
-          <button
-            type="button"
-            onClick={onConnect}
-            disabled={busy || status === "pending" || status === "loading"}
-            className="w-full rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-          >
-            {busy ? "Connecting…" : status === "pending" ? "Pending…" : isError ? "Reconnect" : "Connect"}
-          </button>
-        )}
-      </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={onConnect}
+          disabled={busy || status === "pending" || status === "loading"}
+          className="mt-3 w-full rounded-md bg-brand px-3 py-2 text-[12.5px] font-semibold text-on-brand transition-colors hover:bg-brand-2 disabled:opacity-50"
+        >
+          {busy ? "Connecting…" : status === "pending" ? "Pending…" : isError ? "Reconnect" : "Connect"}
+        </button>
+      )}
     </div>
   );
 }
