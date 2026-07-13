@@ -3,6 +3,7 @@ import localFont from "next/font/local";
 import { TimezoneSync } from "@/components/TimezoneSync";
 import { AppChrome } from "@/components/app-shell/AppChrome";
 import { ThemeProvider } from "@/components/app-shell/ThemeProvider";
+import { QueryProvider } from "@/components/providers/QueryProvider";
 import type { NavCounts } from "@/components/app-shell/nav";
 import { THEME_COOKIE, parseTheme } from "@/lib/theme";
 import { createServerClient } from "@/lib/supabase/server";
@@ -85,10 +86,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <ThemeProvider initial={theme} className={`steward-app ${display.variable} ${ui.variable} ${plex.variable}`}>
-      <TimezoneSync />
-      <AppChrome email={user.email ?? "Account"} counts={counts}>
-        {children}
-      </AppChrome>
+      <QueryProvider>
+        <TimezoneSync />
+        <AppChrome email={user.email ?? "Account"} counts={counts}>
+          {children}
+        </AppChrome>
+      </QueryProvider>
     </ThemeProvider>
   );
 }

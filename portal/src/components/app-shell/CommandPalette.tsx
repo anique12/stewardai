@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { SearchResult } from "@/app/api/search/route";
@@ -24,8 +25,7 @@ const TYPE_BADGE_CLASS: Record<SearchResult["type"], string> = {
 export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<SearchResult[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -35,38 +35,46 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   useEffect(() => {
     if (open) {
       setQuery("");
-      setResults([]);
+      setDebouncedQuery("");
       const t = setTimeout(() => inputRef.current?.focus(), 0);
       return () => clearTimeout(t);
     }
   }, [open]);
 
-  // Debounced fetch as the query changes.
+  // Debounce the query that feeds the React Query key.
   useEffect(() => {
     if (!open) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     const q = query.trim();
     if (q.length < 2) {
-      setResults([]);
-      setLoading(false);
+      setDebouncedQuery("");
       return;
     }
-    setLoading(true);
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
-        const data = await res.json().catch(() => ({ results: [] }));
-        setResults(Array.isArray(data?.results) ? data.results : []);
-      } catch {
-        setResults([]);
-      } finally {
-        setLoading(false);
-      }
-    }, 200);
+    debounceRef.current = setTimeout(() => setDebouncedQuery(q), 200);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [query, open]);
+
+  const enabled = open && debouncedQuery.length >= 2;
+  const { data, isFetching } = useQuery({
+    queryKey: ["search", debouncedQuery],
+    queryFn: async () => {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(debouncedQuery)}`);
+      const data = await res.json().catch(() => ({ results: [] }));
+      return (Array.isArray(data?.results) ? data.results : []) as SearchResult[];
+    },
+    enabled,
+    staleTime: 30_000,
+  });
+
+  const results = useMemo(() => (enabled ? data ?? [] : []), [enabled, data]);
+  const trimmedQuery = query.trim();
+  // Pending covers the debounce window (typed >= 2 chars, key not yet
+  // updated); isFetching covers the actual request — together they mirror
+  // the previous "loading" flag semantics for the whole typing→result span.
+  const pending = trimmedQuery.length >= 2 && trimmedQuery !== debouncedQuery;
+  const loading = pending || (enabled && isFetching && data === undefined);
 
   const openResult = useCallback(
     (r: SearchResult) => {
@@ -93,7 +101,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
 
   if (!open || typeof document === "undefined") return null;
 
-  const trimmed = query.trim();
+  const trimmed = trimmedQuery;
   const showEmpty = trimmed.length >= 2 && !loading && results.length === 0;
 
   return createPortal(

@@ -6,8 +6,8 @@
 // so a failed/404 fetch just renders an empty state instead of blocking or
 // crashing the page.
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
 import { MessageSquarePlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -52,30 +52,16 @@ export function ChatSidebar({
   activeThreadId?: string | null;
   onNewChat: () => void;
 }) {
-  const [threads, setThreads] = useState<Thread[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    fetch("/api/chat/threads")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (cancelled) return;
-        const list = isThreadArray(data) ? data : isThreadArray(data?.threads) ? data.threads : [];
-        setThreads(list);
-      })
-      .catch(() => {
-        if (!cancelled) setThreads([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { data, isLoading } = useQuery({
+    queryKey: ["chat-threads"],
+    queryFn: async (): Promise<Thread[]> => {
+      const res = await fetch("/api/chat/threads");
+      const data = res.ok ? await res.json().catch(() => null) : null;
+      return isThreadArray(data) ? data : isThreadArray(data?.threads) ? data.threads : [];
+    },
+  });
+  const threads = data ?? [];
+  const loading = isLoading;
 
   return (
     <div className="flex h-full flex-col gap-3">

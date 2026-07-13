@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { Bell, CheckCircle2, X } from "lucide-react";
 import type { Nudge } from "@/lib/nudges";
 
@@ -20,30 +21,18 @@ export function NudgesPanel({
   onCountChange?: (count: number) => void;
 }) {
   const router = useRouter();
-  const [nudges, setNudges] = useState<Nudge[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  const [loaded, setLoaded] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
+  const { data, isSuccess, isError } = useQuery({
+    queryKey: ["nudges"],
+    queryFn: async () => {
       const res = await fetch("/api/nudges");
       const data = await res.json().catch(() => ({ nudges: [] }));
-      setNudges(Array.isArray(data?.nudges) ? data.nudges : []);
-    } catch {
-      setNudges([]);
-    } finally {
-      setLoaded(true);
-    }
-  }, []);
-
-  // Fetch on mount so the bell badge has a count before the panel is ever opened,
-  // and again each time the panel opens to pick up anything new.
-  useEffect(() => {
-    load();
-  }, [load]);
-  useEffect(() => {
-    if (open) load();
-  }, [open, load]);
+      return (Array.isArray(data?.nudges) ? data.nudges : []) as Nudge[];
+    },
+  });
+  const nudges = data ?? [];
+  const loaded = isSuccess || isError;
 
   const visible = nudges.filter((n) => !dismissed.has(nudgeKey(n)));
 

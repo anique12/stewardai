@@ -1,5 +1,6 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { AppCard, type CardStatus } from "@/components/integrations/AppCard";
 import { PageHeader } from "@/components/app-shell/PageHeader";
@@ -16,36 +17,39 @@ const CATEGORIES: (AppCategory | "All")[] = [
 ];
 
 export default function ConnectionsPage() {
-  const [statusBySlug, setStatusBySlug] = useState<Map<string, StatusRow>>(new Map());
-  const [loaded, setLoaded] = useState(false);
-  const [loadError, setLoadError] = useState(false);
+  const queryClient = useQueryClient();
   const [busySlug, setBusySlug] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<AppCategory | "All">("All");
-  const hasDataRef = useRef(false);
 
-  const refreshStatus = useCallback(async () => {
-    try {
+  const {
+    data: apps,
+    isLoading,
+    isError,
+  } = useQuery({
+    queryKey: ["integrations-status"],
+    queryFn: async () => {
       const res = await fetch("/api/integrations/status");
       if (!res.ok) throw new Error(`status ${res.status}`);
       const { apps } = (await res.json()) as { apps: StatusRow[] };
-      setStatusBySlug(new Map(apps.map((r) => [r.app, r])));
-      hasDataRef.current = true;
-      setLoadError(false);
-    } catch {
-      // Only surface a full error state when we have no cached data yet —
-      // a focus-refresh failure with existing data just keeps last-known.
-      setLoadError(!hasDataRef.current);
-    } finally {
-      setLoaded(true);
-    }
-  }, []);
+      return apps;
+    },
+    // This page also serves as the OAuth popup landing — refetch on focus so
+    // the underlying tab/window picks up the just-completed connection.
+    refetchOnWindowFocus: true,
+  });
 
-  useEffect(() => {
-    refreshStatus();
-    window.addEventListener("focus", refreshStatus);
-    return () => window.removeEventListener("focus", refreshStatus);
-  }, [refreshStatus]);
+  const loaded = !isLoading;
+  // Only surface a full error state when we have no cached data yet — a
+  // focus-refresh failure with existing data just keeps last-known (React
+  // Query retains the previous successful `data` across a failed refetch).
+  const loadError = isError && apps === undefined;
+  const statusBySlug = useMemo(
+    () => new Map((apps ?? []).map((r) => [r.app, r])),
+    [apps]
+  );
+
+  const refreshStatus = () => queryClient.invalidateQueries({ queryKey: ["integrations-status"] });
 
   // If this page was opened as the OAuth popup (window.opener set) and Composio
   // redirected back with ?status=success, auto-close so the user returns to chat
