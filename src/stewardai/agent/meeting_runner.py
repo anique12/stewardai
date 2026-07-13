@@ -398,7 +398,8 @@ class MeetingSession:
             return
         if not self._meeting_uuid:
             return
-        with contextlib.suppress(Exception):
+
+        async def _load() -> None:
             resp = await (
                 self._supabase.table("meetings")
                 .select("id,title,attendees,recurring_event_id,space_id")
@@ -419,6 +420,12 @@ class MeetingSession:
                         meeting=self._mid,
                         chars=len(self._meeting_brief),
                     )
+
+        # Bound the whole brief-building round-trip chain so a slow/hung DB call
+        # can never stall the meeting join — on timeout or any error the brief
+        # simply stays "" (best-effort; the join proceeds unbriefed).
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(_load(), timeout=6.0)
 
     async def _tapped_speaker_frames(self):  # noqa: ANN202 - async generator
         """Wrap the per-speaker frame stream, updating the SpeakerTracker with each
