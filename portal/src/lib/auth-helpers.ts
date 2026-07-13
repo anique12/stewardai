@@ -10,12 +10,16 @@ export function extractRefreshToken(session: Session): string | null {
 
 /**
  * Guards against open-redirect: only same-origin relative paths are safe to
- * bounce a user to after auth. Rejects absolute URLs (`https://evil.com`)
- * and protocol-relative paths (`//evil.com`, which browsers resolve as
- * `https://evil.com`).
+ * bounce a user to after auth. Rejects absolute URLs (`https://evil.com`),
+ * protocol-relative paths (`//evil.com`), and backslash tricks (`/\evil.com`).
+ * Browsers normalize backslashes to forward slashes, so we must reject them
+ * to prevent bypassing the `//` check.
  */
 export function isSafeNextPath(value: string | null | undefined): value is string {
   if (!value) return false;
+  // Reject any string containing backslashes (including `/\` and `\` prefixes)
+  if (value.includes("\\")) return false;
+  // Must start with exactly one `/`, not `//` (protocol-relative) or other schemes
   return value.startsWith("/") && !value.startsWith("//");
 }
 
