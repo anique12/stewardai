@@ -514,20 +514,29 @@ class MeetingSession:
         await self._resolve_profile()
 
         # Native meeting tools (LiveKit executes them directly, managing the
-        # speak→tool→speak utterance boundaries). The stay_silent gate is ALWAYS
-        # registered — under the native flow it's how the agent stays quiet on ambient
-        # talk. Composio live actions are added when we resolved a user_id + Composio is
-        # enabled + we have the meetings.id UUID (agent_actions.meeting_id FK).
+        # speak→tool→speak utterance boundaries). The stay_silent gate is registered
+        # (when speech is enabled) — under the native flow it's how the agent stays
+        # quiet on ambient talk. Composio live actions are added when we resolved a
+        # user_id + Composio is enabled + we have the meetings.id UUID
+        # (agent_actions.meeting_id FK).
+        #
+        # SILENT MODE (allow_meeting_speech off): the agent never speaks and the LLM
+        # is never invoked in-meeting, so NO in-meeting tools are loaded at all (no
+        # stay_silent gate, no live Composio actions — it can't act if it can't
+        # participate). We STILL build the AgentActionsWriter, because POST-meeting
+        # action extraction/filing runs in teardown and writes through it — that is
+        # desired and unaffected by silent mode.
         from stewardai.agent.live_tools import (
             build_live_tool_functions,
             build_stay_silent_tool,
         )
 
         self._live_tools = []
-        _ss = build_stay_silent_tool()
-        if _ss is not None:
-            self._live_tools.append(_ss)
         self._has_action_tools = False
+        if self._speak_enabled:
+            _ss = build_stay_silent_tool()
+            if _ss is not None:
+                self._live_tools.append(_ss)
         _composio_ready = s.composio_enabled and self.user_id and self._composio is not None
         if _composio_ready and not self._meeting_uuid:
             # agent_actions.meeting_id is a uuid FK — without the resolved meetings.id
@@ -542,26 +551,37 @@ class MeetingSession:
             try:
                 from stewardai.agent.actions import AgentActionsWriter
 
+                # Always created: post-meeting extraction/filing (teardown) writes
+                # action_items through this, and that runs even in silent mode.
                 self._actions_writer = AgentActionsWriter(
                     meeting_id=self._meeting_uuid,
                     user_id=self.user_id,
                     client=self._supabase,
                 )
-                _actions = build_live_tool_functions(
-                    self.user_id,
-                    self._meeting_uuid,
-                    self._composio,
-                    self._actions_writer,
-                    default_timezone=self._user_timezone,
-                )
-                self._live_tools.extend(_actions)
-                self._has_action_tools = bool(_actions)
-                _log.info(
-                    "composio_live_tools_ready",
-                    meeting_id=self._mid,
-                    user_id=self.user_id,
-                    count=len(_actions),
-                )
+                if self._speak_enabled:
+                    _actions = build_live_tool_functions(
+                        self.user_id,
+                        self._meeting_uuid,
+                        self._composio,
+                        self._actions_writer,
+                        default_timezone=self._user_timezone,
+                    )
+                    self._live_tools.extend(_actions)
+                    self._has_action_tools = bool(_actions)
+                    _log.info(
+                        "composio_live_tools_ready",
+                        meeting_id=self._mid,
+                        user_id=self.user_id,
+                        count=len(_actions),
+                    )
+                else:
+                    # Silent notetaker: no live in-meeting tools, but the writer is
+                    # kept for post-meeting extraction/filing.
+                    _log.info(
+                        "composio_live_tools_skipped_silent_mode",
+                        meeting_id=self._mid,
+                        user_id=self.user_id,
+                    )
             except Exception as exc:  # noqa: BLE001 - meeting continues without actions
                 # Composio off/blocked (e.g. WAF) -> no live actions; the prompt's
                 # no-tools note keeps the agent from promising actions it can't do.
@@ -615,12 +635,17 @@ class MeetingSession:
         # native_tools=True: LiveKit owns the tool loop; the agent's registered tools
         # (Composio actions + stay_silent gate, wired below) are executed by the
         # framework, which speaks a preamble BEFORE the tool and the result after.
+        # silent=True (allow_meeting_speech off): the LLM node never invokes the model
+        # on any turn — STT + turn detection still run (transcript captured), but there
+        # is ZERO per-turn in-meeting inference. STT/transcription is deliberately
+        # untouched so notes + the post-meeting summary/extraction still happen.
         self._session = build_session(
             s,
             stt_backend=self._stt,
             llm_backend=self._llm,
             tts_backend=self._tts,
             native_tools=True,
+            silent=not self._speak_enabled,
             system=meeting_system,
             keyterms=self._keyterms,
         )
@@ -788,13 +813,16 @@ class MeetingSession:
         loop = asyncio.get_running_loop()
         await self._session.start(agent=self._agent)
         # Warm the TTS websocket now (cold first synth ~12s → off the first reply).
-        # Fire-and-forget; the throwaway audio is discarded, never played.
-        with contextlib.suppress(Exception):
-            from stewardai.llm.warmup import warmup_tts
+        # Fire-and-forget; the throwaway audio is discarded, never played. Skipped
+        # entirely in silent mode: the bot never speaks (LLM never runs, mic muted),
+        # so opening the TTS connection would be pure waste.
+        if self._speak_enabled:
+            with contextlib.suppress(Exception):
+                from stewardai.llm.warmup import warmup_tts
 
-            tts_obj = getattr(self._session, "_steward_tts", None)
-            if tts_obj is not None:
-                loop.create_task(warmup_tts(tts_obj, quiet=True))
+                tts_obj = getattr(self._session, "_steward_tts", None)
+                if tts_obj is not None:
+                    loop.create_task(warmup_tts(tts_obj, quiet=True))
         self._speaker_sub = self._SpeakerSubscriber(
             self._s.redis_url, self._mid, self._tracker
         )

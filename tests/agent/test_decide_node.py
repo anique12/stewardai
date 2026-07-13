@@ -61,3 +61,28 @@ async def test_gated_node_swallows_decide_failure(make_chat_ctx):
     # Must not raise; must yield no speech.
     text = await _collect_text(node.chat(chat_ctx=make_chat_ctx("hey stewardai")))
     assert text == ""
+
+
+@pytest.mark.asyncio
+async def test_silent_node_never_invokes_model_and_emits_nothing(make_chat_ctx):
+    """Silent notetaker mode (allow_meeting_speech off): the LLM node's _run
+    short-circuits BEFORE touching the backend. Prove ZERO in-meeting inference by
+    making EVERY model entry point raise — a silent turn must still complete with no
+    speech and without ever calling the model."""
+
+    class _NeverCallLLM(StubLLM):
+        async def chat_with_tools(self, messages, *, tools=None):  # noqa: ANN001
+            raise AssertionError("model invoked in silent mode (chat_with_tools)")
+            yield  # pragma: no cover — async generator that must never run
+
+        async def decide_stream(self, messages, *, system=None, action_tools=None):  # noqa: ANN001
+            raise AssertionError("model invoked in silent mode (decide_stream)")
+            yield  # pragma: no cover
+
+        def complete(self, messages, *, system=None, temperature=0.4):  # noqa: ANN001
+            raise AssertionError("model invoked in silent mode (complete)")
+
+    # silent overrides native_tools/gated — nothing about the turn calls the model.
+    node = build_llm_node(_NeverCallLLM(), native_tools=True, silent=True)
+    text = await _collect_text(node.chat(chat_ctx=make_chat_ctx("hey stewardai")))
+    assert text == ""

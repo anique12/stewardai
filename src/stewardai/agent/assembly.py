@@ -178,6 +178,7 @@ def build_session(
     tts_backend=None,  # noqa: ANN001 - optional pre-built TTSBackend to reuse
     gated: bool = False,
     native_tools: bool = False,
+    silent: bool = False,
     system: str | None = None,
     keyterms: tuple[str, ...] | list[str] = (),
     action_tools=None,  # noqa: ANN001 - OpenAI-format Composio schemas for live actions
@@ -211,7 +212,15 @@ def build_session(
         stt = build_stt_node(
             stt_backend if stt_backend is not None else make_stt(s))
     _llm_backend = llm_backend if llm_backend is not None else make_llm(s)
-    if native_tools:
+    if silent:
+        # Silent notetaker mode (allow_meeting_speech off): the LLM node NEVER
+        # invokes the model on any turn (zero per-turn inference). STT + turn
+        # detection still run so the transcript is captured; the model is simply
+        # never called. Overrides gated/native_tools — there is nothing to speak.
+        llm = build_llm_node(
+            _llm_backend, system=system or _MEETING_SYSTEM, silent=True
+        )
+    elif native_tools:
         # Native meeting path: LiveKit owns the speak→tool→speak loop; the agent's
         # registered tools (Composio actions + stay_silent gate) are executed by the
         # framework. No hand-rolled decide/executor here.

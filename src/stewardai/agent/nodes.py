@@ -149,6 +149,7 @@ def build_llm_node(
     temperature: float = 0.4,
     gated: bool = False,
     native_tools: bool = False,
+    silent: bool = False,
     action_tools=None,  # noqa: ANN001 - OpenAI-format Composio tool schemas (gated live actions)
     tool_executor=None,  # noqa: ANN001 - async (slug, args) -> result dict
 ):
@@ -164,6 +165,13 @@ def build_llm_node(
             ``decision.text`` is emitted as one chunk.  When ``False`` (default,
             browser 1:1 path) the stream falls through to ``backend.complete()``
             as before — behaviour is unchanged.
+        silent: When ``True`` (silent notetaker mode, ``allow_meeting_speech`` off),
+            the stream's ``_run`` short-circuits and emits NOTHING — the model
+            (``backend``) is NEVER invoked on any turn. The ``AgentSession`` still
+            runs STT + turn detection (so the transcript is captured and persisted
+            via ``on_user_turn_completed``), but there is ZERO per-turn LLM
+            inference. This eliminates the per-turn model call that would otherwise
+            run every turn even with the mic muted.
 
     Raises ``ImportError`` (lazily) if livekit is not installed.
     """
@@ -174,7 +182,7 @@ def build_llm_node(
 
         def __init__(  # noqa: ANN001
             self, llm, *, chat_ctx, tools, conn_options, inner, system, temperature,
-            gated, native_tools, action_tools, tool_executor
+            gated, native_tools, silent, action_tools, tool_executor
         ):
             super().__init__(
                 llm, chat_ctx=chat_ctx, tools=tools or [], conn_options=conn_options
@@ -185,11 +193,22 @@ def build_llm_node(
             self._temperature = temperature
             self._gated = gated
             self._native_tools = native_tools
+            self._silent = silent
             self._tools_list = tools or []  # agent's registered tools (native path)
             self._action_tools = action_tools
             self._tool_executor = tool_executor
 
         async def _run(self) -> None:
+            if self._silent:
+                # Silent notetaker mode (profiles.allow_meeting_speech = False):
+                # NEVER invoke the model. STT + turn detection still ran and the
+                # transcript was already recorded/persisted by the agent's
+                # on_user_turn_completed BEFORE this node is called — so notes are
+                # captured, but we emit zero chunks and make ZERO per-turn LLM
+                # calls (no chat_with_tools / decide / complete). This is the whole
+                # point of silent mode: no in-meeting inference, not just a muted mic.
+                _log.info("llm_silent_noop", backend=self._inner.name)
+                return
             messages = _chat_ctx_to_messages(self._chat_ctx)
             request_id = _gen_id()
             if self._native_tools:
@@ -358,7 +377,7 @@ def build_llm_node(
 
         def __init__(
             self, inner: LLMBackend, system: str | None, temperature: float, gated: bool,
-            native_tools: bool = False,
+            native_tools: bool = False, silent: bool = False,
             action_tools=None, tool_executor=None,  # noqa: ANN001
         ) -> None:
             super().__init__()
@@ -367,6 +386,7 @@ def build_llm_node(
             self._temperature = temperature
             self._gated = gated
             self._native_tools = native_tools
+            self._silent = silent
             self._action_tools = action_tools
             self._tool_executor = tool_executor
             # Monotonic per-session turn counter; each turn's stream stamps itself and
@@ -397,6 +417,7 @@ def build_llm_node(
                 temperature=self._temperature,
                 gated=self._gated,
                 native_tools=self._native_tools,
+                silent=self._silent,
                 action_tools=self._action_tools,
                 tool_executor=self._tool_executor,
             )
@@ -405,7 +426,8 @@ def build_llm_node(
             await self._inner.aclose()
 
     return StewardLLM(
-        backend, system, temperature, gated, native_tools, action_tools, tool_executor
+        backend, system, temperature, gated, native_tools, silent,
+        action_tools, tool_executor,
     )
 
 
