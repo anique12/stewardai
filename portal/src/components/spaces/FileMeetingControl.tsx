@@ -53,7 +53,7 @@ export function FileMeetingControl({
       ) : null}
       {picking ? (
         <select
-          className="rounded-md border bg-background px-2 py-1 text-sm"
+          className="rounded-md border border-line-2 bg-surface px-2 py-1 text-[12.5px] text-ink"
           disabled={busy}
           defaultValue=""
           onChange={(e) => e.target.value && file(e.target.value)}
@@ -63,10 +63,10 @@ export function FileMeetingControl({
         </select>
       ) : (
         <Button size="sm" variant="outline" disabled={busy} onClick={() => setPicking(true)}>
-          {suggestedSpaceId ? "Choose another" : "File…"}
+          {suggestedSpaceId ? "Choose another" : "Move to space…"}
         </Button>
       )}
-      {error ? <span role="alert" className="w-full text-xs text-destructive">{error}</span> : null}
+      {error ? <span role="alert" className="w-full text-xs text-danger-strong">{error}</span> : null}
     </div>
   );
 }

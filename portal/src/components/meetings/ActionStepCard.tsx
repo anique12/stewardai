@@ -67,26 +67,26 @@ export function StateBadge({ state }: { state: AgentAction["state"] }) {
   switch (state) {
     case "proposed":
       return (
-        <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30 hover:bg-amber-500/20">
+        <Badge className="border-attention-weak bg-attention-weak text-attention-strong hover:bg-attention-weak">
           Needs approval
         </Badge>
       );
     case "approved":
     case "running":
       return (
-        <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30 hover:bg-blue-500/20">
+        <Badge className="border-brand-weak-2 bg-brand-weak text-brand-ink hover:bg-brand-weak">
           {state === "running" ? "Running…" : "Approved"}
         </Badge>
       );
     case "done":
       return (
-        <Badge className="bg-green-500/20 text-green-400 border-green-500/30 hover:bg-green-500/20">
+        <Badge className="border-brand-weak-2 bg-surface text-brand hover:bg-surface">
           Done
         </Badge>
       );
     case "failed":
       return (
-        <Badge className="bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/20">
+        <Badge className="border-danger-weak bg-danger-weak text-danger-strong hover:bg-danger-weak">
           Failed
         </Badge>
       );
@@ -179,9 +179,9 @@ export function ActionStepCard({
   // under a timeline utterance. Title is smaller than the parent utterance text.
   if (variant === "compact") {
     return (
-      <div className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-3 py-2">
+      <div className="flex items-center gap-2.5 rounded-lg border border-line bg-surface px-3 py-2">
         <ToolkitIcon toolkit={toolkit} />
-        <p className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
+        <p className="min-w-0 flex-1 truncate text-xs font-medium text-ink">
           {action.title ?? slug ?? "Unnamed action"}
         </p>
         {action.state === "proposed" ? (
@@ -203,14 +203,14 @@ export function ActionStepCard({
   const preview = argPreview(action.args);
 
   return (
-    <div className="rounded-lg border border-border bg-card p-3.5 space-y-2.5">
+    <div className="space-y-2.5 rounded-lg border border-line bg-surface p-3.5">
       <div className="flex items-start gap-3">
         <ToolkitIcon toolkit={toolkit} />
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-foreground">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-ink">
             {action.title ?? slug ?? "Unnamed action"}
           </p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
+          <p className="mt-0.5 text-xs text-ink-3">
             {toolkitLabel(toolkit)}
             {action.risk === "high" ? " · High risk" : ""}
           </p>
@@ -225,7 +225,7 @@ export function ActionStepCard({
             <div className="space-y-2">
               {Object.entries(editedArgs).map(([key, val]) => (
                 <div key={key} className="flex items-center gap-2">
-                  <label className="w-24 shrink-0 text-xs text-muted-foreground">{humanKey(key)}</label>
+                  <label className="w-24 shrink-0 text-xs text-ink-3">{humanKey(key)}</label>
                   <Input
                     className="h-7 text-xs"
                     value={String(val ?? "")}
@@ -239,8 +239,8 @@ export function ActionStepCard({
               <dl className="space-y-1">
                 {preview.map(([k, v]) => (
                   <div key={k} className="flex gap-2 text-xs">
-                    <dt className="w-24 shrink-0 text-muted-foreground">{k}</dt>
-                    <dd className="min-w-0 flex-1 truncate text-foreground/90">{v}</dd>
+                    <dt className="w-24 shrink-0 text-ink-3">{k}</dt>
+                    <dd className="min-w-0 flex-1 truncate text-ink-2">{v}</dd>
                   </div>
                 ))}
               </dl>
@@ -253,7 +253,7 @@ export function ActionStepCard({
               <Button
                 size="sm"
                 variant="ghost"
-                className="text-muted-foreground"
+                className="text-ink-3"
                 onClick={() => setEditing((v) => !v)}
               >
                 {editing ? "Cancel" : "Edit"}
@@ -265,7 +265,7 @@ export function ActionStepCard({
 
       {/* Failed: human error only — never a raw payload */}
       {action.state === "failed" && action.error && action.error !== "dismissed by user" && (
-        <p className="pl-9 text-xs text-red-400/80">{action.error}</p>
+        <p className="pl-9 text-xs text-danger-strong/80">{action.error}</p>
       )}
     </div>
   );

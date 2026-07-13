@@ -5,11 +5,11 @@ import { ActionStepCard, ToolkitIcon, type AgentAction } from "./ActionStepCard"
 import { aggregateStatus } from "@/lib/meetings/aggregate-status";
 
 const TONE: Record<string, string> = {
-  amber: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  blue: "bg-blue-500/15 text-blue-400 border-blue-500/30",
-  green: "bg-green-500/15 text-green-400 border-green-500/30",
-  red: "bg-red-500/15 text-red-400 border-red-500/30",
-  muted: "bg-muted text-muted-foreground border-border",
+  amber: "bg-attention-weak text-attention-strong border-attention-weak",
+  blue: "bg-brand-weak text-brand-ink border-brand-weak-2",
+  green: "bg-brand-weak text-brand-ink border-brand-weak-2",
+  red: "bg-danger-weak text-danger-strong border-danger-weak",
+  muted: "bg-surface-2 text-ink-3 border-line",
 };
 
 export function ActionStepStrip({
@@ -31,13 +31,13 @@ export function ActionStepStrip({
           <button
             type="button"
             onClick={() => setOpen(true)}
-            className="flex w-full items-center gap-2 rounded-lg border border-border bg-card/60 px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-card"
+            className="flex w-full items-center gap-2 rounded-lg border border-dashed border-brand-weak-2 bg-surface px-2.5 py-1.5 text-xs text-ink-3 transition-colors hover:bg-surface-2"
           >
             <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden />
             <span className="flex items-center gap-1">
               {actions.map((a) => <ToolkitIcon key={a.id} toolkit={a.toolkit} />)}
             </span>
-            <span className="font-medium text-foreground">
+            <span className="font-medium text-ink">
               Steward ran {actions.length} step{actions.length > 1 ? "s" : ""}
             </span>
             {status.label && (
@@ -60,7 +60,7 @@ export function ActionStepStrip({
             <button
               type="button"
               onClick={() => setOpen(false)}
-              className="flex items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+              className="flex items-center gap-1 text-[11px] text-ink-3 transition-colors hover:text-ink"
             >
               <ChevronRight className="h-3.5 w-3.5 rotate-90" aria-hidden />
               Hide steps
