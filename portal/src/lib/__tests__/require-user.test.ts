@@ -1,6 +1,10 @@
 import type { User } from "@supabase/supabase-js";
 
 const getUserMock = jest.fn();
+// requireUserPage now reads the session LOCALLY via getSession (perf: no auth
+// network round-trip per navigation); requireUserRoute still uses getUser for
+// strict verification on mutation routes.
+const getSessionMock = jest.fn();
 const redirectMock = jest.fn((path: string): never => {
   throw new Error(`REDIRECT:${path}`);
 });
@@ -9,7 +13,7 @@ jest.mock("next/navigation", () => ({
   redirect: (path: string) => redirectMock(path),
 }));
 jest.mock("@/lib/supabase/server", () => ({
-  createServerClient: () => ({ auth: { getUser: getUserMock } }),
+  createServerClient: () => ({ auth: { getUser: getUserMock, getSession: getSessionMock } }),
 }));
 
 import { requireUserPage, requireUserRoute } from "@/lib/auth-helpers";
@@ -18,18 +22,19 @@ const fakeUser = { id: "user-a" } as unknown as User;
 
 beforeEach(() => {
   getUserMock.mockReset();
+  getSessionMock.mockReset();
   redirectMock.mockClear();
 });
 
 describe("requireUserPage", () => {
   it("returns the user when authenticated", async () => {
-    getUserMock.mockResolvedValue({ data: { user: fakeUser } });
+    getSessionMock.mockResolvedValue({ data: { session: { user: fakeUser } } });
     await expect(requireUserPage()).resolves.toEqual(fakeUser);
     expect(redirectMock).not.toHaveBeenCalled();
   });
 
   it("redirects to /?login=1 when unauthenticated", async () => {
-    getUserMock.mockResolvedValue({ data: { user: null } });
+    getSessionMock.mockResolvedValue({ data: { session: null } });
     await expect(requireUserPage()).rejects.toThrow("REDIRECT");
     expect(redirectMock).toHaveBeenCalledWith("/?login=1");
   });
