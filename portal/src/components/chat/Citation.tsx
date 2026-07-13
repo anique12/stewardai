@@ -36,7 +36,13 @@ export function Citation({ citation, label }: { citation: CitationType; label?: 
           <span className="truncate">{citation.meeting_id.slice(0, 8)}</span>
         </span>
         {citation.text ? (
-          <span className="block text-[12.5px] leading-snug text-ink-2">{citation.text}</span>
+          // Clamp long transcript excerpts to a few lines so the hover card
+          // stays compact — an unbounded excerpt grows tall and, opening
+          // upward, clips off the top of the scroll area. Full text is one
+          // click away via "Open meeting →".
+          <span className="block max-h-[7.5em] overflow-hidden text-[12.5px] leading-snug text-ink-2 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:6]">
+            {citation.text}
+          </span>
         ) : (
           <span className="block text-[12.5px] italic leading-snug text-ink-3">No preview available</span>
         )}
