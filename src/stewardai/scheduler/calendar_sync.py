@@ -1,7 +1,17 @@
 """Calendar auto-join sync (+ per-meeting STT keyterms).
 
-Pulls upcoming Google Calendar events the user ORGANIZES (with a Meet link) into
-the ``meetings`` table with ``opted_in=true`` so the scheduler auto-joins them.
+Pulls upcoming Google Calendar events (with a Meet link) into the ``meetings``
+table. The DEFAULT ``opted_in`` for a NEWLY-synced meeting is derived from the
+user's ``profiles.auto_join_policy`` (``all`` | ``organizer`` | ``none`` —
+default ``all``):
+  - ``all``: every Meet-linked meeting defaults to opted in.
+  - ``organizer``: only meetings the user organizes default to opted in.
+  - ``none``: nothing defaults to opted in.
+A meeting without a Meet link never defaults to opted in (the bot can only
+join Meet). Re-syncing an ALREADY-KNOWN meeting never touches its stored
+``opted_in`` — a user may have manually toggled it via the per-meeting
+opt-in, and the policy only governs the default for new rows.
+
 Reuses the user's existing Composio ``googlecalendar`` connection — no separate
 Google OAuth flow.
 
@@ -85,14 +95,32 @@ def _dedup(terms: list[str]) -> list[str]:
     return list(seen.values())
 
 
-def _rows_and_events(user_id: str, items: list) -> list[tuple[dict, dict]]:
-    """(upsert row, raw event) for organizer-owned, Meet-linked, timed events."""
+_AutoJoinPolicy = str  # "all" | "organizer" | "none"
+
+
+def _opted_in_for_policy(policy: _AutoJoinPolicy, *, is_organizer: bool) -> bool:
+    """Default ``opted_in`` for a NEW Meet-linked meeting, per user policy."""
+    if policy == "none":
+        return False
+    if policy == "organizer":
+        return is_organizer
+    return True  # "all" (and any unrecognized value defaults safely to "all")
+
+
+def _rows_and_events(
+    user_id: str, items: list, policy: _AutoJoinPolicy = "all"
+) -> list[tuple[dict, dict]]:
+    """(upsert row, raw event) for Meet-linked, timed events.
+
+    ``opted_in`` on each row is only the DEFAULT for a brand-new meeting; the
+    caller must drop it from rows that correspond to already-known meetings
+    so re-sync never clobbers a user's manual per-meeting toggle.
+    """
     out: list[tuple[dict, dict]] = []
     for e in items:
         if not isinstance(e, dict) or not e.get("id"):
             continue
-        if not (e.get("organizer") or {}).get("self"):  # only meetings I organize
-            continue
+        is_organizer = bool((e.get("organizer") or {}).get("self"))
         meet = _meet_url(e)
         if not meet:
             continue
@@ -118,7 +146,7 @@ def _rows_and_events(user_id: str, items: list) -> list[tuple[dict, dict]]:
                     "end_time": end,
                     "meet_url": meet,
                     "native_meeting_id": native,
-                    "opted_in": True,
+                    "opted_in": _opted_in_for_policy(policy, is_organizer=is_organizer),
                 },
                 e,
             )
@@ -197,6 +225,42 @@ async def _apply_keyterms(
             _log.warning("calendar_keyterms_update_failed", user_id=uid, error=str(exc))
 
 
+async def _auto_join_policy(client: AsyncClient, uid: str) -> _AutoJoinPolicy:
+    """User's ``profiles.auto_join_policy`` (default ``"all"``); best-effort."""
+    try:
+        resp = await (
+            client.table("profiles")
+            .select("auto_join_policy")
+            .eq("user_id", uid)
+            .maybe_single()
+            .execute()
+        )
+        policy = (resp.data or {}).get("auto_join_policy") if resp.data else None
+        return policy or "all"
+    except Exception as exc:  # noqa: BLE001 — column not migrated yet or query failed → safe default
+        _log.info("calendar_sync_policy_lookup_failed", user_id=uid, error=str(exc))
+        return "all"
+
+
+async def _existing_event_ids(client: AsyncClient, uid: str, event_ids: list[str]) -> set[str]:
+    """``google_event_id``s already stored for this user, so re-sync doesn't clobber
+    their ``opted_in`` (a user may have manually toggled a meeting's opt-in)."""
+    if not event_ids:
+        return set()
+    try:
+        resp = await (
+            client.table("meetings")
+            .select("google_event_id")
+            .eq("user_id", uid)
+            .in_("google_event_id", event_ids)
+            .execute()
+        )
+        return {r["google_event_id"] for r in (resp.data or []) if r.get("google_event_id")}
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("calendar_sync_existing_lookup_failed", user_id=uid, error=str(exc))
+        return set()
+
+
 async def sync_calendars_once(
     client: AsyncClient,
     composio: ComposioService,
@@ -204,8 +268,12 @@ async def sync_calendars_once(
     llm: Any = None,
     window_days: int = 1,
 ) -> int:
-    """Sync every connected user's organizer-owned Meet events into ``meetings``
-    (opted_in=true) and populate per-meeting keyterms. Returns rows upserted."""
+    """Sync every connected user's Meet-linked events into ``meetings`` and populate
+    per-meeting keyterms. Returns rows upserted.
+
+    ``opted_in`` is only set as a DEFAULT for brand-new meetings, derived from the
+    user's ``auto_join_policy``; already-known meetings are re-upserted without
+    ``opted_in`` so a manual per-meeting toggle survives re-sync."""
     try:
         resp = await (
             client.table("connected_apps")
@@ -245,17 +313,44 @@ async def sync_calendars_once(
             )
             continue
         items = (result.get("data") or {}).get("items") or []
-        pairs = _rows_and_events(uid, items)
+        policy = await _auto_join_policy(client, uid)
+        pairs = _rows_and_events(uid, items, policy)
         if not pairs:
             continue
+
+        event_ids = [r["google_event_id"] for r, _ in pairs]
+        existing_ids = await _existing_event_ids(client, uid, event_ids)
+        new_rows = [r for r, _ in pairs if r["google_event_id"] not in existing_ids]
+        # Already-known meetings: drop `opted_in` so the upsert can't clobber a
+        # user's manual per-meeting toggle.
+        existing_rows = [
+            {k: v for k, v in r.items() if k != "opted_in"}
+            for r, _ in pairs
+            if r["google_event_id"] in existing_ids
+        ]
+
         try:
-            await (
-                client.table("meetings")
-                .upsert([r for r, _ in pairs], on_conflict="user_id,google_event_id")
-                .execute()
-            )
+            if new_rows:
+                await (
+                    client.table("meetings")
+                    .upsert(new_rows, on_conflict="user_id,google_event_id")
+                    .execute()
+                )
+            if existing_rows:
+                await (
+                    client.table("meetings")
+                    .upsert(existing_rows, on_conflict="user_id,google_event_id")
+                    .execute()
+                )
             total += len(pairs)
-            _log.info("calendar_sync_upserted", user_id=uid, count=len(pairs))
+            _log.info(
+                "calendar_sync_upserted",
+                user_id=uid,
+                count=len(pairs),
+                new=len(new_rows),
+                existing=len(existing_rows),
+                policy=policy,
+            )
         except Exception as exc:  # noqa: BLE001
             _log.warning("calendar_sync_upsert_failed", user_id=uid, error=str(exc))
             continue

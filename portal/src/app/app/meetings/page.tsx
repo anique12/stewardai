@@ -83,19 +83,9 @@ export default async function MeetingsPage({
   // meetings-home so this list reflects the latest calendar state without a
   // separate sync step.
   if (conn.google_refresh_token) {
-    const { buildMeetingUpsert, fetchUpcomingEvents } = await import("@/lib/calendar");
+    const { syncUserMeetings } = await import("@/lib/meetings/sync");
     const service = createServiceClient(); // elevated: upsert may run without request cookies in the async tail
-    fetchUpcomingEvents(conn.google_refresh_token)
-      .then((events) => {
-        const rows = events.map((e) => buildMeetingUpsert(user.id, e));
-        if (rows.length > 0) {
-          service
-            .from("meetings")
-            .upsert(rows, { onConflict: "user_id,google_event_id", ignoreDuplicates: false })
-            .then(() => {});
-        }
-      })
-      .catch(() => {});
+    syncUserMeetings(service, user.id, conn.google_refresh_token).catch(() => {});
   }
 
   return (

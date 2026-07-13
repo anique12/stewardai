@@ -32,6 +32,81 @@ function initials(email: string): string {
 
 type ToolPermission = { id: string; tool_name: string; scope: string | null; created_at: string };
 
+type AutoJoinPolicy = "all" | "organizer" | "none";
+
+const AUTO_JOIN_OPTIONS: { value: AutoJoinPolicy; label: string; description: string }[] = [
+  {
+    value: "all",
+    label: "Join every new meeting",
+    description: "Steward joins all new meetings on your calendar that have a video link.",
+  },
+  {
+    value: "organizer",
+    label: "Only meetings I organize",
+    description: "Steward joins only meetings you host.",
+  },
+  {
+    value: "none",
+    label: "Don't join automatically",
+    description: "Steward joins nothing until you turn it on per meeting.",
+  },
+];
+
+/** "Auto-join" card — pick the default `opted_in` policy for newly-synced meetings. */
+function AutoJoinCard({
+  policy,
+  onChange,
+  saving,
+}: {
+  policy: AutoJoinPolicy;
+  onChange: (policy: AutoJoinPolicy) => void;
+  saving: boolean;
+}) {
+  return (
+    <section className="rounded-lg border border-line bg-surface p-[18px]">
+      <CardLabel>Auto-join</CardLabel>
+      <p className="mb-3.5 text-[12.5px] leading-relaxed text-ink-2">
+        Choose which new meetings Steward auto-joins by default when your calendar syncs.
+      </p>
+      <div className="flex flex-col gap-2" role="radiogroup" aria-label="Auto-join policy">
+        {AUTO_JOIN_OPTIONS.map((opt) => {
+          const selected = policy === opt.value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              disabled={saving}
+              onClick={() => onChange(opt.value)}
+              className={cn(
+                "flex items-start gap-3 rounded-md border px-3.5 py-3 text-left transition-colors hover:bg-surface-2 disabled:opacity-60",
+                selected ? "border-brand bg-brand-weak" : "border-line-2 bg-paper"
+              )}
+            >
+              <span
+                className={cn(
+                  "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-pill border",
+                  selected ? "border-brand" : "border-line-2"
+                )}
+              >
+                {selected ? <span className="h-2 w-2 rounded-pill bg-brand" /> : null}
+              </span>
+              <span className="flex-1">
+                <span className="block text-[13px] font-semibold text-foreground">{opt.label}</span>
+                <span className="block text-[12px] text-ink-3">{opt.description}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="mt-3 text-xs text-ink-4">
+        You can always override any single meeting from the Meetings list.
+      </p>
+    </section>
+  );
+}
+
 /** "Automatic approvals" card — view & revoke the tools a user has "Always allow"-ed in chat. */
 function AutoApprovalsCard() {
   const queryClient = useQueryClient();
@@ -121,6 +196,8 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [hasCalendar, setHasCalendar] = useState(false);
+  const [autoJoinPolicy, setAutoJoinPolicy] = useState<AutoJoinPolicy>("all");
+  const [savingPolicy, setSavingPolicy] = useState(false);
 
   const load = useCallback(async () => {
     setPhase("loading");
@@ -128,7 +205,7 @@ export default function SettingsPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("no user");
       const [{ data: profile, error: profileErr }, { data: conn }] = await Promise.all([
-        supabase.from("profiles").select("bot_name,plan,timezone").eq("user_id", user.id).single(),
+        supabase.from("profiles").select("bot_name,plan,timezone,auto_join_policy").eq("user_id", user.id).single(),
         supabase.from("calendar_connections").select("id").eq("user_id", user.id).single(),
       ]);
       if (profileErr) throw profileErr;
@@ -137,6 +214,7 @@ export default function SettingsPage() {
         setBotName(profile.bot_name ?? "");
         setPlan(profile.plan ?? "free");
         setTimezone(profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone);
+        setAutoJoinPolicy(((profile as { auto_join_policy?: string }).auto_join_policy as AutoJoinPolicy) ?? "all");
       }
       setHasCalendar(Boolean(conn));
       setPhase("ready");
@@ -156,6 +234,22 @@ export default function SettingsPage() {
       await supabase.from("profiles").update({ bot_name: botName }).eq("user_id", user.id);
     }
     setSaving(false);
+  }
+
+  async function saveAutoJoinPolicy(next: AutoJoinPolicy) {
+    const prev = autoJoinPolicy;
+    setAutoJoinPolicy(next); // optimistic
+    setSavingPolicy(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("no user");
+      const { error } = await supabase.from("profiles").update({ auto_join_policy: next }).eq("user_id", user.id);
+      if (error) throw error;
+    } catch {
+      setAutoJoinPolicy(prev); // revert on failure
+    } finally {
+      setSavingPolicy(false);
+    }
   }
 
   async function signOut() {
@@ -224,6 +318,9 @@ export default function SettingsPage() {
             </a>
           </div>
         </section>
+
+        {/* Auto-join */}
+        <AutoJoinCard policy={autoJoinPolicy} onChange={saveAutoJoinPolicy} saving={savingPolicy} />
 
         {/* Wake word */}
         <section className="rounded-lg border border-line bg-surface p-[18px]">

@@ -1,4 +1,4 @@
-"""Tests for calendar auto-join sync (organizer filter, Meet-link, upsert)."""
+"""Tests for calendar auto-join sync (Meet-link filter, auto-join policy, no-clobber upsert)."""
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
@@ -8,14 +8,15 @@ from stewardai.scheduler.calendar_sync import (
     _dedup,
     _extract_terms,
     _native_id,
+    _opted_in_for_policy,
     _rows_and_events,
     sync_calendars_once,
 )
 
 
-def _rows_for_events(user_id, items):
+def _rows_for_events(user_id, items, policy="all"):
     """Back-compat shim: the old helper returned rows; keep the assertions simple."""
-    return [row for row, _ in _rows_and_events(user_id, items)]
+    return [row for row, _ in _rows_and_events(user_id, items, policy)]
 
 
 def _ev(**over):
@@ -33,16 +34,16 @@ def _ev(**over):
 # --- pure filter logic -----------------------------------------------------
 
 
-def test_rows_include_only_organizer_meet_timed():
+def test_rows_include_meet_timed_regardless_of_organizer():
     events = [
-        _ev(),  # kept
-        _ev(id="e2", organizer={"self": None}),  # not organizer -> skip
+        _ev(),  # kept — organizer
+        _ev(id="e2", organizer={"self": None}),  # kept — non-organizer, policy=all
         _ev(id="e3", hangoutLink=None, conferenceData=None),  # no meet -> skip
         _ev(id="e4", start={"date": "2026-07-02"}),  # all-day (no dateTime) -> skip
-        _ev(id="e5", organizer={}),  # organizer without self -> skip
+        _ev(id="e5", organizer={}),  # organizer without self -> kept, policy=all
     ]
     rows = _rows_for_events("u1", events)
-    assert [r["google_event_id"] for r in rows] == ["evt-1"]
+    assert [r["google_event_id"] for r in rows] == ["evt-1", "e2", "e5"]
     r = rows[0]
     assert r["user_id"] == "u1"
     assert r["opted_in"] is True
@@ -83,34 +84,96 @@ def test_rows_recurring_event_id_null_for_one_off():
     assert rows[0]["recurring_event_id"] is None
 
 
+# --- per-policy opted_in default --------------------------------------------
+
+
+def test_opted_in_for_policy_all_joins_everyone():
+    assert _opted_in_for_policy("all", is_organizer=True) is True
+    assert _opted_in_for_policy("all", is_organizer=False) is True
+
+
+def test_opted_in_for_policy_organizer_only_joins_organizer():
+    assert _opted_in_for_policy("organizer", is_organizer=True) is True
+    assert _opted_in_for_policy("organizer", is_organizer=False) is False
+
+
+def test_opted_in_for_policy_none_never_joins():
+    assert _opted_in_for_policy("none", is_organizer=True) is False
+    assert _opted_in_for_policy("none", is_organizer=False) is False
+
+
+def test_rows_and_events_apply_organizer_policy():
+    events = [_ev(), _ev(id="e2", organizer={"self": None})]
+    rows = _rows_for_events("u1", events, policy="organizer")
+    by_id = {r["google_event_id"]: r for r in rows}
+    assert by_id["evt-1"]["opted_in"] is True
+    assert by_id["e2"]["opted_in"] is False
+
+
+def test_rows_and_events_apply_none_policy():
+    rows = _rows_for_events("u1", [_ev()], policy="none")
+    assert rows[0]["opted_in"] is False
+
+
 # --- end-to-end sync with mocks --------------------------------------------
 
 
-def _mock_client(user_rows, capture):
-    client = MagicMock()
+class _FakeBuilder:
+    """Minimal chainable stand-in for a postgrest query builder."""
 
-    sel = MagicMock()
-    sel.eq.return_value = sel
-    sel.execute = AsyncMock(return_value=MagicMock(data=user_rows))
+    def __init__(self, data):
+        self._data = data
 
-    ups = MagicMock()
+    def select(self, *a, **k):
+        return self
 
-    async def _ups_exec():
-        return MagicMock(data=[{}])
+    def eq(self, *a, **k):
+        return self
+
+    def in_(self, *a, **k):
+        return self
+
+    def maybe_single(self):
+        return self
+
+    async def execute(self):
+        return MagicMock(data=self._data)
+
+
+def _mock_client(connected_rows, capture, *, policy="all", existing_event_ids=None):
+    """Table-aware fake client: routes select/upsert/update per table name so the
+    policy lookup, existing-id lookup, and upsert calls can be asserted independently."""
+    existing_event_ids = existing_event_ids or set()
+    capture.setdefault("upserts", [])
 
     def _upsert(rows, **kw):
-        capture["rows"] = rows
-        capture["kw"] = kw
+        capture["upserts"].append({"rows": rows, "kw": kw})
         u = MagicMock()
-        u.execute = AsyncMock(side_effect=_ups_exec)
+        u.execute = AsyncMock(return_value=MagicMock(data=[{}]))
+        return u
+
+    def _update(*a, **k):
+        u = MagicMock()
+        u.eq.return_value = u
+        u.execute = AsyncMock(return_value=MagicMock(data=[{}]))
         return u
 
     def _table(name):
         t = MagicMock()
-        t.select.return_value = sel
+        if name == "connected_apps":
+            t.select.return_value = _FakeBuilder(connected_rows)
+        elif name == "profiles":
+            t.select.return_value = _FakeBuilder({"auto_join_policy": policy})
+        elif name == "meetings":
+            existing_rows = [{"google_event_id": eid} for eid in existing_event_ids]
+            t.select.return_value = _FakeBuilder(existing_rows)
+        else:
+            t.select.return_value = _FakeBuilder([])
         t.upsert = _upsert
+        t.update = _update
         return t
 
+    client = MagicMock()
     client.table.side_effect = _table
     return client
 
@@ -124,11 +187,48 @@ async def test_sync_lists_and_upserts_opted_in():
         "data": {"items": [_ev(), _ev(id="e2", organizer={"self": None})]},
     }
     n = await sync_calendars_once(client, composio)
-    assert n == 1
+    assert n == 2  # policy=all -> both events kept
     composio.execute.assert_called_once()
     assert composio.execute.call_args.args[1] == "GOOGLECALENDAR_EVENTS_LIST"
-    assert capture["rows"][0]["opted_in"] is True
-    assert capture["kw"]["on_conflict"] == "user_id,google_event_id"
+    new_rows_upsert = next(u for u in capture["upserts"] if u["rows"])
+    assert all(r["opted_in"] is True for r in new_rows_upsert["rows"])
+    assert new_rows_upsert["kw"]["on_conflict"] == "user_id,google_event_id"
+
+
+async def test_sync_organizer_policy_filters_non_organizer_opted_in():
+    capture: dict = {}
+    client = _mock_client([{"user_id": "u1"}], capture, policy="organizer")
+    composio = MagicMock()
+    composio.execute.return_value = {
+        "successful": True,
+        "data": {"items": [_ev(), _ev(id="e2", organizer={"self": None})]},
+    }
+    await sync_calendars_once(client, composio)
+    rows = capture["upserts"][0]["rows"]
+    by_id = {r["google_event_id"]: r for r in rows}
+    assert by_id["evt-1"]["opted_in"] is True
+    assert by_id["e2"]["opted_in"] is False
+
+
+async def test_sync_does_not_clobber_opted_in_on_existing_meeting():
+    """CRITICAL: re-syncing a meeting that already exists must never send
+    `opted_in` in its upsert row, so a user's manual per-meeting toggle survives."""
+    capture: dict = {}
+    client = _mock_client([{"user_id": "u1"}], capture, existing_event_ids={"evt-1"})
+    composio = MagicMock()
+    composio.execute.return_value = {
+        "successful": True,
+        "data": {"items": [_ev(), _ev(id="e2")]},  # evt-1 already exists, e2 is new
+    }
+    await sync_calendars_once(client, composio)
+
+    existing_upsert = next(
+        u for u in capture["upserts"] if u["rows"][0]["google_event_id"] == "evt-1"
+    )
+    assert "opted_in" not in existing_upsert["rows"][0]
+
+    new_upsert = next(u for u in capture["upserts"] if u["rows"][0]["google_event_id"] == "e2")
+    assert new_upsert["rows"][0]["opted_in"] is True
 
 
 async def test_sync_no_connected_users_is_noop():
