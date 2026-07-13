@@ -64,13 +64,17 @@ async function loadNavCounts(
         .or("space_source.in.(suggested,unfiled),space_id.is.null")
     ),
     // Powers the sidebar's pulsing live-dot on "Meetings" — a lightweight
-    // presence check, not a list, so a single row is all we need.
+    // presence check, not a list, so a single row is all we need. Bounded to
+    // meetings started in the last 6h so a stale `in_meeting` row (bot status
+    // write-back failed) doesn't keep the dot lit indefinitely — matches the
+    // "live" window used by the Meetings page.
     safeCount(
       db
         .from("meetings")
         .select("id", { count: "exact", head: true })
         .eq("user_id", userId)
         .eq("bot_status", "in_meeting")
+        .gte("start_time", new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString())
     ),
   ]);
   return { actions, review, live: live > 0 };

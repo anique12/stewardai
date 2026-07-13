@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ChevronsUpDown, LogOut } from "lucide-react";
+import { BarChart3, ChevronsUpDown, LogOut, Settings } from "lucide-react";
 import { createBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import {
@@ -60,13 +60,19 @@ export function UserMenu({ email, className }: { email: string; className?: stri
           <div className="truncate text-[11px] text-ink-3">{email}</div>
         </div>
         <DropdownMenuItem asChild className="cursor-pointer rounded-md text-[13px]">
-          <Link href="/app/settings">Settings</Link>
+          <Link href="/app/settings">
+            <Settings className="mr-2 h-4 w-4 text-ink-3" aria-hidden />
+            Settings
+          </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild className="cursor-pointer rounded-md text-[13px]">
-          <Link href="/app/usage">Usage &amp; billing</Link>
+          <Link href="/app/usage">
+            <BarChart3 className="mr-2 h-4 w-4 text-ink-3" aria-hidden />
+            Usage &amp; billing
+          </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild className="cursor-pointer rounded-md p-0 focus:bg-transparent">
-          <ThemeToggle label className="text-[13px] hover:bg-surface-2" />
+          <ThemeToggle label className="gap-2 px-2 text-[13px] hover:bg-surface-2" />
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
