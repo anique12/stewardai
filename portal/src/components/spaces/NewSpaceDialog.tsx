@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { showToast } from "@/lib/toast";
@@ -14,7 +14,24 @@ function LayersIcon() {
   );
 }
 
-export function NewSpaceDialog() {
+function PlusIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function NewSpaceDialog({
+  trigger,
+  onCreated,
+}: {
+  /** Custom trigger element (e.g. a bigger "Create a space" CTA for an empty state). */
+  trigger?: ReactNode;
+  /** When set, called with the new space's id instead of the default toast + refresh —
+   *  used by the review queue to create-and-file a meeting in one motion. */
+  onCreated?: (spaceId: string) => void;
+} = {}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -42,9 +59,14 @@ export function NewSpaceDialog() {
       });
       if (res.ok) {
         const created = name.trim();
+        const body = await res.json().catch(() => null);
         handleOpenChange(false);
-        router.refresh();
-        showToast({ message: `"${created}" space created.` });
+        if (onCreated && body?.id) {
+          onCreated(body.id as string);
+        } else {
+          router.refresh();
+          showToast({ message: `"${created}" space created.` });
+        }
       } else {
         const body = await res.json().catch(() => null);
         const message = body?.error ?? `Couldn't create space (${res.status}).`;
@@ -63,12 +85,15 @@ export function NewSpaceDialog() {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <button
-          type="button"
-          className="rounded-md bg-brand px-3.5 py-2 text-[13px] font-semibold text-on-brand shadow-sh-1 transition-colors hover:bg-brand-2"
-        >
-          New Space
-        </button>
+        {trigger ?? (
+          <button
+            type="button"
+            className="inline-flex items-center gap-[7px] rounded-md border border-line-2 bg-transparent px-3.5 py-2 text-[13px] font-semibold text-ink transition-colors hover:bg-surface-2"
+          >
+            <PlusIcon />
+            New space
+          </button>
+        )}
       </DialogTrigger>
       <DialogContent className="max-w-[420px]">
         <div className="mb-4 flex items-center gap-[11px]">
