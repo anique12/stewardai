@@ -16,15 +16,17 @@ export function firstName(name: string): string {
 export interface GreetingProps {
   displayName: string;
   now: Date;
+  timeZone: string;
   meetingsToday: number;
   openActions: number;
 }
 
-export function Greeting({ displayName, now, meetingsToday, openActions }: GreetingProps) {
+export function Greeting({ displayName, now, timeZone, meetingsToday, openActions }: GreetingProps) {
   const dateLabel = now.toLocaleDateString([], {
     weekday: "long",
     month: "long",
     day: "numeric",
+    timeZone,
   });
 
   return (

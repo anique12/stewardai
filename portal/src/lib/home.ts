@@ -48,13 +48,19 @@ const NEEDS_ACTION_LIMIT = 5;
 const RECAPS_LIMIT = 5;
 const SPACES_PULSE_LIMIT = 5;
 
-function isSameLocalDay(iso: string, now: Date): boolean {
-  const d = new Date(iso);
-  return (
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate()
-  );
+// Calendar-day string ("YYYY-MM-DD") for a Date, as observed in `timeZone`.
+// Dependency-free IANA-aware formatting: en-CA gives ISO-ordered digits.
+function localDateKey(d: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+function isSameDayInTimeZone(iso: string, now: Date, timeZone: string): boolean {
+  return localDateKey(new Date(iso), timeZone) === localDateKey(now, timeZone);
 }
 
 // Ascending by due date, with undated items pushed to the end — same ordering
@@ -72,11 +78,14 @@ function sortByDueAsc<T extends { due: string | null }>(rows: T[]): T[] {
 /**
  * Pure assembly of the Home dashboard's derived view model from already-fetched
  * rows. `now` is passed in (rather than read internally) so date-based
- * filtering — "today's agenda" — is deterministic in tests.
+ * filtering — "today's agenda" — is deterministic in tests. `timeZone` is the
+ * user's IANA timezone (e.g. "America/New_York"); "today" is decided in that
+ * timezone, not the server's local time, so evening meetings don't drop out
+ * of / wrongly appear in the agenda for non-UTC users on a UTC server.
  */
-export function buildHomeData(input: HomeDataInput, now: Date): HomeData {
+export function buildHomeData(input: HomeDataInput, now: Date, timeZone: string): HomeData {
   const agenda = input.meetings
-    .filter((m) => isSameLocalDay(m.start_time, now))
+    .filter((m) => isSameDayInTimeZone(m.start_time, now, timeZone))
     .sort((a, b) => (a.start_time < b.start_time ? -1 : a.start_time > b.start_time ? 1 : 0));
 
   const openActions = input.actions.filter((a) => !a.done);

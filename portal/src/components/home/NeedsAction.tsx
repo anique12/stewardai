@@ -15,9 +15,9 @@ export function NeedsAction({ actions }: { actions: HomeActionRow[] }) {
   const [items, setItems] = useState(actions);
 
   async function onToggle(id: string, done: boolean) {
-    setItems((prev) => prev.filter((i) => i.id !== id));
     const supabase = createBrowserClient();
     await supabase.from("action_items").update({ done }).eq("id", id);
+    setItems((prev) => prev.filter((i) => i.id !== id));
   }
 
   return (

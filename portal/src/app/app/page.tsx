@@ -117,8 +117,10 @@ async function HomeDashboard({ userId, userEmail }: { userId: string; userEmail:
         .or("space_source.in.(suggested,unfiled),space_id.is.null"),
       // RLS-scoped: action_items has no user_id column, scoping is via the meetings.user_id join.
       db.from("action_items").select("id,owner,task,due,done,meeting_id,meetings(title,space_id)").eq("done", false),
-      db.from("profiles").select("display_name").eq("user_id", userId).maybeSingle(),
+      db.from("profiles").select("display_name,timezone").eq("user_id", userId).maybeSingle(),
     ]);
+
+    const timeZone = (profile?.timezone as string | null) ?? "UTC";
 
     const meetings = [...(upcomingRows ?? []), ...(pastRows ?? [])];
     const spaceNameById = new Map<string, string>((spacesRows ?? []).map((s) => [s.id as string, s.name as string]));
@@ -182,6 +184,7 @@ async function HomeDashboard({ userId, userEmail }: { userId: string; userEmail:
         unfiledCount: unfiledRows?.length ?? 0,
       },
       now,
+      timeZone,
     );
 
     const displayName = (profile?.display_name as string | null) ?? userEmail;
@@ -191,6 +194,7 @@ async function HomeDashboard({ userId, userEmail }: { userId: string; userEmail:
         <Greeting
           displayName={displayName}
           now={now}
+          timeZone={timeZone}
           meetingsToday={data.meetingsToday}
           openActions={data.openActions}
         />
