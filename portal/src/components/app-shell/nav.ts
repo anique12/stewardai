@@ -18,6 +18,8 @@ export type NavItem = {
   isActive: (path: string) => boolean;
   /** Key into the counts map passed down from the layout, if this item shows a badge. */
   countKey?: "actions" | "review";
+  /** Key into the counts map for a pulsing live-dot (e.g. a meeting in progress), if this item shows one. */
+  liveKey?: "live";
 };
 
 /** Primary workspace section — Home, Meetings, Action items, Spaces. */
@@ -28,6 +30,7 @@ export const WORKSPACE_NAV: NavItem[] = [
     label: "Meetings",
     icon: CalendarClock,
     isActive: (p) => p.startsWith("/app/meetings"),
+    liveKey: "live",
   },
   {
     href: "/app/actions",
@@ -101,4 +104,4 @@ export function routeTitleFor(pathname: string): { title: string; subtitle?: str
   return match ? { title: match.title, subtitle: match.subtitle } : { title: "StewardAI" };
 }
 
-export type NavCounts = { actions: number; review: number };
+export type NavCounts = { actions: number; review: number; live: boolean };

@@ -57,6 +57,12 @@ function NavGroup({
           >
             <item.icon className="h-[17px] w-[17px] shrink-0" aria-hidden />
             <span className="flex-1 text-left">{item.label}</span>
+            {item.liveKey && counts[item.liveKey] ? (
+              <span
+                className="h-[7px] w-[7px] shrink-0 rounded-pill bg-brand anim-pulse"
+                aria-label="Meeting in progress"
+              />
+            ) : null}
             {count ? (
               <span className="min-w-[19px] rounded-pill bg-attention px-1.5 py-0.5 text-center font-mono text-[10px] font-bold text-on-attention">
                 {count}

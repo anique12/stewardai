@@ -47,7 +47,7 @@ async function loadNavCounts(
   db: ReturnType<typeof createServerClient>,
   userId: string
 ): Promise<NavCounts> {
-  const [actions, review] = await Promise.all([
+  const [actions, review, live] = await Promise.all([
     safeCount(
       db.from("action_items").select("id", { count: "exact", head: true }).eq("done", false)
     ),
@@ -62,8 +62,17 @@ async function loadNavCounts(
         .eq("bot_status", "done")
         .or("space_source.in.(suggested,unfiled),space_id.is.null")
     ),
+    // Powers the sidebar's pulsing live-dot on "Meetings" — a lightweight
+    // presence check, not a list, so a single row is all we need.
+    safeCount(
+      db
+        .from("meetings")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .eq("bot_status", "in_meeting")
+    ),
   ]);
-  return { actions, review };
+  return { actions, review, live: live > 0 };
 }
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
