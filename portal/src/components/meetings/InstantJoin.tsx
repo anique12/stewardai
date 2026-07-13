@@ -5,16 +5,29 @@ import { Input } from "@/components/ui/input";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-export function InstantJoin() {
+/**
+ * Shared instant-join submit logic, used by both the inline `InstantJoin`
+ * card (below, used on the Meetings page) and the shell's
+ * `InstantJoinDialog` (command-palette-adjacent modal in the app chrome).
+ * Both POST to the same `/api/meetings/instant` route and navigate to the
+ * new meeting on success.
+ */
+export function useInstantJoin() {
+  const router = useRouter();
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
-  const router = useRouter();
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (loading) return;
+  function reset() {
+    setUrl("");
+    setError(null);
+    setLoading(false);
+    setJoining(false);
+  }
+
+  async function submit(onSuccess?: () => void) {
+    if (loading || url.trim().length === 0) return;
     setError(null);
     setLoading(true);
     try {
@@ -32,6 +45,7 @@ export function InstantJoin() {
       // Steward is queued — the backend scheduler will spawn the bot shortly.
       setJoining(true);
       setUrl("");
+      onSuccess?.();
       if (data?.id) {
         router.push(`/app/meetings/${data.id}`);
       } else {
@@ -45,6 +59,12 @@ export function InstantJoin() {
     }
   }
 
+  return { url, setUrl, loading, error, setError, joining, submit, reset };
+}
+
+export function InstantJoin() {
+  const { url, setUrl, loading, error, setError, joining, submit } = useInstantJoin();
+
   return (
     <div className="rounded-lg border border-border bg-card p-5">
       <h2 className="text-lg font-semibold text-foreground">Instant join</h2>
@@ -52,7 +72,13 @@ export function InstantJoin() {
         Paste a Google Meet, Zoom, or Teams link and Steward will join right away —
         no calendar sync needed.
       </p>
-      <form onSubmit={submit} className="mt-4 flex flex-col gap-3 sm:flex-row">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+        className="mt-4 flex flex-col gap-3 sm:flex-row"
+      >
         <Input
           type="url"
           inputMode="url"

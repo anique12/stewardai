@@ -2,10 +2,17 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
+import { showToast } from "@/lib/toast";
+
+function LayersIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M12 3.5l8 4-8 4-8-4 8-4z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+      <path d="M4 12l8 4 8-4" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 export function NewSpaceDialog() {
   const router = useRouter();
@@ -13,6 +20,14 @@ export function NewSpaceDialog() {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function handleOpenChange(next: boolean) {
+    if (!next) {
+      setName("");
+      setError(null);
+    }
+    setOpen(next);
+  }
 
   async function create() {
     if (busy) return;
@@ -26,41 +41,78 @@ export function NewSpaceDialog() {
         body: JSON.stringify({ name: name.trim() }),
       });
       if (res.ok) {
-        setOpen(false);
-        setName("");
+        const created = name.trim();
+        handleOpenChange(false);
         router.refresh();
+        showToast({ message: `"${created}" space created.` });
       } else {
         const body = await res.json().catch(() => null);
-        setError(body?.error ?? `Couldn't create space (${res.status}).`);
+        const message = body?.error ?? `Couldn't create space (${res.status}).`;
+        setError(message);
+        showToast({ message });
       }
     } catch {
-      setError("Couldn't reach the server. Check your connection and try again.");
+      const message = "Couldn't reach the server. Check your connection and try again.";
+      setError(message);
+      showToast({ message });
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button size="sm">New Space</Button>
+        <button
+          type="button"
+          className="rounded-md bg-brand px-3.5 py-2 text-[13px] font-semibold text-on-brand shadow-sh-1 transition-colors hover:bg-brand-2"
+        >
+          New Space
+        </button>
       </DialogTrigger>
-      <DialogContent>
-        <DialogHeader><DialogTitle>New Space</DialogTitle></DialogHeader>
-        <div className="space-y-3">
-          <div className="space-y-1">
-            <Label htmlFor="space-name">Name</Label>
-            <Input
-              id="space-name" value={name} autoFocus
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && create()}
-              placeholder="e.g. Acme Corp"
-            />
+      <DialogContent className="max-w-[420px]">
+        <div className="mb-4 flex items-center gap-[11px]">
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-[11px] bg-brand-weak text-brand">
+            <LayersIcon />
           </div>
-          {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-          <Button disabled={busy || !name.trim()} onClick={create} className="w-full">
-            {busy ? "Creating…" : "Create"}
-          </Button>
+          <div>
+            <div className="font-display text-[18px] font-bold text-ink">New space</div>
+            <div className="text-[12px] text-ink-3">A thread for a client, project, or topic</div>
+          </div>
+        </div>
+        <label htmlFor="space-name" className="mb-1.5 block text-[12px] font-semibold text-ink-2">
+          Name
+        </label>
+        <input
+          id="space-name"
+          value={name}
+          autoFocus
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && create()}
+          placeholder="e.g. Meridian Deal"
+          className="mb-[18px] w-full rounded-md border border-line-2 bg-paper px-[13px] py-[11px] text-[13.5px] text-ink outline-none placeholder:text-ink-3"
+        />
+        {error ? (
+          <p role="alert" className="mb-3 text-[13px] text-danger-strong">
+            {error}
+          </p>
+        ) : null}
+        <div className="flex justify-end gap-2.5">
+          <button
+            type="button"
+            onClick={() => handleOpenChange(false)}
+            className="rounded-md border border-line-2 px-4 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface-2"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={busy || !name.trim()}
+            onClick={create}
+            className="rounded-md bg-brand px-4 py-2 text-sm font-semibold text-on-brand shadow-sh-1 transition-colors hover:bg-brand-2 disabled:pointer-events-none disabled:opacity-50"
+          >
+            {busy ? "Creating…" : "Create space"}
+          </button>
         </div>
       </DialogContent>
     </Dialog>

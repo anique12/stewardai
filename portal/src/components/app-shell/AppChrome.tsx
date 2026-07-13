@@ -6,14 +6,15 @@ import { Sidebar, MobileNavDrawer } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { MobileBottomNav } from "./MobileBottomNav";
 import { routeTitleFor, type NavCounts } from "./nav";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { CommandPalette } from "./CommandPalette";
+import { NudgesPanel } from "./NudgesPanel";
+import { InstantJoinDialog } from "./InstantJoinDialog";
+import { Toast } from "./Toast";
 
 /**
  * Client shell composing Sidebar + Topbar + mobile nav/drawer, and owning
- * open-state for the overlays Task 4 will build out (command palette,
- * nudges panel, instant-join dialog). Each overlay below is a minimal
- * placeholder — Task 4 replaces the `{/* Task 4: ... *\/}` body only; the
- * open-state wiring here (and the Topbar/MobileBottomNav triggers) stays.
+ * open-state for the overlays (command palette, nudges panel, instant-join
+ * dialog, toast host).
  */
 export function AppChrome({
   email,
@@ -31,6 +32,7 @@ export function AppChrome({
   const [searchOpen, setSearchOpen] = useState(false);
   const [nudgesOpen, setNudgesOpen] = useState(false);
   const [instantOpen, setInstantOpen] = useState(false);
+  const [nudgeCount, setNudgeCount] = useState(0);
 
   // ⌘K / Ctrl+K opens the command palette from anywhere in the app shell.
   useEffect(() => {
@@ -55,7 +57,7 @@ export function AppChrome({
         <Topbar
           title={title}
           subtitle={subtitle}
-          nudgeCount={0}
+          nudgeCount={nudgeCount}
           onOpenDrawer={() => setDrawerOpen(true)}
           onOpenSearch={() => setSearchOpen(true)}
           onOpenInstantJoin={() => setInstantOpen(true)}
@@ -67,35 +69,10 @@ export function AppChrome({
         <MobileBottomNav counts={counts} />
       </div>
 
-      {/* Task 4: replace with the real command palette (⌘K search). */}
-      <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Search</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-ink-3">…</p>
-        </DialogContent>
-      </Dialog>
-
-      {/* Task 4: replace with the real nudges panel. */}
-      <Dialog open={nudgesOpen} onOpenChange={setNudgesOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Nudges</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-ink-3">…</p>
-        </DialogContent>
-      </Dialog>
-
-      {/* Task 4: replace with the real instant-join dialog. */}
-      <Dialog open={instantOpen} onOpenChange={setInstantOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Instant join</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-ink-3">…</p>
-        </DialogContent>
-      </Dialog>
+      <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} />
+      <NudgesPanel open={nudgesOpen} onOpenChange={setNudgesOpen} onCountChange={setNudgeCount} />
+      <InstantJoinDialog open={instantOpen} onOpenChange={setInstantOpen} />
+      <Toast />
     </>
   );
 }
