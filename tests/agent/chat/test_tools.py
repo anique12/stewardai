@@ -62,6 +62,30 @@ async def test_kb_search_returns_provenance(monkeypatch):
     assert out["passages"][0]["meeting_id"] == "m1" and out["passages"][0]["n"] == 1
 
 
+async def test_kb_search_falls_back_to_scope_space_id(monkeypatch):
+    """When the session is scoped to a space (composer's scope selector), the
+    space filter must apply even if the model's kb_search call omits/forgets
+    its own space_id -- see build_read_tools's scope_space_id kwarg."""
+    import stewardai.agent.chat.tools as T
+
+    captured: dict = {}
+
+    async def fake_retrieve(client, llm, *, user_id, query, space_id=None, k=8):
+        captured["space_id"] = space_id
+        return []
+
+    monkeypatch.setattr(T, "retrieve", fake_retrieve)
+    tools = build_read_tools(_Client([]), _LLM(), user_id="u1", scope_space_id="s-scoped")
+    kb = next(t for t in tools if t.name == "kb_search")
+
+    await kb.ainvoke({"query": "anything"})
+    assert captured["space_id"] == "s-scoped"
+
+    # An explicit space_id from the model still wins over the session scope.
+    await kb.ainvoke({"query": "anything", "space_id": "s-explicit"})
+    assert captured["space_id"] == "s-explicit"
+
+
 async def test_list_spaces_and_meetings_are_user_scoped():
     rows = [{"id": "s1", "name": "Acme", "kind": "client", "status": "active"}]
     tools = build_read_tools(_Client(rows), _LLM(), user_id="u1")

@@ -3,8 +3,8 @@
 // Chat input: auto-growing textarea + send button + a scope selector that lets
 // the user narrow a question to "All work", a specific Space, or a specific
 // Meeting. Enter (no shift) sends while not streaming; Shift+Enter inserts a
-// newline. The scope choice becomes a text hint prepended by `useChat.send` —
-// see there; the WS `user_message` payload shape itself is unchanged.
+// newline. The scope choice is passed through to `useChat.send`, which sends
+// it structurally on the WS `user_message` payload — see there.
 
 import { useRef, useState } from "react";
 import { ArrowUp, Check, ChevronDown, Layers } from "lucide-react";

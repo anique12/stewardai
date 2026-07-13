@@ -12,9 +12,18 @@ from langchain_core.tools import StructuredTool
 from stewardai.agent.kb.retrieval import retrieve
 
 
-def build_read_tools(client, llm, *, user_id: str) -> list:  # noqa: ANN001
+def build_read_tools(
+    client, llm, *, user_id: str, scope_space_id: str | None = None  # noqa: ANN001
+) -> list:
+    """Build the read-only tool set. ``scope_space_id``, when set, binds
+    ``kb_search`` to that space even if the model omits/forgets its own
+    ``space_id`` argument — the model's explicit ``space_id`` (if it passes
+    one) still wins, so this only fills the gap rather than overriding it."""
+
     async def kb_search(query: str, space_id: str | None = None) -> dict:
-        rows = await retrieve(client, llm, user_id=user_id, query=query, space_id=space_id)
+        rows = await retrieve(
+            client, llm, user_id=user_id, query=query, space_id=space_id or scope_space_id
+        )
         return {
             "passages": [
                 {

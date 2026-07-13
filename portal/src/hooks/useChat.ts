@@ -14,9 +14,10 @@ import type { ChatState, Message, ServerEvent } from "@/lib/chat/types";
 export type PermissionDecision = "approve" | "reject" | "always";
 
 // A question can be scoped to narrow what Steward searches — "All work" (no
-// hint), a specific Space, or a specific Meeting. This is a pure text
-// convention layered on top of the existing `user_message` WS payload (see
-// `scopeHint`/`send` below) — it does NOT change the wire protocol.
+// scope), a specific Space, or a specific Meeting. Sent structurally as a
+// `scope` field on the `user_message` WS payload (see `send` below) so the
+// backend can actually constrain retrieval, rather than relying on a text
+// hint in the message itself.
 export type ChatScope =
   | { kind: "all" }
   | { kind: "space"; id: string; label: string }
@@ -44,15 +45,6 @@ function emptyAssistantMessage(): Message {
 
 function newUserMessage(text: string): Message {
   return { role: "user", text, thinking: "", activities: [], citations: [], done: true };
-}
-
-// Turn a scope choice into a leading text hint, e.g. `[Scope: space "Acme"] `.
-// Prepended to the outgoing message text only — the `user_message` WS payload
-// shape is unchanged, so the server sees ordinary text (no new fields).
-function scopeHint(scope?: ChatScope): string {
-  if (!scope || scope.kind === "all") return "";
-  const noun = scope.kind === "space" ? "space" : "meeting";
-  return `[Scope: ${noun} "${scope.label}"] `;
 }
 
 async function getAccessToken(): Promise<string | null> {
@@ -219,11 +211,10 @@ export function useChat(
     (text: string, scope?: ChatScope) => {
       const trimmed = text.trim();
       if (!trimmed) return;
-      const scoped = `${scopeHint(scope)}${trimmed}`;
 
       setState((s) => ({
         ...s,
-        messages: s.messages.concat([newUserMessage(scoped), emptyAssistantMessage()]),
+        messages: s.messages.concat([newUserMessage(trimmed), emptyAssistantMessage()]),
         streaming: true,
       }));
 
@@ -238,9 +229,10 @@ export function useChat(
         ws?.send(
           JSON.stringify({
             type: "user_message",
-            text: scoped,
+            text: trimmed,
             thread_id: threadId ?? undefined,
             tz,
+            scope: scope && scope.kind !== "all" ? scope : undefined,
           }),
         );
       });

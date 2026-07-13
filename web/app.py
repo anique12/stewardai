@@ -605,8 +605,24 @@ async def ws_chat(ws: WebSocket) -> None:
                         role="user", parts=[{"type": "text", "text": text}],
                     )
 
+                    # Structured scope from the composer's scope selector (see
+                    # portal's useChat.ts): {"kind": "all"|"space"|"meeting", "id",
+                    # "label"}. Only "space" has a real retrieval filter today
+                    # (bound into kb_search below); "meeting" is a system-prompt
+                    # hint only (see ChatSession). Malformed/absent scope behaves
+                    # exactly like no scope.
+                    scope = msg.get("scope") or {}
+                    scope_kind = scope.get("kind") if isinstance(scope, dict) else None
+                    scope_label = scope.get("label") if isinstance(scope, dict) else None
+                    scope_space_id = (
+                        scope.get("id")
+                        if scope_kind == "space" and isinstance(scope, dict)
+                        else None
+                    )
+
                     tools = build_read_tools(
-                        app.state.supabase, app.state.llm, user_id=user_id
+                        app.state.supabase, app.state.llm, user_id=user_id,
+                        scope_space_id=scope_space_id,
                     ) + build_write_tools(app.state.supabase, user_id=user_id)
                     try:
                         available = await load_available_integrations(app.state.supabase)
@@ -622,6 +638,9 @@ async def ws_chat(ws: WebSocket) -> None:
                         app.state.supabase, app.state.llm,
                         user_id=user_id, thread_id=thread_id, tools=tools,
                         tz=msg.get("tz"),
+                        scope_space_id=scope_space_id,
+                        scope_kind=scope_kind,
+                        scope_label=scope_label,
                     )
                     sessions[thread_id] = session
 

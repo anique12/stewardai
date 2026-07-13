@@ -31,11 +31,26 @@ def _install_fake_chat_session(monkeypatch, *, stream_events=None, resume_events
     resume_events = resume_events if resume_events is not None else []
 
     class _FakeChatSession:
-        def __init__(self, client, llm, *, user_id, thread_id, tools, tz=None):
+        def __init__(
+            self,
+            client,
+            llm,
+            *,
+            user_id,
+            thread_id,
+            tools,
+            tz=None,
+            scope_space_id=None,
+            scope_kind=None,
+            scope_label=None,
+        ):
             self.user_id = user_id
             self.thread_id = thread_id
             self.tools = tools
             self.tz = tz
+            self.scope_space_id = scope_space_id
+            self.scope_kind = scope_kind
+            self.scope_label = scope_label
 
         async def stream_turn(self, message, history):
             for item in stream_events:
@@ -170,6 +185,59 @@ def test_ws_chat_uses_owned_thread_id_as_is(monkeypatch):
     assert "thread" not in types
     assert types[-1] == "done"
     assert seen_thread_ids == ["my-thread"]
+
+
+def test_ws_chat_passes_structured_space_scope_to_session(monkeypatch):
+    """The composer's structured `scope` field (not a text prefix) must reach
+    ChatSession as scope_space_id/scope_kind/scope_label, so retrieval can
+    actually be constrained (see build_read_tools's scope_space_id)."""
+    instances: list = []
+    client = _client(monkeypatch, user_id="u1")  # installs the default fake session
+    FakeSession = webapp.ChatSession
+    orig_init = FakeSession.__init__
+
+    def capturing_init(self, *a, **kw):
+        orig_init(self, *a, **kw)
+        instances.append(self)
+
+    monkeypatch.setattr(FakeSession, "__init__", capturing_init)
+
+    with client.websocket_connect("/ws/chat?token=x") as ws:
+        ws.send_json(
+            {
+                "type": "user_message",
+                "text": "what's the status?",
+                "scope": {"kind": "space", "id": "sp-1", "label": "Acme"},
+            }
+        )
+        [ws.receive_json(), ws.receive_json(), ws.receive_json()]
+
+    assert instances[-1].scope_space_id == "sp-1"
+    assert instances[-1].scope_kind == "space"
+    assert instances[-1].scope_label == "Acme"
+
+
+def test_ws_chat_missing_scope_behaves_like_no_scope(monkeypatch):
+    """Absent `scope` (older client, or "All work") must not break anything --
+    ChatSession gets None for all three scope kwargs."""
+    instances: list = []
+    client = _client(monkeypatch, user_id="u1")  # installs the default fake session
+    FakeSession = webapp.ChatSession
+    orig_init = FakeSession.__init__
+
+    def capturing_init(self, *a, **kw):
+        orig_init(self, *a, **kw)
+        instances.append(self)
+
+    monkeypatch.setattr(FakeSession, "__init__", capturing_init)
+
+    with client.websocket_connect("/ws/chat?token=x") as ws:
+        ws.send_json({"type": "user_message", "text": "hello"})
+        [ws.receive_json(), ws.receive_json(), ws.receive_json()]
+
+    assert instances[-1].scope_space_id is None
+    assert instances[-1].scope_kind is None
+    assert instances[-1].scope_label is None
 
 
 def test_ws_chat_turn_error_sends_generic_text_not_raw_exception(monkeypatch):

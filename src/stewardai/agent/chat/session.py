@@ -86,6 +86,9 @@ class ChatSession:
         thread_id: str,
         tools: list | None = None,
         tz: str | None = None,
+        scope_space_id: str | None = None,
+        scope_kind: str | None = None,
+        scope_label: str | None = None,
     ) -> None:
         """Build the agent ONCE. ``llm`` is the app's ``LiteLLMClient`` (used
         for embeddings inside ``kb_search``'s ``retrieve()`` -- not the chat
@@ -94,13 +97,25 @@ class ChatSession:
         call: pass read-only tools for back-compat (``run_chat_turn``), or
         read+write(+Composio) tools for a real interactive session (the WS);
         defaults to read-only tools if omitted.
+
+        ``scope_space_id``/``scope_kind``/``scope_label`` reflect the
+        composer's "Ask about this space"-style scope selector, if any. A
+        ``"space"`` scope is a real retrieval constraint (see
+        ``build_read_tools``'s ``scope_space_id``, applied by the caller when
+        it builds ``tools`` -- this constructor only uses ``scope_kind``/
+        ``scope_label`` to add a system-prompt hint). A ``"meeting"`` scope
+        has no retrieval-side filter (kb_search has no meeting_id parameter),
+        so it's a prompt hint only. All three are optional and default to no
+        scope, matching prior behavior exactly.
         """
         self.client = client
         self.llm = llm
         self.user_id = user_id
         self.thread_id = thread_id
         self.tools = (
-            tools if tools is not None else build_read_tools(client, llm, user_id=user_id)
+            tools
+            if tools is not None
+            else build_read_tools(client, llm, user_id=user_id, scope_space_id=scope_space_id)
         )
         from datetime import datetime
 
@@ -119,6 +134,18 @@ class ChatSession:
             f"{tzlabel} — always present dates and times in this timezone (convert from "
             f"UTC or an event's own offset as needed); do not show raw UTC unless asked."
         )
+        if scope_kind == "space" and scope_label:
+            system += (
+                f"\n\nThe user has scoped this conversation to the space \"{scope_label}\". "
+                "Search and answer ONLY within that space; if it has no relevant captured "
+                "content, say so plainly rather than guessing."
+            )
+        elif scope_kind == "meeting" and scope_label:
+            system += (
+                f"\n\nThe user has scoped this to the meeting \"{scope_label}\". Focus on "
+                "that meeting (use list_meetings / kb_search); if you can't find it or it "
+                "has no relevant captured content, say so plainly rather than guessing."
+            )
         chat_llm = make_chat_llm("reasoning", tools=self.tools)
         self._agent = chat_graph.build_chat_agent(chat_llm, self.tools, system=system)
         self._config = {"configurable": {"thread_id": thread_id}}
