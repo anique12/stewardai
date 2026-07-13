@@ -8,6 +8,7 @@ import type { SpaceEntity } from "@/components/spaces/SpaceEntities";
 import { requireUserPage } from "@/lib/auth-helpers";
 import { createServerClient } from "@/lib/supabase/server";
 import { meetingToMarkdown } from "@/lib/meetings/export";
+import type { Attendee } from "@/lib/meetings/attendee-types";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 
@@ -42,6 +43,22 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
     .single();
 
   if (!meeting) notFound();
+
+  // Best-effort, separate query: the `attendees` column may not exist yet in
+  // an environment where migration 0016 hasn't been applied. Never let a
+  // missing column break the whole page — fall back to no attendees.
+  let attendees: Attendee[] = [];
+  try {
+    const { data: attendeeRow } = await db
+      .from("meetings")
+      .select("attendees")
+      .eq("id", params.id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    attendees = (attendeeRow?.attendees as Attendee[] | null) ?? [];
+  } catch {
+    attendees = [];
+  }
 
   const [
     { data: segments },
@@ -191,6 +208,7 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
         meetUrl={meeting.meet_url}
         botStatus={meeting.bot_status}
         markdown={exportMarkdown}
+        attendees={attendees}
       />
 
       <div className="mt-3.5">

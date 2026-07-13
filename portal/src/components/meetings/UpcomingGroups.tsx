@@ -6,6 +6,7 @@ import { OptInToggle } from "./OptInToggle";
 import { PlatformChip, type Platform } from "@/components/common/PlatformChip";
 import { SpaceChip } from "@/components/common/SpaceChip";
 import { StatusPill, type StatusPillStatus } from "@/components/common/StatusPill";
+import { AttendeeAvatars } from "@/components/common/AttendeeAvatars";
 import type { UpcomingRow } from "@/lib/meetings/series";
 
 const KNOWN_STATUSES: StatusPillStatus[] = ["in_meeting", "done", "failed", "scheduled", "pending"];
@@ -130,6 +131,7 @@ export function UpcomingGroups({
                       {spaceName ? <SpaceChip name={spaceName} /> : null}
                     </div>
                   </div>
+                  <AttendeeAvatars attendees={meeting.attendees} max={3} size={22} />
                   <div className="flex shrink-0 flex-col items-center gap-1">
                     <OptInToggle meetingId={meeting.id} initialValue={meeting.opted_in} />
                     <span className="font-mono text-[9px] uppercase tracking-[0.06em] text-ink-3">

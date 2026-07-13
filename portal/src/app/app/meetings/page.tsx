@@ -148,6 +148,25 @@ async function MeetingsContent({ userId, tab }: { userId: string; tab: MeetingsT
     const pastList = pastRows ?? [];
     const liveMeeting: LiveMeeting | null = (liveRows ?? [])[0] ?? null;
 
+    // Best-effort, separate query: `attendees` may not exist yet in an
+    // environment where migration 0016 hasn't been applied. Never let a
+    // missing column break the whole list — fall back to no attendees.
+    const allIds = [...upcomingList, ...pastList].map((m) => m.id as string);
+    const attendeesById = new Map<string, import("@/lib/meetings/attendee-types").Attendee[]>();
+    if (allIds.length) {
+      try {
+        const { data: attendeeRows } = await db
+          .from("meetings")
+          .select("id,attendees")
+          .in("id", allIds);
+        for (const row of attendeeRows ?? []) {
+          attendeesById.set(row.id as string, (row.attendees as never[]) ?? []);
+        }
+      } catch {
+        // leave attendeesById empty — rows render with no attendees
+      }
+    }
+
     // Attach a one-line summary + action-item count to past occurrences.
     const pastIds = pastList.map((m) => m.id as string);
     const tldrById = new Map<string, string>();
@@ -167,6 +186,7 @@ async function MeetingsContent({ userId, tab }: { userId: string; tab: MeetingsT
     const meetings = [...upcomingList, ...pastList].map((m) => ({
       ...m,
       tldr: tldrById.get(m.id as string) ?? null,
+      attendees: attendeesById.get(m.id as string) ?? [],
     })) as unknown as MeetingListItem[];
 
     const { upcoming, past } = buildHomeSections(meetings, nowIso);

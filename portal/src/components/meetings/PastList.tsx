@@ -3,6 +3,7 @@ import { ChevronRight } from "lucide-react";
 import { cleanTldr } from "@/lib/meetings/tldr";
 import { SpaceChip } from "@/components/common/SpaceChip";
 import { StatusPill, type StatusPillStatus } from "@/components/common/StatusPill";
+import { AttendeeAvatars } from "@/components/common/AttendeeAvatars";
 import type { MeetingListItem } from "@/lib/meetings/series";
 
 const KNOWN_STATUSES: StatusPillStatus[] = ["in_meeting", "done", "failed", "scheduled", "pending"];
@@ -59,6 +60,7 @@ export function PastList({
                 {summary ?? "No summary"}
               </div>
             </div>
+            <AttendeeAvatars attendees={m.attendees} max={3} size={22} />
             {actionCount > 0 ? (
               <span className="shrink-0 rounded-pill border border-line-2 bg-surface-2 px-2 py-[3px] font-mono text-[10px] font-semibold text-ink-3">
                 {actionCount} action{actionCount === 1 ? "" : "s"}

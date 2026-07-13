@@ -24,6 +24,7 @@ guarded — if the ``keyterms`` column isn't migrated yet, the join sync still w
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -83,6 +84,37 @@ def _attendee_names(event: dict) -> list[str]:
         if nm:
             names.append(nm)
     return names
+
+
+def _gravatar_url(email: str) -> str:
+    """Same Gravatar URL shape as the portal's `gravatarUrl` (lib/meetings/attendees.ts):
+    `d=404` so the client falls back to initials when there's no real photo — we only
+    ever surface a REAL photo, never a generated/fake one."""
+    digest = hashlib.md5(email.strip().lower().encode()).hexdigest()  # noqa: S324 — Gravatar's addressing scheme, not security-sensitive
+    return f"https://www.gravatar.com/avatar/{digest}?d=404&s=96"
+
+
+def _attendees(event: dict) -> list[dict]:
+    """Calendar attendees -> stored ``meetings.attendees`` shape (skip resource rooms)."""
+    out: list[dict] = []
+    for a in event.get("attendees") or []:
+        if not isinstance(a, dict) or a.get("resource"):
+            continue
+        email = (a.get("email") or "").strip()
+        if not email:
+            continue
+        name = (a.get("displayName") or "").strip() or email.split("@")[0]
+        out.append(
+            {
+                "email": email,
+                "name": name,
+                "responseStatus": a.get("responseStatus"),
+                "organizer": bool(a.get("organizer")),
+                "self": bool(a.get("self")),
+                "photoUrl": _gravatar_url(email),
+            }
+        )
+    return out
 
 
 def _dedup(terms: list[str]) -> list[str]:
@@ -147,6 +179,7 @@ def _rows_and_events(
                     "meet_url": meet,
                     "native_meeting_id": native,
                     "opted_in": _opted_in_for_policy(policy, is_organizer=is_organizer),
+                    "attendees": _attendees(e),
                 },
                 e,
             )

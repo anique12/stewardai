@@ -5,6 +5,18 @@ import Link from "next/link";
 import { MeetingExportActions } from "./MeetingExportActions";
 import { StatusPill, type StatusPillStatus } from "@/components/common/StatusPill";
 import { PlatformChip, type Platform } from "@/components/common/PlatformChip";
+import { AttendeeAvatars } from "@/components/common/AttendeeAvatars";
+import type { Attendee } from "@/lib/meetings/attendee-types";
+
+// "Maya, Dana, Raj +2" — first names (falls back to the email localpart),
+// with any remainder folded into a "+N" suffix.
+function attendeeNamesLine(attendees: Attendee[]): string | null {
+  if (attendees.length === 0) return null;
+  const firstNames = attendees.map((a) => (a.name || a.email).split(" ")[0]);
+  const shown = firstNames.slice(0, 3);
+  const overflow = firstNames.length - shown.length;
+  return overflow > 0 ? `${shown.join(", ")} +${overflow}` : shown.join(", ");
+}
 
 function platformFromUrl(url: string | null): Platform {
   if (!url) return "Meeting";
@@ -30,12 +42,21 @@ function elapsedLabel(startIso: string): string {
 }
 
 export function MeetingHeader({
-  title, startTime, endTime, meetUrl, botStatus, markdown,
-}: { title: string; startTime: string; endTime: string | null; meetUrl: string | null; botStatus: string; markdown?: string }) {
+  title, startTime, endTime, meetUrl, botStatus, markdown, attendees,
+}: {
+  title: string;
+  startTime: string;
+  endTime: string | null;
+  meetUrl: string | null;
+  botStatus: string;
+  markdown?: string;
+  attendees?: Attendee[];
+}) {
   const start = new Date(startTime);
   const end = endTime ? new Date(endTime) : null;
   const mins = end ? Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000)) : null;
   const isLive = botStatus === "in_meeting";
+  const namesLine = attendeeNamesLine(attendees ?? []);
 
   // Decorative Completed/Live segmented control — only meaningful while a
   // meeting is actually live. Purely a local display preference (hides the
@@ -88,6 +109,12 @@ export function MeetingHeader({
               </span>
             )}
           </div>
+          {namesLine ? (
+            <div className="mt-2 flex items-center gap-2">
+              <AttendeeAvatars attendees={attendees} max={4} />
+              <span className="text-[12px] text-ink-3">{namesLine}</span>
+            </div>
+          ) : null}
         </div>
 
         <div className="flex items-center gap-2.5">

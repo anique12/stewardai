@@ -5,8 +5,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 from stewardai.scheduler.calendar_sync import (
     _attendee_names,
+    _attendees,
     _dedup,
     _extract_terms,
+    _gravatar_url,
     _native_id,
     _opted_in_for_policy,
     _rows_and_events,
@@ -82,6 +84,34 @@ def test_rows_carry_recurring_event_id():
 def test_rows_recurring_event_id_null_for_one_off():
     rows = _rows_for_events("u1", [_ev()])
     assert rows[0]["recurring_event_id"] is None
+
+
+def test_rows_carry_attendees():
+    ev = _ev(
+        attendees=[
+            {"email": "alice@x.com", "displayName": "Alice Smith", "responseStatus": "accepted"},
+            {"email": "room@resource.calendar.google.com", "resource": True},
+        ]
+    )
+    rows = _rows_for_events("u1", [ev])
+    attendees = rows[0]["attendees"]
+    assert len(attendees) == 1  # resource room skipped
+    assert attendees[0]["email"] == "alice@x.com"
+    assert attendees[0]["name"] == "Alice Smith"
+    assert attendees[0]["photoUrl"] == _gravatar_url("alice@x.com")
+
+
+def test_gravatar_url_known_hash():
+    # md5("test@example.com") = 55502f40dc8b7c769880b10874abc9d0 (verified independently)
+    assert _gravatar_url("test@example.com") == (
+        "https://www.gravatar.com/avatar/55502f40dc8b7c769880b10874abc9d0?d=404&s=96"
+    )
+    assert _gravatar_url("  Test@Example.com  ") == _gravatar_url("test@example.com")
+
+
+def test_attendees_no_attendees_is_empty_list():
+    assert _attendees({}) == []
+    assert _attendees({"attendees": None}) == []
 
 
 # --- per-policy opted_in default --------------------------------------------

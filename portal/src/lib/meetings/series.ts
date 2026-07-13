@@ -1,4 +1,5 @@
 import { cadenceLabel } from "./cadence";
+import type { Attendee } from "./attendee-types";
 
 export type MeetingListItem = {
   id: string;
@@ -10,6 +11,7 @@ export type MeetingListItem = {
   recurring_event_id: string | null;
   google_event_id: string;
   tldr?: string | null;
+  attendees?: Attendee[];
 };
 
 export type SeriesEntry = {

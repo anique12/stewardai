@@ -1,4 +1,5 @@
 import { google, calendar_v3 } from "googleapis";
+import { attendeesFromEvent } from "@/lib/meetings/attendees";
 
 export function buildMeetingUpsert(userId: string, event: calendar_v3.Schema$Event) {
   const videoEntry = event.conferenceData?.entryPoints?.find(
@@ -12,6 +13,7 @@ export function buildMeetingUpsert(userId: string, event: calendar_v3.Schema$Eve
     end_time: event.end?.dateTime ?? event.end?.date,
     meet_url: videoEntry?.uri ?? null,
     recurring_event_id: event.recurringEventId ?? null,
+    attendees: attendeesFromEvent(event),
   };
 }
 
