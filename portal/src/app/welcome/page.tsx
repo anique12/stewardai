@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { createServerClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
 
@@ -35,7 +36,16 @@ export default async function WelcomePage({
     hasCalendar = Boolean(conn);
   }
 
-  const isDone = Boolean(user) && (searchParams.connected === "1" || hasCalendar);
+  const justConnected = searchParams.connected === "1";
+
+  // Already fully onboarded (signed in + calendar connected) and not arriving
+  // fresh off the connect flow → skip the wizard entirely and go to the app.
+  // The "You're all set" screen is only a post-connect confirmation.
+  if (user && hasCalendar && !justConnected) {
+    redirect("/app");
+  }
+
+  const isDone = Boolean(user) && (justConnected || hasCalendar);
 
   return (
     <div className="grid min-h-screen w-full grid-cols-1 bg-paper text-ink lg:grid-cols-2">
