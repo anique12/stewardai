@@ -13,10 +13,11 @@ from __future__ import annotations
 
 from collections import namedtuple
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.types import Command
 
 import stewardai.agent.chat.graph as graph_module
+import stewardai.agent.chat.session as session_module
 from stewardai.agent.chat.session import ChatSession
 
 # Stand-in for langgraph.types.Interrupt: only `.value` is ever read.
@@ -25,7 +26,9 @@ _FakeInterrupt = namedtuple("_FakeInterrupt", ["value"])
 
 class _FakeState:
     def __init__(self, content):
-        self.values = {"messages": [AIMessage(content=content)]}
+        self.values = {
+            "messages": [HumanMessage(content="the question"), AIMessage(content=content)]
+        }
 
 
 class _FakeAgent:
@@ -61,6 +64,17 @@ def _install_fake_agent(monkeypatch, events, **kwargs) -> _FakeAgent:
 
 def _make_session() -> ChatSession:
     return ChatSession(_FakeDBClient(), _FakeEmbedLLM(), user_id="u1", thread_id="thread-1")
+
+
+def _stub_followups(monkeypatch, items: list[str] | None = None) -> None:
+    """Replace the real (network-calling) follow-ups generator with a scripted
+    async stub, same pattern as `_install_fake_agent` for the graph -- keeps
+    these tests fully offline/deterministic."""
+
+    async def _fake(question: str, answer: str) -> list[str]:
+        return items if items is not None else []
+
+    monkeypatch.setattr(session_module, "_generate_followups", _fake)
 
 
 async def _collect(gen) -> list[dict]:
@@ -114,6 +128,7 @@ async def test_connect_kind_interrupt_maps_to_connect_required(monkeypatch):
 
 
 async def test_resume_yields_token_then_done(monkeypatch):
+    _stub_followups(monkeypatch, ["A follow-up?"])
     fake_agent = _install_fake_agent(
         monkeypatch,
         [("messages", (AIMessage(content="Done."), {"langgraph_node": "agent"}))],
@@ -125,6 +140,7 @@ async def test_resume_yields_token_then_done(monkeypatch):
 
     assert out == [
         {"type": "token", "delta": "Done."},
+        {"type": "followups", "call_id": "thread-1", "items": ["A follow-up?"]},
         {
             "type": "done",
             "answer": "Done.",
@@ -171,6 +187,7 @@ async def test_resume_can_hit_another_interrupt(monkeypatch):
 
 
 async def test_clean_stream_turn_without_interrupt_ends_in_done(monkeypatch):
+    _stub_followups(monkeypatch)
     events = [
         ("messages", (AIMessage(content="Hi there."), {"langgraph_node": "agent"})),
         ("updates", {"agent": {"messages": [AIMessage(content="Hi there.")]}}),
@@ -182,6 +199,7 @@ async def test_clean_stream_turn_without_interrupt_ends_in_done(monkeypatch):
 
     assert out == [
         {"type": "token", "delta": "Hi there."},
+        {"type": "followups", "call_id": "thread-1", "items": []},
         {
             "type": "done",
             "answer": "Hi there.",
@@ -197,6 +215,7 @@ async def test_session_reused_across_two_stream_turn_calls_same_thread(monkeypat
     """Sanity check for the persistence contract: one ChatSession's agent is
     built once and both calls target the same thread_id -- unlike C1's
     run_chat_turn, which minted a fresh thread (and agent) every call."""
+    _stub_followups(monkeypatch)
     fake_agent = _install_fake_agent(
         monkeypatch,
         [("updates", {"agent": {"messages": [AIMessage(content="ok")]}})],
@@ -217,6 +236,7 @@ async def test_stream_turn_runs_inside_chat_usage_scope(monkeypatch):
     litellm callback can attribute every model call to this user/thread/request."""
     from stewardai.observability.usage_context import current_usage
 
+    _stub_followups(monkeypatch)
     captured: dict = {}
 
     class _CapAgent(_FakeAgent):
@@ -248,3 +268,39 @@ def test_content_text_handles_str_and_reasoning_list_blocks():
     # Non-text blocks ignored; None/other → empty
     assert _content_text([{"type": "tool_use", "id": "x"}]) == ""
     assert _content_text(None) == ""
+
+
+def test_parse_followups_handles_plain_and_fenced_json_array():
+    from stewardai.agent.chat.session import _parse_followups
+
+    assert _parse_followups('["a?", "b?"]') == ["a?", "b?"]
+    assert _parse_followups('```json\n["a?", "b?"]\n```') == ["a?", "b?"]
+    assert _parse_followups('```\n["a?"]\n```') == ["a?"]
+
+
+def test_parse_followups_defensive_on_malformed_or_unexpected_shape():
+    from stewardai.agent.chat.session import _parse_followups
+
+    assert _parse_followups("") == []
+    assert _parse_followups("not json") == []
+    assert _parse_followups('{"not": "a list"}') == []
+    # Non-string / blank entries dropped; capped at 3.
+    assert _parse_followups('["a?", "", 5, "b?", "c?", "d?"]') == ["a?", "b?", "c?"]
+
+
+async def test_generate_followups_returns_empty_on_blank_question_or_answer():
+    from stewardai.agent.chat.session import _generate_followups
+
+    assert await _generate_followups("", "an answer") == []
+    assert await _generate_followups("a question", "") == []
+
+
+async def test_generate_followups_defensive_on_llm_error(monkeypatch):
+    import stewardai.agent.chat.session as session_module
+
+    def _boom(role="reasoning", *, tools=None):
+        raise RuntimeError("no api key")
+
+    monkeypatch.setattr(session_module, "make_chat_llm", _boom)
+
+    assert await session_module._generate_followups("q?", "a.") == []

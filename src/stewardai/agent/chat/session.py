@@ -34,6 +34,7 @@ looks it up dynamically (``chat_graph.build_chat_agent``), not to a
 """
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -51,6 +52,55 @@ from stewardai.common.logging import get_logger
 from stewardai.observability.usage_context import usage_scope
 
 _log = get_logger("agent.chat.session")
+
+
+def _parse_followups(text: str) -> list[str]:
+    """Defensively parse the follow-ups LLM call's raw text into a list of
+    short strings. Strips a wrapping ```/```json code fence if present;
+    anything that isn't valid JSON, or isn't a JSON array of strings, yields
+    an empty list -- never raises. Capped at 3 entries."""
+    if not text:
+        return []
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`")
+        if "\n" in cleaned:
+            first, rest = cleaned.split("\n", 1)
+            cleaned = rest if first.strip().isalpha() else cleaned
+    try:
+        data = json.loads(cleaned)
+    except Exception:  # noqa: BLE001 - malformed JSON → no follow-ups
+        return []
+    if not isinstance(data, list):
+        return []
+    items = [s.strip() for s in data if isinstance(s, str) and s.strip()]
+    return items[:3]
+
+
+async def _generate_followups(question: str, answer: str) -> list[str]:
+    """Best-effort: one small, cheap LLM call asking for 2-3 short, specific
+    follow-up questions the user is likely to ask next, given this turn's
+    question + answer. Called AFTER the answer stream has completed, so it
+    never adds latency to the answer itself. Fully defensive: any failure
+    (LLM error, bad/unexpected JSON) yields an empty list rather than
+    raising -- a follow-up generation problem must never break the turn."""
+    if not question.strip() or not answer.strip():
+        return []
+    try:
+        llm = make_chat_llm("utility")
+        prompt = (
+            "Given the user's question and the assistant's answer below, suggest 2-3 "
+            "short, specific follow-up questions the user is likely to ask next, "
+            "answerable from their meetings/work.\n\n"
+            f"Question: {question}\n\nAnswer: {answer}\n\n"
+            "Return ONLY a JSON array of strings -- no prose, no markdown fences."
+        )
+        resp = await llm.ainvoke(prompt)
+        text = _content_text(getattr(resp, "content", resp))
+        return _parse_followups(text)
+    except Exception as exc:  # noqa: BLE001 - never let follow-ups break the turn
+        _log.warning("chat_followups_error", error=str(exc))
+        return []
 
 
 def _content_text(content: Any) -> str:
@@ -252,9 +302,18 @@ class ChatSession:
         # list of blocks (str check alone missed those → fell back to the
         # concatenation). Fall back to `accumulated` only if state is unavailable.
         answer = ""
+        question = ""
         try:
             state = await self._agent.aget_state(self._config)
-            answer = _content_text(state.values["messages"][-1].content)
+            msgs = state.values["messages"]
+            answer = _content_text(msgs[-1].content)
+            # The most recent human turn, for the follow-ups prompt below --
+            # best-effort (crude type check on the LangChain message), never
+            # raises past this try/except.
+            for m in reversed(msgs):
+                if getattr(m, "type", None) == "human":
+                    question = _content_text(m.content)
+                    break
         except Exception:
             pass
         if not answer.strip():
@@ -270,6 +329,14 @@ class ChatSession:
         if t_first_think is not None:
             end = t_answer_start if t_answer_start is not None else time.monotonic()
             thinking_seconds = max(1, round(end - t_first_think))
+
+        # Suggested follow-ups: one cheap LLM call AFTER the answer is complete
+        # (never blocks/slows the answer stream itself). Yielded as its own
+        # event before `done` so the client can attach `items` to the message
+        # it's about to mark done; defensive by construction (see
+        # `_generate_followups`) so this can never fail the turn.
+        followups = await _generate_followups(question, answer)
+        yield {"type": "followups", "call_id": self.thread_id, "items": followups}
 
         yield {
             "type": "done",

@@ -33,8 +33,10 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { Activity, Citation as CitationType, Message } from "@/lib/chat/types";
-import type { PermissionDecision } from "@/hooks/useChat";
+import type { ChatScope, PermissionDecision } from "@/hooks/useChat";
 import { useMeetingTitles, type MeetingInfo } from "@/hooks/useMeetingTitles";
+import { useChatScopeOptions } from "@/hooks/useChatScopeOptions";
+import { buildSuggestions } from "@/lib/chat/suggestions";
 import { Citation } from "./Citation";
 import { ConnectCard } from "./ConnectCard";
 import { PermissionCard } from "./PermissionCard";
@@ -421,6 +423,30 @@ function UserTurn({ message }: { message: Message }) {
   );
 }
 
+function FollowupChips({
+  items,
+  onSuggest,
+}: {
+  items: string[];
+  onSuggest?: (text: string) => void;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <div className="mt-1 flex flex-wrap gap-2">
+      {items.map((text) => (
+        <button
+          key={text}
+          type="button"
+          onClick={() => onSuggest?.(text)}
+          className="rounded-pill border border-line bg-surface px-3 py-1.5 text-left text-[12.5px] text-ink-2 shadow-sh-1 transition-colors hover:border-brand-weak-2 hover:bg-surface-2 hover:text-ink"
+        >
+          {text}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function AssistantTurn({
   message,
   streaming,
@@ -428,6 +454,7 @@ function AssistantTurn({
   onDecide,
   onConnect,
   onSkip,
+  onSuggest,
 }: {
   message: Message;
   streaming: boolean;
@@ -435,6 +462,7 @@ function AssistantTurn({
   onDecide: (decision: PermissionDecision, args?: Record<string, unknown>) => void;
   onConnect: () => void;
   onSkip: () => void;
+  onSuggest?: (text: string) => void;
 }) {
   const { cite, sources } = collapseCitations(message.citations);
   // Show EVERY action Steward takes (like the artifact) — including "Searched
@@ -501,6 +529,10 @@ function AssistantTurn({
         </div>
       )}
 
+      {message.done && message.followups && message.followups.length > 0 && (
+        <FollowupChips items={message.followups} onSuggest={onSuggest} />
+      )}
+
       {/* Pure "responding" indicator: dots only, shown while waiting for the
           first output and nothing else already signals activity (no reasoning
           block, no tool line, no answer text yet). No "thinking" wording —
@@ -530,6 +562,7 @@ function AssistantTurn({
 export function ChatMessages({
   messages,
   streaming,
+  scope,
   onDecide,
   onConnect,
   onSkip,
@@ -537,6 +570,7 @@ export function ChatMessages({
 }: {
   messages: Message[];
   streaming: boolean;
+  scope?: ChatScope;
   onDecide: (decision: PermissionDecision, args?: Record<string, unknown>) => void;
   onConnect: () => void;
   onSkip: () => void;
@@ -548,8 +582,13 @@ export function ChatMessages({
     m.role === "assistant" ? m.citations.map((c) => c.meeting_id) : [],
   );
   const titles = useMeetingTitles(citedMeetingIds);
+  // Same RLS-scoped recent spaces/meetings the Composer's scope dropdown uses —
+  // reused here (not re-fetched via a new API) to personalize the empty-state
+  // suggestions with the user's REAL data, never a placeholder company name.
+  const { spaces, meetings } = useChatScopeOptions();
 
   if (messages.length === 0) {
+    const suggestions = buildSuggestions(scope ?? { kind: "all" }, { spaces, meetings });
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 py-24 text-center">
         <div className="mb-1 grid h-[52px] w-[52px] shrink-0 place-items-center rounded-xl bg-brand shadow-sh-2">
@@ -561,12 +600,7 @@ export function ChatMessages({
           your approval on anything that leaves your workspace.
         </p>
         <div className="mt-4 flex w-full max-w-md flex-col gap-2">
-          {[
-            "What did we commit to in the last renewal call?",
-            "Draft a follow-up to everyone from Tuesday's kickoff",
-            "What's still open from last week's meetings?",
-            "Summarize everything we know about Acme Corp",
-          ].map((suggestion) => (
+          {suggestions.map((suggestion) => (
             <button
               key={suggestion}
               type="button"
@@ -599,6 +633,7 @@ export function ChatMessages({
                 onDecide={onDecide}
                 onConnect={onConnect}
                 onSkip={onSkip}
+                onSuggest={onSuggest}
               />
             )}
           </div>

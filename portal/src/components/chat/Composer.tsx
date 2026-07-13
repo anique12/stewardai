@@ -5,6 +5,10 @@
 // Meeting. Enter (no shift) sends while not streaming; Shift+Enter inserts a
 // newline. The scope choice is passed through to `useChat.send`, which sends
 // it structurally on the WS `user_message` payload — see there.
+//
+// The scope VALUE is controlled by the parent (the chat page) so it can also
+// drive the empty-state suggestions in ChatMessages — this component only
+// owns the dropdown's open/close UI, not the selected scope itself.
 
 import { useRef, useState } from "react";
 import { ArrowUp, Check, ChevronDown, Layers } from "lucide-react";
@@ -26,15 +30,18 @@ function scopeLabel(scope: ChatScope): string {
 
 export function Composer({
   onSend,
+  scope,
+  onScopeChange,
   disabled = false,
   placeholder = "Ask Steward, or tell it to do something…",
 }: {
   onSend: (text: string, scope?: ChatScope) => void;
+  scope: ChatScope;
+  onScopeChange: (scope: ChatScope) => void;
   disabled?: boolean;
   placeholder?: string;
 }) {
   const [value, setValue] = useState("");
-  const [scope, setScope] = useState<ChatScope>({ kind: "all" });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { spaces, meetings } = useChatScopeOptions();
 
@@ -90,7 +97,7 @@ export function Composer({
                 Scope of question
               </DropdownMenuLabel>
               <DropdownMenuItem
-                onSelect={() => setScope({ kind: "all" })}
+                onSelect={() => onScopeChange({ kind: "all" })}
                 className="flex items-center justify-between text-[12.5px]"
               >
                 All work
@@ -106,7 +113,7 @@ export function Composer({
                   {spaces.map((s) => (
                     <DropdownMenuItem
                       key={s.id}
-                      onSelect={() => setScope({ kind: "space", id: s.id, label: s.name })}
+                      onSelect={() => onScopeChange({ kind: "space", id: s.id, label: s.name })}
                       className="flex items-center justify-between gap-2 text-[12.5px]"
                     >
                       <span className="min-w-0 truncate">{s.name}</span>
@@ -127,7 +134,7 @@ export function Composer({
                   {meetings.map((m) => (
                     <DropdownMenuItem
                       key={m.id}
-                      onSelect={() => setScope({ kind: "meeting", id: m.id, label: m.title })}
+                      onSelect={() => onScopeChange({ kind: "meeting", id: m.id, label: m.title })}
                       className="flex items-center justify-between gap-2 text-[12.5px]"
                     >
                       <span className="min-w-0 truncate">{m.title}</span>

@@ -1,8 +1,8 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useRef } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useChat } from "@/hooks/useChat";
+import { useChat, type ChatScope } from "@/hooks/useChat";
 import { ChatMessages } from "@/components/chat/ChatMessages";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { Composer } from "@/components/chat/Composer";
@@ -11,6 +11,10 @@ function ChatInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const threadParam = searchParams.get("thread");
+
+  // Scope lives here (not inside Composer) so it can also drive the
+  // scope-aware empty-state suggestions rendered by ChatMessages.
+  const [scope, setScope] = useState<ChatScope>({ kind: "all" });
 
   // Pin a freshly-created thread to the URL (so refresh + the sidebar restore it).
   // Fires only from the WS `thread` event, so it never bounces navigation.
@@ -52,17 +56,18 @@ function ChatInner() {
             <ChatMessages
               messages={messages}
               streaming={streaming}
+              scope={scope}
               onDecide={decide}
               onConnect={connectDone}
               onSkip={connectDone}
-              onSuggest={(text) => send(text)}
+              onSuggest={(text) => send(text, scope)}
             />
             <div ref={endRef} />
           </div>
         </div>
 
         <div className="mx-auto w-full max-w-3xl">
-          <Composer onSend={send} disabled={streaming} />
+          <Composer onSend={send} scope={scope} onScopeChange={setScope} disabled={streaming} />
         </div>
       </div>
     </div>

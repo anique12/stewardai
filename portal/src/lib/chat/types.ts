@@ -57,6 +57,14 @@ export type DoneEvent = {
   thinking_seconds?: number | null;
 };
 
+// LLM-generated follow-up questions for the answer that just completed,
+// yielded by the backend right before `done` — see ChatSession._drive.
+export type FollowupsEvent = {
+  type: "followups";
+  call_id: string;
+  items: string[];
+};
+
 export type ErrorEvent = {
   type: "error";
   message?: string;
@@ -71,6 +79,7 @@ export type ServerEvent =
   | PermissionRequestEvent
   | ConnectRequiredEvent
   | DoneEvent
+  | FollowupsEvent
   | ErrorEvent;
 
 // Activity as tracked on a message (no "type" discriminant — this is state, not a wire event).
@@ -92,6 +101,7 @@ export type Message = {
   pending?: "permission" | "connect";
   permission?: Record<string, unknown>;
   connect?: Record<string, unknown>;
+  followups?: string[];
 };
 
 export type ChatState = {

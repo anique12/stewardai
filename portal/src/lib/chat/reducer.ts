@@ -90,6 +90,14 @@ export function reduceChatEvent(state: ChatState, ev: ServerEvent): ChatState {
       return { ...state, messages, awaiting: "connect", streaming: false };
     }
 
+    case "followups": {
+      const messages = replaceLastAssistant(state.messages, (msg) => ({
+        ...msg,
+        followups: ev.items,
+      }));
+      return { ...state, messages };
+    }
+
     case "done": {
       const messages = replaceLastAssistant(state.messages, (msg) => ({
         ...msg,
