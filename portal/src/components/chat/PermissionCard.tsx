@@ -5,9 +5,14 @@
 // JSON args). For email actions it renders To / Subject / Body fields; for other
 // tools it renders one editable field per argument. Approving sends the (possibly
 // edited) args back so the user can fill things in here instead of over chat.
+//
+// After a decision, the card swaps to a small receipt so the user gets confirmation
+// without waiting on the round trip to the server. This is local UI state only (no
+// new WS event) — and deliberately has no Undo action: undoing a sent email isn't
+// something Steward supports, so we don't offer a button that can't do anything.
 
 import { useState } from "react";
-import { ShieldCheck } from "lucide-react";
+import { Check, Mail, ShieldCheck, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 type Decision = "approve" | "reject" | "always";
@@ -53,8 +58,8 @@ function pick(args: Record<string, unknown>, candidates: string[]): string {
 }
 
 const inputCls =
-  "w-full rounded-md border border-border bg-background/60 px-2.5 py-1.5 text-sm text-foreground " +
-  "outline-none transition-colors focus:border-primary/60";
+  "w-full rounded-md border border-line-2 bg-paper px-2.5 py-1.5 text-[13px] text-ink " +
+  "outline-none transition-colors focus:border-brand-weak-2";
 
 export function PermissionCard({
   permission,
@@ -67,6 +72,10 @@ export function PermissionCard({
   const app = typeof permission.app === "string" ? permission.app : "";
   const initialArgs = extractArgs(permission);
   const email = isEmailAction(tool, app);
+
+  // Local receipt state — swaps the pending form for a small confirmation once
+  // the user decides, instead of waiting for the server's next event.
+  const [decided, setDecided] = useState<null | "approved" | "rejected">(null);
 
   // Editable copy of the args, keyed the same way so we can send them back.
   const [fields, setFields] = useState<Record<string, string>>(() => {
@@ -84,8 +93,46 @@ export function PermissionCard({
   );
 
   function approve() {
+    setDecided("approved");
     // Send edited args back (merged over originals so untouched fields persist).
     onDecide("approve", { ...initialArgs, ...fields });
+  }
+
+  function reject() {
+    setDecided("rejected");
+    onDecide("reject");
+  }
+
+  function always() {
+    setDecided("approved");
+    onDecide("always", { ...initialArgs, ...fields });
+  }
+
+  if (decided === "approved") {
+    return (
+      <div className="flex items-center gap-[11px] rounded-xl border border-brand-weak-2 bg-brand-weak p-3.5 shadow-sh-1">
+        <span className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-md bg-brand text-on-brand">
+          <Check className="h-4 w-4" aria-hidden />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] font-semibold text-brand-ink">
+            {email ? `Email sent via ${app || "Gmail"}` : "Done"}
+          </div>
+          <div className="text-[11.5px] text-ink-3">
+            {email && fields[toKey] ? `To ${fields[toKey]} · just now` : "Approved · just now"}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (decided === "rejected") {
+    return (
+      <div className="flex items-center gap-2.5 rounded-xl border border-dashed border-line-2 px-3.5 py-3 text-[12.5px] text-ink-3">
+        <X className="h-[15px] w-[15px] shrink-0" aria-hidden />
+        You discarded this draft. Steward didn&apos;t send anything.
+      </div>
+    );
   }
 
   const title = email ? "Review & send email" : "Approve before running";
@@ -94,89 +141,90 @@ export function PermissionCard({
     : "This runs on your behalf. Review the details, then approve.";
 
   return (
-    <div className="rounded-xl border border-primary/40 bg-primary/5 p-4">
-      <div className="flex items-start gap-3">
-        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
-          <ShieldCheck className="h-4 w-4" aria-hidden />
+    <div className="overflow-hidden rounded-xl border-[1.5px] border-attention shadow-sh-2">
+      <div className="flex items-center gap-[9px] border-b border-attention bg-attention-weak px-4 py-3">
+        <ShieldCheck className="h-[17px] w-[17px] shrink-0 text-attention-strong" aria-hidden />
+        <span className="flex-1 text-[13px] font-bold text-ink">{title}</span>
+        <span className="rounded-pill border border-attention bg-surface px-2 py-0.5 font-mono text-[9.5px] font-semibold uppercase tracking-wide text-attention-strong">
+          Outward-facing
         </span>
-        <div className="min-w-0 flex-1 space-y-3">
-          <div>
-            <p className="text-sm font-semibold text-foreground">{title}</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p>
-          </div>
+      </div>
 
-          {email ? (
-            <div className="space-y-2.5">
-              <label className="block space-y-1">
-                <span className="text-xs text-muted-foreground">To</span>
+      <div className="space-y-3 bg-surface p-4">
+        <p className="text-xs text-ink-3">{subtitle}</p>
+
+        {email ? (
+          <div className="space-y-2.5">
+            <div className="mb-1 flex items-center gap-2 text-[12px] font-semibold text-ink-2">
+              <Mail className="h-4 w-4 text-brand" aria-hidden />
+              Draft · {app || "Gmail"}
+            </div>
+            <div className="overflow-hidden rounded-md border border-line">
+              <label className="flex items-center gap-2 border-b border-line px-3 py-2 text-[12px]">
+                <span className="w-[52px] shrink-0 text-ink-4">To</span>
                 <input
-                  className={inputCls}
+                  className="min-w-0 flex-1 bg-transparent text-ink outline-none"
                   value={fields[toKey] ?? ""}
                   onChange={(e) => set(toKey, e.target.value)}
                   placeholder="name@example.com"
                 />
               </label>
-              <label className="block space-y-1">
-                <span className="text-xs text-muted-foreground">Subject</span>
+              <label className="flex items-center gap-2 border-b border-line px-3 py-2 text-[12px]">
+                <span className="w-[52px] shrink-0 text-ink-4">Subject</span>
                 <input
-                  className={inputCls}
+                  className="min-w-0 flex-1 bg-transparent font-medium text-ink outline-none"
                   value={fields[subjectKey] ?? ""}
                   onChange={(e) => set(subjectKey, e.target.value)}
                   placeholder="Subject"
                 />
               </label>
-              <label className="block space-y-1">
-                <span className="text-xs text-muted-foreground">Body</span>
-                <textarea
-                  className={`${inputCls} min-h-[110px] resize-y leading-relaxed`}
-                  value={fields[bodyKey] ?? ""}
-                  onChange={(e) => set(bodyKey, e.target.value)}
-                  placeholder="Write your message…"
-                />
-              </label>
+              <textarea
+                className="w-full resize-y whitespace-pre-wrap bg-transparent px-3 py-3 text-[12.5px] leading-relaxed text-ink-2 outline-none"
+                value={fields[bodyKey] ?? ""}
+                onChange={(e) => set(bodyKey, e.target.value)}
+                placeholder="Write your message…"
+              />
             </div>
-          ) : (
-            <div className="space-y-2.5">
-              {otherKeys.length === 0 && (
-                <p className="text-sm text-muted-foreground">No inputs — just confirm.</p>
-              )}
-              {otherKeys.map((k) => (
-                <label key={k} className="block space-y-1">
-                  <span className="text-xs text-muted-foreground">{humanKey(k)}</span>
-                  {(fields[k] ?? "").length > 60 ? (
-                    <textarea
-                      className={`${inputCls} min-h-[80px] resize-y`}
-                      value={fields[k] ?? ""}
-                      onChange={(e) => set(k, e.target.value)}
-                    />
-                  ) : (
-                    <input
-                      className={inputCls}
-                      value={fields[k] ?? ""}
-                      onChange={(e) => set(k, e.target.value)}
-                    />
-                  )}
-                </label>
-              ))}
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-center gap-2 pt-0.5">
-            <Button size="sm" onClick={approve}>
-              {email ? "Send" : "Approve"}
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => onDecide("reject")}>
-              Reject
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-muted-foreground"
-              onClick={() => onDecide("always", { ...initialArgs, ...fields })}
-            >
-              Always allow
-            </Button>
           </div>
+        ) : (
+          <div className="space-y-2.5">
+            {otherKeys.length === 0 && <p className="text-sm text-ink-3">No inputs — just confirm.</p>}
+            {otherKeys.map((k) => (
+              <label key={k} className="block space-y-1">
+                <span className="text-xs text-ink-3">{humanKey(k)}</span>
+                {(fields[k] ?? "").length > 60 ? (
+                  <textarea
+                    className={`${inputCls} min-h-[80px] resize-y`}
+                    value={fields[k] ?? ""}
+                    onChange={(e) => set(k, e.target.value)}
+                  />
+                ) : (
+                  <input className={inputCls} value={fields[k] ?? ""} onChange={(e) => set(k, e.target.value)} />
+                )}
+              </label>
+            ))}
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2.5 pt-0.5">
+          <Button
+            size="sm"
+            onClick={approve}
+            className="gap-[7px] rounded-lg bg-brand text-on-brand shadow-sh-1 hover:bg-brand-2"
+          >
+            <Check className="h-[15px] w-[15px]" aria-hidden />
+            {email ? "Approve & send" : "Approve"}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={reject}>
+            Reject
+          </Button>
+          <button
+            type="button"
+            onClick={always}
+            className="px-1.5 py-2 text-xs font-semibold text-ink-3 transition-colors hover:text-ink"
+          >
+            {email ? "Always allow sending email" : "Always allow"}
+          </button>
         </div>
       </div>
     </div>

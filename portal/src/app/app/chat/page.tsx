@@ -36,13 +36,13 @@ function ChatInner() {
 
   return (
     <div className="flex h-full min-h-[calc(100vh-8rem)] gap-6">
-      <aside className="hidden w-56 shrink-0 lg:block">
+      <aside className="hidden w-[240px] shrink-0 rounded-xl border border-line bg-surface p-3 shadow-sh-1 lg:block">
         <ChatSidebar activeThreadId={threadParam} onNewChat={handleNewChat} />
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
         {!connected && reason && (
-          <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-amber-500">
+          <div className="mb-4 rounded-lg border border-attention bg-attention-weak px-4 py-2 text-sm text-attention-strong">
             {reason}
           </div>
         )}
@@ -55,6 +55,7 @@ function ChatInner() {
               onDecide={decide}
               onConnect={connectDone}
               onSkip={connectDone}
+              onSuggest={(text) => send(text)}
             />
             <div ref={endRef} />
           </div>
@@ -70,8 +71,9 @@ function ChatInner() {
 
 export default function ChatPage() {
   return (
-    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading…</div>}>
+    <Suspense fallback={<div className="p-6 text-sm text-ink-3">Loading…</div>}>
       <ChatInner />
     </Suspense>
   );
 }
+

@@ -11,7 +11,7 @@
 // Apps settings flow, minus the full-page navigation.
 
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, Loader2, Plug } from "lucide-react";
+import { CheckCircle2, Loader2, Plug, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 type Phase = "idle" | "connecting" | "connected" | "error";
@@ -97,58 +97,66 @@ export function ConnectCard({
     }
   }
 
-  return (
-    <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
-      <div className="flex items-start gap-3">
-        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-amber-500/15 text-amber-500">
-          {phase === "connected" ? (
-            <CheckCircle2 className="h-4 w-4" aria-hidden />
-          ) : (
-            <Plug className="h-4 w-4" aria-hidden />
-          )}
-        </span>
-        <div className="min-w-0 flex-1 space-y-2.5">
-          <div>
-            <p className="text-sm font-semibold text-foreground">Connect {label}</p>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              {phase === "connecting"
-                ? `A window opened to connect ${label}. Approve access there — I'll continue automatically once it's linked.`
-                : phase === "connected"
-                  ? `${label} connected — picking up where we left off…`
-                  : `Steward needs access to ${label} to keep going. Connect it and I'll continue.`}
-            </p>
-            {error && <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">{error}</p>}
-          </div>
-
-          {phase === "connected" ? null : phase === "connecting" ? (
-            <div className="flex items-center gap-2 pt-1 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              Waiting for {label}…
-              <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={onSkip}>
-                Cancel
-              </Button>
-            </div>
-          ) : (
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <Button
-                size="sm"
-                className="bg-amber-500 text-amber-950 hover:bg-amber-500/90"
-                onClick={handleConnect}
-              >
-                {phase === "error" ? "Try again" : "Connect"}
-              </Button>
-              {phase === "error" && (
-                <Button size="sm" variant="outline" onClick={onConnect}>
-                  Continue
-                </Button>
-              )}
-              <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={onSkip}>
-                Skip
-              </Button>
-            </div>
-          )}
+  if (phase === "connected") {
+    return (
+      <div className="flex items-center gap-[11px] rounded-xl border border-brand-weak-2 bg-brand-weak px-4 py-3">
+        <CheckCircle2 className="h-[18px] w-[18px] shrink-0 text-brand" aria-hidden />
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] font-semibold text-brand-ink">{label} connected</div>
+          <div className="text-[11.5px] text-ink-3">Picking up where we left off…</div>
         </div>
       </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-line-2 bg-surface p-4 shadow-sh-1">
+      <div className="flex items-center gap-3">
+        <span className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-md border border-line bg-surface-2 text-ink-2">
+          <Plug className="h-5 w-5" aria-hidden />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-[13.5px] font-bold text-ink">Connect {label}</div>
+          <div className="mt-0.5 text-xs leading-relaxed text-ink-2">
+            {phase === "connecting"
+              ? `A window opened to connect ${label}. Approve access there — I'll continue automatically once it's linked.`
+              : `Steward needs access to ${label} to keep going. Connect it and I'll continue.`}
+          </div>
+          {error && <p className="mt-1 text-xs text-attention-strong">{error}</p>}
+        </div>
+      </div>
+
+      {phase === "connecting" ? (
+        <div className="mt-3.5 flex items-center gap-2 text-sm text-ink-2">
+          <Loader2 className="h-4 w-4 animate-spin text-brand" aria-hidden />
+          Waiting for {label}…
+          <Button size="sm" variant="ghost" onClick={onSkip}>
+            Cancel
+          </Button>
+        </div>
+      ) : (
+        <div className="mt-3.5 flex flex-wrap items-center gap-2.5">
+          <Button
+            size="sm"
+            onClick={handleConnect}
+            className="rounded-lg bg-brand text-on-brand shadow-sh-1 hover:bg-brand-2"
+          >
+            {phase === "error" ? "Try again" : `Connect ${label}`}
+          </Button>
+          {phase === "error" && (
+            <Button size="sm" variant="outline" onClick={onConnect}>
+              Continue
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" onClick={onSkip}>
+            Skip
+          </Button>
+          <span className="ml-auto inline-flex items-center gap-[5px] text-[11px] text-ink-3">
+            <ShieldCheck className="h-3 w-3" aria-hidden />
+            OAuth · revoke anytime
+          </span>
+        </div>
+      )}
     </div>
   );
 }
