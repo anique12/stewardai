@@ -631,7 +631,7 @@ export function VoiceDemo() {
           )}
           {state === "ended" && (
             <a
-              href="/auth/login"
+              href="/welcome"
               className="inline-block rounded-md bg-primary px-5 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
             >
               Get started free
