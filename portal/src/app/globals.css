@@ -159,3 +159,84 @@
     }
   }
 }
+
+@layer base {
+  /* ---- StewardAI app palette (paper) — scoped so landing is untouched ---- */
+  .steward-app {
+    --background: 42 31% 94%;      /* paper  #f4f1ea */
+    --foreground: 50 12% 9%;       /* ink    #1b1a15 */
+    --card: 43 100% 99%;           /* surface #fffdf8 */
+    --card-foreground: 50 12% 9%;
+    --popover: 43 100% 99%;
+    --popover-foreground: 50 12% 9%;
+    --primary: 162 42% 30%;        /* brand  #2c6b58 */
+    --primary-foreground: 135 33% 98%;
+    --secondary: 42 25% 90%;       /* surface-2 #ece8df */
+    --secondary-foreground: 50 12% 9%;
+    --muted: 42 25% 90%;
+    --muted-foreground: 46 8% 50%; /* ink-3 #8b8676 */
+    --accent: 162 42% 30%;
+    --accent-foreground: 135 33% 98%;
+    --destructive: 9 61% 40%;      /* danger #a63a28 */
+    --destructive-foreground: 20 100% 98%;
+    --border: 42 24% 86%;          /* line #e4dfd3 */
+    --input: 42 24% 86%;
+    --ring: 162 42% 30%;
+    --radius: 9px;
+
+    /* extended (raw colors) */
+    --paper: #f4f1ea; --surface: #fffdf8; --surface-2: #ece8df; --surface-3: #e3ded3;
+    --ink: #1b1a15; --ink-2: #57534a; --ink-3: #8b8676; --ink-4: #a8a394;
+    --line: #e4dfd3; --line-2: #d5cfc0; --line-strong: #c4bdaa;
+    --brand: #2c6b58; --brand-2: #225345; --brand-ink: #1e4a3d;
+    --brand-weak: #e3ede7; --brand-weak-2: #d3e3da; --on-brand: #f7fbf8;
+    --attention: #9a6712; --attention-strong: #7d5209; --attention-weak: #f8eed6; --on-attention: #3a2704;
+    --danger: #a63a28; --danger-strong: #87301f; --danger-weak: #f6e2dc; --on-danger: #fff6f3;
+    --sh-1: 0 1px 2px rgba(28,26,22,.06), 0 1px 1px rgba(28,26,22,.04);
+    --sh-2: 0 6px 20px -6px rgba(28,26,22,.14), 0 2px 6px -2px rgba(28,26,22,.08);
+    --sh-pop: 0 18px 44px -14px rgba(28,26,22,.28), 0 4px 12px -4px rgba(28,26,22,.14);
+    --scrim: rgba(28,26,22,.32);
+  }
+  .dark .steward-app {
+    --background: 60 9% 7%; --foreground: 45 33% 93%;
+    --card: 50 12% 10%; --card-foreground: 45 33% 93%;
+    --popover: 50 12% 10%; --popover-foreground: 45 33% 93%;
+    --primary: 161 41% 53%; --primary-foreground: 160 38% 8%;
+    --secondary: 49 18% 12%; --secondary-foreground: 45 33% 93%;
+    --muted: 49 18% 12%; --muted-foreground: 45 8% 48%;
+    --accent: 161 41% 53%; --accent-foreground: 160 38% 8%;
+    --destructive: 12 72% 68%; --destructive-foreground: 20 60% 6%;
+    --border: 49 14% 15%; --input: 49 14% 15%; --ring: 161 41% 53%;
+
+    --paper: #131310; --surface: #1c1b16; --surface-2: #242219; --surface-3: #2d2a20;
+    --ink: #f3f0e7; --ink-2: #b7b2a3; --ink-3: #847f70; --ink-4: #645f53;
+    --line: #2c2a21; --line-2: #38352a; --line-strong: #494538;
+    --brand: #57b899; --brand-2: #69c6a8; --brand-ink: #8ad7bd;
+    --brand-weak: #182a24; --brand-weak-2: #20382f; --on-brand: #0c1b16;
+    --attention: #e2ab54; --attention-strong: #f0bd6c; --attention-weak: #2b2213; --on-attention: #1a1305;
+    --danger: #e88a72; --danger-strong: #f0a58f; --danger-weak: #2c1a15; --on-danger: #1c0f0b;
+    --sh-1: 0 1px 2px rgba(0,0,0,.4);
+    --sh-2: 0 8px 24px -6px rgba(0,0,0,.55), 0 2px 6px -2px rgba(0,0,0,.4);
+    --sh-pop: 0 22px 52px -14px rgba(0,0,0,.7), 0 6px 16px -6px rgba(0,0,0,.5);
+    --scrim: rgba(0,0,0,.55);
+  }
+  .steward-app { font-family: var(--font-ui), system-ui, sans-serif; }
+  .steward-app :is(h1,h2,h3,.font-display) { font-family: var(--font-display), var(--font-ui), sans-serif; }
+}
+
+@layer utilities {
+  @keyframes sc-pulse {0%,100%{opacity:1}50%{opacity:.35}}
+  @keyframes sc-ring {0%{transform:scale(.8);opacity:.7}100%{transform:scale(2.4);opacity:0}}
+  @keyframes sc-fadeup {from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  @keyframes sc-toastin {from{opacity:0;transform:translateY(14px) scale(.98)}to{opacity:1;transform:none}}
+  @keyframes sc-checkpop {0%{transform:scale(.4);opacity:0}60%{transform:scale(1.15)}100%{transform:scale(1);opacity:1}}
+  @keyframes sc-shimmer {100%{background-position:-200% 0}}
+  .anim-pulse{animation:sc-pulse 1s infinite}
+  .anim-ring{animation:sc-ring 1.6s ease-out infinite}
+  .anim-fadeup{animation:sc-fadeup .16s ease}
+  .anim-toastin{animation:sc-toastin .22s cubic-bezier(.2,.9,.3,1)}
+  .anim-checkpop{animation:sc-checkpop .4s ease}
+  @media (prefers-reduced-motion: reduce){
+    .anim-pulse,.anim-ring,.anim-fadeup,.anim-toastin,.anim-checkpop{animation:none}
+  }
+}
