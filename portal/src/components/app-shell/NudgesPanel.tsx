@@ -23,16 +23,27 @@ export function NudgesPanel({
   const router = useRouter();
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
-  const { data, isSuccess, isError } = useQuery({
+  const { data, isSuccess, isError, refetch } = useQuery({
     queryKey: ["nudges"],
     queryFn: async () => {
       const res = await fetch("/api/nudges");
       const data = await res.json().catch(() => ({ nudges: [] }));
       return (Array.isArray(data?.nudges) ? data.nudges : []) as Nudge[];
     },
+    // NudgesPanel stays mounted persistently in AppChrome across client
+    // navigations, so nothing else invalidates this query. Pick up new
+    // nudges on window focus, and force a fresh fetch each time the panel
+    // opens (see effect below) rather than polling.
+    refetchOnWindowFocus: true,
   });
   const nudges = data ?? [];
   const loaded = isSuccess || isError;
+
+  // Refetch every time the panel transitions from closed to open, so a
+  // long-lived tab always sees up-to-date nudges when the user opens it.
+  useEffect(() => {
+    if (open) refetch();
+  }, [open, refetch]);
 
   const visible = nudges.filter((n) => !dismissed.has(nudgeKey(n)));
 

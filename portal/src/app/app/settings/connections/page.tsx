@@ -34,9 +34,13 @@ export default function ConnectionsPage() {
       const { apps } = (await res.json()) as { apps: StatusRow[] };
       return apps;
     },
-    // This page also serves as the OAuth popup landing — refetch on focus so
-    // the underlying tab/window picks up the just-completed connection.
-    refetchOnWindowFocus: true,
+    // This page also serves as the OAuth popup landing — refetch on
+    // *every* window focus (not just when TanStack considers the data
+    // stale) so the underlying tab/window reliably picks up a
+    // just-completed connection even if the popup closes within the
+    // provider's staleTime window.
+    refetchOnWindowFocus: "always",
+    staleTime: 0,
   });
 
   const loaded = !isLoading;
