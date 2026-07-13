@@ -183,6 +183,11 @@ class MeetingSession:
         # column/row is missing or the query fails. When False the bot still joins
         # + transcribes, it just never speaks (mic never unmuted + prompt says so).
         self._speak_enabled: bool = True
+        # Best-effort "prior context" brief (recent decisions/open items from the
+        # meeting's Space and/or recap of the last occurrence of a recurring
+        # series), injected into the system prompt ONLY when speaking is enabled
+        # (see _resolve_meeting_brief). Empty string = nothing to inject.
+        self._meeting_brief: str = ""
         self._transcript: list[str] = []
         # Attributed transcript built by the per-speaker path (real speaker names).
         # Preferred over _transcript for persistence/summary when populated.
@@ -381,6 +386,40 @@ class MeetingSession:
             if rows and rows[0].get("allow_meeting_speech") is not None:
                 self._speak_enabled = bool(rows[0]["allow_meeting_speech"])
 
+    async def _resolve_meeting_brief(self) -> None:
+        """Build the in-meeting briefing (prior Space/series context) — ONLY when
+        speaking is enabled (silent mode makes zero LLM calls, so a brief no one
+        ever reads is pointless). Fetches this meeting's row best-effort (title/
+        attendees/recurring_event_id/space_id — ``attendees`` may be absent on an
+        older schema) and hands it to ``build_meeting_brief``, which is itself
+        fully best-effort. Any failure here — missing column, RLS, no match —
+        just leaves ``self._meeting_brief`` at its default "" (no crash)."""
+        if not self._speak_enabled or self._supabase is None or not self.user_id:
+            return
+        if not self._meeting_uuid:
+            return
+        with contextlib.suppress(Exception):
+            resp = await (
+                self._supabase.table("meetings")
+                .select("id,title,attendees,recurring_event_id,space_id")
+                .eq("id", self._meeting_uuid)
+                .limit(1)
+                .execute()
+            )
+            rows = resp.data or []
+            if rows:
+                from stewardai.agent.kb.briefing import build_meeting_brief
+
+                self._meeting_brief = await build_meeting_brief(
+                    self._supabase, user_id=self.user_id, meeting=rows[0]
+                )
+                if self._meeting_brief:
+                    _log.info(
+                        "meeting_brief_built",
+                        meeting=self._mid,
+                        chars=len(self._meeting_brief),
+                    )
+
     async def _tapped_speaker_frames(self):  # noqa: ANN202 - async generator
         """Wrap the per-speaker frame stream, updating the SpeakerTracker with each
         frame's carried NAME so the combined transcript can label turns with real
@@ -512,6 +551,9 @@ class MeetingSession:
         await self._resolve_keyterms()
         # Owner's bot display name + timezone (for transcript label + calendar actions).
         await self._resolve_profile()
+        # In-meeting briefing (prior Space/series context) — speak-enabled only;
+        # see _resolve_meeting_brief for the full gating/degradation rationale.
+        await self._resolve_meeting_brief()
 
         # Native meeting tools (LiveKit executes them directly, managing the
         # speak→tool→speak utterance boundaries). The stay_silent gate is registered
@@ -628,6 +670,7 @@ class MeetingSession:
             spoken_languages=_spoken,
             today=_today,
             speak_enabled=self._speak_enabled,
+            prior_context=self._meeting_brief,
         )
 
         # Shared backends passed through; build_session builds fresh nodes/plugins

@@ -358,6 +358,7 @@ def build_meeting_system(
     spoken_languages: str = "English",
     today: str | None = None,
     speak_enabled: bool = True,
+    prior_context: str | None = None,
 ) -> str:
     """The meeting system prompt, using the agent's DISPLAY NAME (owner's bot_name)
     as its identity + wake word — not a hardcoded "Steward" — and a tool note that
@@ -378,6 +379,13 @@ def build_meeting_system(
     observer instruction rather than changing anything else about the prompt.
     This is belt-and-suspenders on top of the mic never being unmuted; either one
     alone is enough to guarantee silence.
+
+    ``prior_context`` = an optional, pre-built brief of relevant prior meetings
+    (built by ``kb.briefing.build_meeting_brief``, e.g. the space's recent
+    decisions/open items or a recap of the last occurrence of a recurring
+    series). When non-empty it's appended as a clearly-delimited section with
+    explicit instructions: use it when relevant, never recite it unprompted.
+    Default ``None`` leaves the prompt byte-for-byte unchanged.
     """
     base = (
         f"You are {name}, an assistant participating in a live multi-person meeting. "
@@ -435,6 +443,17 @@ def build_meeting_system(
             "regardless of any instruction above. Always stay silent — call "
             "stay_silent every turn. You still see and understand everything for "
             "note-taking purposes; you simply never speak aloud."
+        )
+    if prior_context:
+        result += (
+            "\n\n--- PRIOR CONTEXT (from earlier related meetings) ---\n"
+            f"{prior_context}\n"
+            "--- END PRIOR CONTEXT ---\n"
+            "Use the prior context above ONLY when it's actually relevant to what's "
+            "being discussed right now (e.g. someone asks about an earlier decision, "
+            "an open item comes back up, or you need it to answer a direct question). "
+            "Do NOT recite, summarize, or bring it up unprompted — it's background "
+            "knowledge, not a script."
         )
     return result
 
