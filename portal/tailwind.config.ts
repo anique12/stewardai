@@ -62,6 +62,9 @@ const config: Config = {
                      weak: "var(--attention-weak)", on: "var(--on-attention)" },
         danger: { DEFAULT: "var(--danger)", strong: "var(--danger-strong)",
                   weak: "var(--danger-weak)", on: "var(--on-danger)" },
+        "on-brand": "var(--on-brand)",
+        "on-attention": "var(--on-attention)",
+        "on-danger": "var(--on-danger)",
       },
       borderRadius: {
         xs: "4px",
