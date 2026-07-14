@@ -16,7 +16,7 @@ function Avatar({ attendee, sizeClass }: { attendee: Attendee; sizeClass: string
   const [errored, setErrored] = useState(false);
   const currentUser = useCurrentUser();
   const label = attendee.name || attendee.email;
-  const photoUrl = preferOwnerAvatar(currentUser, attendee.email, attendee.photoUrl);
+  const photoUrl = preferOwnerAvatar(currentUser, attendee.email, attendee.photoUrl, attendee.name);
 
   if (photoUrl && !errored) {
     return (

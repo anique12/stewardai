@@ -9,9 +9,9 @@ import { createContext, useContext } from "react";
  * email-based Gravatar stamped into stored attendee rows. `avatarUrl` is the
  * Google `picture` from the session (null if none).
  */
-export type CurrentUser = { email: string; avatarUrl: string | null };
+export type CurrentUser = { email: string; name: string | null; avatarUrl: string | null };
 
-const CurrentUserContext = createContext<CurrentUser>({ email: "", avatarUrl: null });
+const CurrentUserContext = createContext<CurrentUser>({ email: "", name: null, avatarUrl: null });
 
 export function CurrentUserProvider({
   value,
@@ -27,17 +27,28 @@ export function useCurrentUser(): CurrentUser {
   return useContext(CurrentUserContext);
 }
 
+const norm = (s: string): string => s.trim().replace(/\s+/g, " ").toLowerCase();
+
 /**
- * Given a person's email + whatever photoUrl a caller has, return the photo to
- * actually render: the current user's live Google avatar when this person IS
- * the current user, else the caller's photoUrl unchanged. Case-insensitive.
+ * Given a person's email/name + whatever photoUrl a caller has, return the photo
+ * to actually render: the current user's live Google avatar when this person IS
+ * the current user, else the caller's photoUrl unchanged. Matches by email
+ * primarily; falls back to a display-name match ONLY when the person has no
+ * email (e.g. a person entity extracted from a transcript) so we never override
+ * a different attendee who merely shares a name. Case-insensitive.
  */
 export function preferOwnerAvatar(
   current: CurrentUser,
   email: string | null | undefined,
-  photoUrl: string | null | undefined
+  photoUrl: string | null | undefined,
+  name?: string | null
 ): string | null | undefined {
-  if (current.avatarUrl && email && email.toLowerCase() === current.email.toLowerCase()) {
+  if (!current.avatarUrl) return photoUrl;
+  const em = (email ?? "").trim().toLowerCase();
+  if (em) {
+    return em === current.email.toLowerCase() ? current.avatarUrl : photoUrl;
+  }
+  if (name && current.name && norm(name) === norm(current.name)) {
     return current.avatarUrl;
   }
   return photoUrl;

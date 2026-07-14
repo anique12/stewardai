@@ -31,7 +31,7 @@ export function PersonAvatar({
   const label = name || email || "?";
   // When this person is the signed-in user, prefer their live Google photo over
   // any passed/stale photoUrl or email-Gravatar.
-  const resolved = preferOwnerAvatar(currentUser, email, photoUrl);
+  const resolved = preferOwnerAvatar(currentUser, email, photoUrl, name);
   const src = resolved ?? (email ? gravatarUrl(email) : null);
 
   if (src && !errored) {

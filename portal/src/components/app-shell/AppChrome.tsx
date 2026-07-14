@@ -21,11 +21,13 @@ import { CurrentUserProvider } from "@/components/common/CurrentUserContext";
  */
 export function AppChrome({
   email,
+  displayName,
   avatarUrl,
   counts,
   children,
 }: {
   email: string;
+  displayName?: string | null;
   avatarUrl?: string | null;
   counts: NavCounts;
   children: React.ReactNode;
@@ -68,7 +70,7 @@ export function AppChrome({
   const openSettings = useCallback(() => setSettingsOpen(true), []);
 
   return (
-    <CurrentUserProvider value={{ email, avatarUrl: avatarUrl ?? null }}>
+    <CurrentUserProvider value={{ email, name: displayName ?? null, avatarUrl: avatarUrl ?? null }}>
     <SettingsModalContext.Provider value={{ openSettings, settingsOpen }}>
       <Sidebar email={email} avatarUrl={avatarUrl} counts={counts} />
       <MobileNavDrawer open={drawerOpen} onClose={closeDrawer} email={email} avatarUrl={avatarUrl} counts={counts} />

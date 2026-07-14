@@ -97,12 +97,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const meta = user.user_metadata ?? {};
   const avatarUrl =
     (meta.avatar_url as string | undefined) ?? (meta.picture as string | undefined) ?? null;
+  const displayName =
+    (meta.full_name as string | undefined) ?? (meta.name as string | undefined) ?? null;
 
   return (
     <ThemeProvider initial={theme} className={`steward-app ${display.variable} ${ui.variable} ${plex.variable}`}>
       <QueryProvider>
         <TimezoneSync />
-        <AppChrome email={user.email ?? "Account"} avatarUrl={avatarUrl} counts={counts}>
+        <AppChrome email={user.email ?? "Account"} displayName={displayName} avatarUrl={avatarUrl} counts={counts}>
           {children}
         </AppChrome>
       </QueryProvider>
