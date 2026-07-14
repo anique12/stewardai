@@ -1,10 +1,7 @@
 import { SpeakerAvatar } from "@/components/meetings/SpeakerAvatar";
+import { PersonAvatar } from "@/components/common/PersonAvatar";
 
 export type SpaceEntity = { id: string; kind: "person" | "company"; name: string; email: string | null };
-
-function initials(name: string): string {
-  return name.split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase() || "?";
-}
 
 /**
  * `"inline"` (default) renders the compact chip row used alongside tags on
@@ -55,7 +52,7 @@ export function SpaceEntities({
             <div className="flex flex-col gap-3">
               {people.map((p) => (
                 <div key={p.id} className="flex items-center gap-[11px]">
-                  <SpeakerAvatar name={p.name} />
+                  <SpeakerAvatar name={p.name} email={p.email} />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[13px] font-semibold">{p.name}</div>
                     {p.email ? <div className="truncate text-[11.5px] text-ink-3">{p.email}</div> : null}
@@ -85,7 +82,7 @@ export function SpaceEntities({
           title={p.email ?? undefined}
           className="inline-flex items-center gap-[5px] rounded-pill border border-line-2 bg-surface px-2.5 py-[3px] text-[12px] font-medium text-ink-3"
         >
-          <span className="font-mono text-[9px] font-semibold text-ink-4">{initials(p.name)}</span>
+          <PersonAvatar name={p.name} email={p.email} size={16} className="text-[8px]" />
           {p.name}
         </span>
       ))}

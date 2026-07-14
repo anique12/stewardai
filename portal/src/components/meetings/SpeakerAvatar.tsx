@@ -1,11 +1,19 @@
-import { speakerColor } from "@/lib/meetings/speaker-colors";
+import { PersonAvatar } from "@/components/common/PersonAvatar";
 
-export function SpeakerAvatar({ name }: { name: string }) {
-  const c = speakerColor(name);
-  const initials = name.split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase() || "?";
-  return (
-    <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${c.bg} ${c.text}`}>
-      {initials}
-    </span>
-  );
+/**
+ * Thin wrapper around `PersonAvatar` sized/shaped for the transcript timeline
+ * and space person lists. Callers that only have a speaker/entity `name`
+ * (no email or stored photo) still get the colored-initial fallback exactly
+ * as before; pass `email`/`photoUrl` when known so a real photo can show.
+ */
+export function SpeakerAvatar({
+  name,
+  email,
+  photoUrl,
+}: {
+  name: string;
+  email?: string | null;
+  photoUrl?: string | null;
+}) {
+  return <PersonAvatar name={name} email={email} photoUrl={photoUrl} size={28} className="h-7 w-7 text-xs" />;
 }

@@ -33,10 +33,16 @@ function StewardAvatar() {
   );
 }
 
+export type SpeakerLookupEntry = { email?: string | null; photoUrl?: string | null };
+
 export function MeetingTimeline({
-  segments: initialSegments, actions: initialActions, meetingId, botName, live,
+  segments: initialSegments, actions: initialActions, meetingId, botName, live, speakerLookup,
 }: {
   segments: Segment[]; actions: TimelineAction[]; meetingId: string; botName: string; live: boolean;
+  /** Case-insensitive speaker name -> {email, photoUrl}, so transcript
+   *  avatars can show a real photo when the speaker matches a known
+   *  attendee. Unmatched speakers fall back to a colored initial. */
+  speakerLookup?: Record<string, SpeakerLookupEntry>;
 }) {
   const [segments, setSegments] = useState(initialSegments);
   const [actions, setActions] = useState(initialActions);
@@ -103,9 +109,14 @@ export function MeetingTimeline({
         <div className="flex flex-col gap-1">
           {shown.map(({ segment, actions: attached }) => {
             const isAgent = segment.speaker.trim().toLowerCase() === botName.trim().toLowerCase();
+            const match = speakerLookup?.[segment.speaker.trim().toLowerCase()];
             return (
               <div key={segment.id} className="flex gap-3 rounded-lg px-1 py-2">
-                {isAgent ? <StewardAvatar /> : <SpeakerAvatar name={segment.speaker} />}
+                {isAgent ? (
+                  <StewardAvatar />
+                ) : (
+                  <SpeakerAvatar name={segment.speaker} email={match?.email} photoUrl={match?.photoUrl} />
+                )}
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className={`text-sm font-semibold ${isAgent ? "text-brand" : "text-ink"}`}>

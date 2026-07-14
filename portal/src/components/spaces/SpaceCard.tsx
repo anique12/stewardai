@@ -6,7 +6,7 @@ export type SpaceCardStats = {
   meetings: number;
   open: number;
   updatedAt: string | null;
-  people: { id: string; name: string }[];
+  people: { id: string; name: string; email?: string | null }[];
 };
 
 const EMPTY_STATS: SpaceCardStats = { meetings: 0, open: 0, updatedAt: null, people: [] };
@@ -111,7 +111,7 @@ export function SpaceCard({
         <div className="flex items-center">
           {stats.people.map((p, i) => (
             <span key={p.id} className={i > 0 ? "-ml-[5px]" : ""}>
-              <SpeakerAvatar name={p.name} />
+              <SpeakerAvatar name={p.name} email={p.email} />
             </span>
           ))}
         </div>

@@ -1,6 +1,6 @@
 import { MeetingHeader } from "@/components/meetings/MeetingHeader";
 import { MeetingSummary } from "@/components/meetings/MeetingSummary";
-import { MeetingTimeline } from "@/components/meetings/MeetingTimeline";
+import { MeetingTimeline, type SpeakerLookupEntry } from "@/components/meetings/MeetingTimeline";
 import { MeetingDetailTabs } from "@/components/meetings/MeetingDetailTabs";
 import { MeetingSpaceSection } from "@/components/spaces/MeetingSpaceSection";
 import { OptInToggle } from "@/components/meetings/OptInToggle";
@@ -199,6 +199,14 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
 
   const live = meeting.bot_status === "in_meeting";
 
+  // Case-insensitive speaker name -> {email, photoUrl}, so the transcript
+  // timeline can resolve a segment's `speaker` name to a known attendee and
+  // show their real photo instead of a bare colored initial.
+  const speakerLookup: Record<string, SpeakerLookupEntry> = {};
+  for (const a of attendees) {
+    if (a.name) speakerLookup[a.name.trim().toLowerCase()] = { email: a.email, photoUrl: a.photoUrl };
+  }
+
   return (
     <div className="mx-auto max-w-[1200px]">
       <MeetingHeader
@@ -230,6 +238,7 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
             meetingId={params.id}
             botName={botName}
             live={live}
+            speakerLookup={speakerLookup}
           />
         }
         recap={

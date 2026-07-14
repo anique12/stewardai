@@ -1,22 +1,12 @@
-import { createHash } from "crypto";
 import type { calendar_v3 } from "googleapis";
-import { initials, type Attendee } from "@/lib/meetings/attendee-types";
+import { gravatarUrl, initials, type Attendee } from "@/lib/meetings/attendee-types";
 
-// Node-only module (uses `crypto`) — server-side use only (calendar sync).
-// Client components must import `Attendee`/`initials` from
-// `@/lib/meetings/attendee-types` instead, so a Node built-in never ends up
-// in the browser bundle.
+// Server-side calendar sync lives here. `Attendee`/`initials`/`gravatarUrl`
+// are just re-exported for convenience — the real (client-safe, dependency-
+// free) implementations live in `@/lib/meetings/attendee-types` so they can
+// also be imported directly from client components (e.g. PersonAvatar).
 export type { Attendee };
-export { initials };
-
-// Gravatar keyed by the MD5 hash of the trimmed, lowercased email. `d=404`
-// makes Gravatar 404 instead of serving a generated placeholder when there's
-// no real photo for the address, so the client can fall back to initials —
-// we only ever show a REAL photo, never a fake/generated one.
-export function gravatarUrl(email: string): string {
-  const hash = createHash("md5").update(email.trim().toLowerCase()).digest("hex");
-  return `https://www.gravatar.com/avatar/${hash}?d=404&s=96`;
-}
+export { initials, gravatarUrl };
 
 // Google Calendar attendee -> our stored Attendee shape. Skips conference
 // rooms/resources (`resource: true`) since those aren't people.
