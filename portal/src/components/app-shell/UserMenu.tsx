@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { BarChart3, ChevronsUpDown, LogOut, Settings } from "lucide-react";
+import { BarChart3, ChevronsUpDown, LogOut, Moon, Settings, Sun } from "lucide-react";
 import { createBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import {
@@ -13,7 +13,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { ThemeToggle } from "./ThemeToggle";
+import { useTheme } from "./ThemeProvider";
 import { useSettingsModal } from "./SettingsModalContext";
 
 function initials(email: string): string {
@@ -27,6 +27,8 @@ export function UserMenu({ email, className }: { email: string; className?: stri
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const { openSettings } = useSettingsModal();
+  const { theme, toggle } = useTheme();
+  const isDark = theme === "dark";
 
   async function signOut() {
     setBusy(true);
@@ -71,8 +73,16 @@ export function UserMenu({ email, className }: { email: string; className?: stri
             Usage &amp; billing
           </Link>
         </DropdownMenuItem>
-        <DropdownMenuItem asChild className="cursor-pointer rounded-md p-0 focus:bg-transparent">
-          <ThemeToggle label className="gap-2 px-2 text-[13px] hover:bg-surface-2" />
+        <DropdownMenuItem
+          onClick={(e) => { e.preventDefault(); toggle(); }}
+          className="cursor-pointer rounded-md text-[13px]"
+        >
+          {isDark ? (
+            <Sun className="mr-2 h-4 w-4 text-ink-3" aria-hidden />
+          ) : (
+            <Moon className="mr-2 h-4 w-4 text-ink-3" aria-hidden />
+          )}
+          Switch to {isDark ? "light" : "dark"} theme
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
