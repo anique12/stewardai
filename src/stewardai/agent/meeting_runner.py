@@ -215,6 +215,10 @@ class MeetingSession:
         self._audio_out = None
         self._control: RedisControl | None = None
         self._speaker_sub = None
+        # Live participant-roster subscriber (real-time avatar merge) + the last
+        # roster we applied, so a steady roster doesn't re-hit the DB.
+        self._roster_sub = None
+        self._last_roster: dict[str, str] | None = None
         self._tasks: list[asyncio.Task] = []
         # Serializes _write_summary (voice-command trigger vs teardown) so the
         # persist delete-then-insert can never interleave with itself.
@@ -857,6 +861,9 @@ class MeetingSession:
 
         self._tracker = tracker
         self._SpeakerSubscriber = SpeakerSubscriber
+        from stewardai.bridge.speaker_events import RosterSubscriber
+
+        self._RosterSubscriber = RosterSubscriber
 
     async def start(self) -> None:
         """Start the AgentSession + speaker subscriber + pump tasks for this meeting."""
@@ -878,6 +885,12 @@ class MeetingSession:
         )
         with contextlib.suppress(Exception):
             await self._speaker_sub.start()
+        # Live participant roster → real-time avatar merge into attendees[].photoUrl.
+        self._roster_sub = self._RosterSubscriber(
+            self._s.redis_url, self._mid, self._apply_participant_images
+        )
+        with contextlib.suppress(Exception):
+            await self._roster_sub.start()
 
         def _unmute_once() -> None:
             loop.create_task(self._control.mic_on())
@@ -922,26 +935,20 @@ class MeetingSession:
         """Block until this connection's inbound PCM stream ends (bot disconnect)."""
         await self._feed_task
 
-    async def _merge_attendee_photos(self) -> None:
-        """Enrich ``meetings.attendees[].photoUrl`` with each participant's REAL
-        profile image (e.g. Google Meet avatar) scraped by the Vexa bot, matched to
-        the calendar attendee by normalized display name.
+    async def _apply_participant_images(self, name_to_image: dict[str, str]) -> None:
+        """Merge a ``{display_name: image_url}`` map into
+        ``meetings.attendees[].photoUrl``, matched by normalized display name.
 
-        No-op until the running Vexa build exposes participant images (see
-        :meth:`VexaClient.fetch_participant_images`). Fully guarded and additive:
-        the portal's PersonAvatar already prefers ``photoUrl`` → Gravatar →
-        initials, so when Vexa returns nothing the existing Gravatar stays and
-        nothing is written."""
-        if self._supabase is None or not self._meeting_uuid or not self.native_meeting_id:
+        Shared by the LIVE roster subscriber (real-time, mid-meeting) and the
+        teardown fetch. Fully guarded and additive: the portal's PersonAvatar
+        prefers ``photoUrl`` → Gravatar → initials, so this only ever upgrades a
+        Gravatar to a real photo. Deduped on the incoming map so a steady-state
+        roster (published every few seconds) does not hit the DB repeatedly."""
+        if self._supabase is None or not self._meeting_uuid or not name_to_image:
             return
-        from stewardai.bridge.vexa_client import VexaClient
-
-        vexa = VexaClient(self._s.vexa_gateway_url, self._s.vexa_api_key)
-        name_to_image = await vexa.fetch_participant_images(
-            self._s.vexa_platform, self.native_meeting_id
-        )
-        if not name_to_image:
+        if name_to_image == self._last_roster:
             return
+        self._last_roster = dict(name_to_image)
         # Normalize (collapse whitespace, casefold) both sides so "John  Doe" from
         # the Meet tile matches "John Doe" from the calendar.
         norm = {" ".join(n.split()).lower(): img for n, img in name_to_image.items()}
@@ -979,6 +986,22 @@ class MeetingSession:
             .execute()
         )
         _log.info("attendee_photos_merged", meeting=self._mid, updated=updated)
+
+    async def _merge_attendee_photos(self) -> None:
+        """Teardown fallback: fetch participant images from Vexa's HTTP surface
+        and apply them — belt-and-suspenders for anything the live roster
+        subscriber missed (e.g. the bot published nothing, or StewardAI attached
+        late). No-op when Vexa exposes nothing (see
+        :meth:`VexaClient.fetch_participant_images`)."""
+        if self._supabase is None or not self._meeting_uuid or not self.native_meeting_id:
+            return
+        from stewardai.bridge.vexa_client import VexaClient
+
+        vexa = VexaClient(self._s.vexa_gateway_url, self._s.vexa_api_key)
+        name_to_image = await vexa.fetch_participant_images(
+            self._s.vexa_platform, self.native_meeting_id
+        )
+        await self._apply_participant_images(name_to_image)
 
     async def teardown(self) -> None:
         """Summary + post-meeting actions, then tear down THIS session only.
@@ -1068,6 +1091,9 @@ class MeetingSession:
         if self._speaker_sub is not None:
             with contextlib.suppress(Exception):
                 await self._speaker_sub.aclose()
+        if self._roster_sub is not None:
+            with contextlib.suppress(Exception):
+                await self._roster_sub.aclose()
         with contextlib.suppress(Exception):
             await self._conn.aclose()
         # Close the meeting lifecycle now that the scheduler no longer reaps agents.
