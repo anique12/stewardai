@@ -17,6 +17,51 @@ from stewardai.common.logging import get_logger
 _log = get_logger("bridge.vexa_client")
 
 
+def extract_participant_images(payload: object) -> dict[str, str]:
+    """Pull a ``{display_name: image_url}`` map out of a Vexa ``/transcripts``
+    response. Reads the fork's additive ``participant_details`` list
+    (``[{"name","image"}]``); if that's absent (older/upstream Vexa build) it
+    falls back to reconstructing the map from the raw ``speaker_events``
+    (``{"participant_name","participant_image"}``) the bot persists. Both are
+    looked for at the top level AND nested under ``data`` (the transcripts proxy
+    shape varies). Only entries with a truthy image are returned. Pure + never
+    raises: any unexpected shape yields ``{}``."""
+    out: dict[str, str] = {}
+    if not isinstance(payload, dict):
+        return out
+    # The meeting fields may sit at the top level or under a nested "data".
+    scopes = [payload]
+    nested = payload.get("data")
+    if isinstance(nested, dict):
+        scopes.append(nested)
+
+    for scope in scopes:
+        details = scope.get("participant_details")
+        if isinstance(details, list):
+            for d in details:
+                if not isinstance(d, dict):
+                    continue
+                name = (d.get("name") or "").strip()
+                image = d.get("image")
+                if name and image and name not in out:
+                    out[name] = str(image)
+    if out:
+        return out
+
+    # Fallback: rebuild from raw speaker_events when participant_details is absent.
+    for scope in scopes:
+        events = scope.get("speaker_events")
+        if isinstance(events, list):
+            for ev in events:
+                if not isinstance(ev, dict):
+                    continue
+                name = (ev.get("participant_name") or "").strip()
+                image = ev.get("participant_image")
+                if name and image and name not in out:
+                    out[name] = str(image)
+    return out
+
+
 class VexaClient:
     """Client for Vexa's bot HTTP API."""
 
@@ -70,6 +115,37 @@ class VexaClient:
                 return resp.json()
             except ValueError:
                 return {}
+
+    async def fetch_participant_images(
+        self, platform: str, native_meeting_id: str
+    ) -> dict[str, str]:
+        """Best-effort ``{display_name: image_url}`` for a meeting's participants,
+        read from ``GET /transcripts/{platform}/{native_meeting_id}``. Returns an
+        empty dict on any error OR when the running Vexa build doesn't expose
+        participant images yet (upstream/older bot) — callers treat "" as "no
+        real photo, keep the existing fallback". Never raises."""
+        url = f"{self.base_url}/transcripts/{platform}/{native_meeting_id}"
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(url, headers=self._headers(), timeout=8.0)
+                resp.raise_for_status()
+                payload = resp.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            _log.debug(
+                "vexa_participant_images_unavailable",
+                platform=platform,
+                native_meeting_id=native_meeting_id,
+                error=str(exc),
+            )
+            return {}
+        images = extract_participant_images(payload)
+        _log.info(
+            "vexa_participant_images_fetched",
+            platform=platform,
+            native_meeting_id=native_meeting_id,
+            count=len(images),
+        )
+        return images
 
     def mute(self, sink: str = "tts_sink") -> None:
         """Mute a PulseAudio sink (e.g. to silence the agent while a human speaks)."""

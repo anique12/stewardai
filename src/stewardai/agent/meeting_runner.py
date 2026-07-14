@@ -922,6 +922,64 @@ class MeetingSession:
         """Block until this connection's inbound PCM stream ends (bot disconnect)."""
         await self._feed_task
 
+    async def _merge_attendee_photos(self) -> None:
+        """Enrich ``meetings.attendees[].photoUrl`` with each participant's REAL
+        profile image (e.g. Google Meet avatar) scraped by the Vexa bot, matched to
+        the calendar attendee by normalized display name.
+
+        No-op until the running Vexa build exposes participant images (see
+        :meth:`VexaClient.fetch_participant_images`). Fully guarded and additive:
+        the portal's PersonAvatar already prefers ``photoUrl`` → Gravatar →
+        initials, so when Vexa returns nothing the existing Gravatar stays and
+        nothing is written."""
+        if self._supabase is None or not self._meeting_uuid or not self.native_meeting_id:
+            return
+        from stewardai.bridge.vexa_client import VexaClient
+
+        vexa = VexaClient(self._s.vexa_gateway_url, self._s.vexa_api_key)
+        name_to_image = await vexa.fetch_participant_images(
+            self._s.vexa_platform, self.native_meeting_id
+        )
+        if not name_to_image:
+            return
+        # Normalize (collapse whitespace, casefold) both sides so "John  Doe" from
+        # the Meet tile matches "John Doe" from the calendar.
+        norm = {" ".join(n.split()).lower(): img for n, img in name_to_image.items()}
+
+        resp = await (
+            self._supabase.table("meetings")
+            .select("attendees")
+            .eq("id", self._meeting_uuid)
+            .limit(1)
+            .execute()
+        )
+        rows = resp.data or []
+        if not rows:
+            return
+        attendees = rows[0].get("attendees") or []
+        if not isinstance(attendees, list):
+            return
+
+        updated = 0
+        for a in attendees:
+            if not isinstance(a, dict):
+                continue
+            key = " ".join((a.get("name") or "").split()).lower()
+            img = norm.get(key)
+            if img and a.get("photoUrl") != img:
+                a["photoUrl"] = img
+                updated += 1
+        if not updated:
+            return
+
+        await (
+            self._supabase.table("meetings")
+            .update({"attendees": attendees})
+            .eq("id", self._meeting_uuid)
+            .execute()
+        )
+        _log.info("attendee_photos_merged", meeting=self._mid, updated=updated)
+
     async def teardown(self) -> None:
         """Summary + post-meeting actions, then tear down THIS session only.
 
@@ -996,6 +1054,10 @@ class MeetingSession:
             )
         except Exception as exc:  # noqa: BLE001
             _log.warning("kb_ingest_wire_failed", error=str(exc))
+        # Enrich stored attendees with real participant profile images (Google Meet
+        # avatars) the Vexa bot scraped — best-effort, no-op until Vexa exposes them.
+        with contextlib.suppress(Exception):
+            await self._merge_attendee_photos()
         with contextlib.suppress(Exception):
             await self._session.aclose()
         if self._control is not None:
