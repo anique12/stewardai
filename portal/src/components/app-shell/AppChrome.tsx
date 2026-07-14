@@ -12,6 +12,7 @@ import { InstantJoinDialog } from "./InstantJoinDialog";
 import { Toast } from "./Toast";
 import { SettingsModalContext } from "./SettingsModalContext";
 import { SettingsModal } from "@/components/settings/SettingsModal";
+import { CurrentUserProvider } from "@/components/common/CurrentUserContext";
 
 /**
  * Client shell composing Sidebar + Topbar + mobile nav/drawer, and owning
@@ -67,6 +68,7 @@ export function AppChrome({
   const openSettings = useCallback(() => setSettingsOpen(true), []);
 
   return (
+    <CurrentUserProvider value={{ email, avatarUrl: avatarUrl ?? null }}>
     <SettingsModalContext.Provider value={{ openSettings, settingsOpen }}>
       <Sidebar email={email} avatarUrl={avatarUrl} counts={counts} />
       <MobileNavDrawer open={drawerOpen} onClose={closeDrawer} email={email} avatarUrl={avatarUrl} counts={counts} />
@@ -93,5 +95,6 @@ export function AppChrome({
       <SettingsModal open={settingsOpen} onOpenChange={setSettingsOpen} />
       <Toast />
     </SettingsModalContext.Provider>
+    </CurrentUserProvider>
   );
 }

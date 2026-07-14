@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { gravatarUrl, initials } from "@/lib/meetings/attendee-types";
 import { speakerColor } from "@/lib/meetings/speaker-colors";
+import { useCurrentUser, preferOwnerAvatar } from "@/components/common/CurrentUserContext";
 
 /**
  * Single source of truth for rendering a *person*: a real photo (an explicit
@@ -26,8 +27,12 @@ export function PersonAvatar({
   className?: string;
 }) {
   const [errored, setErrored] = useState(false);
+  const currentUser = useCurrentUser();
   const label = name || email || "?";
-  const src = photoUrl ?? (email ? gravatarUrl(email) : null);
+  // When this person is the signed-in user, prefer their live Google photo over
+  // any passed/stale photoUrl or email-Gravatar.
+  const resolved = preferOwnerAvatar(currentUser, email, photoUrl);
+  const src = resolved ?? (email ? gravatarUrl(email) : null);
 
   if (src && !errored) {
     return (

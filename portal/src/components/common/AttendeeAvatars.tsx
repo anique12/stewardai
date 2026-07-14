@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { initials, type Attendee } from "@/lib/meetings/attendee-types";
+import { useCurrentUser, preferOwnerAvatar } from "@/components/common/CurrentUserContext";
 
 const SIZE_CLASSES: Record<number, string> = {
   22: "h-[22px] w-[22px] text-[9px]",
@@ -13,13 +14,15 @@ function Avatar({ attendee, sizeClass }: { attendee: Attendee; sizeClass: string
   // or otherwise fails to load, fall back to an initials chip — never a
   // fake/generated avatar.
   const [errored, setErrored] = useState(false);
+  const currentUser = useCurrentUser();
   const label = attendee.name || attendee.email;
+  const photoUrl = preferOwnerAvatar(currentUser, attendee.email, attendee.photoUrl);
 
-  if (attendee.photoUrl && !errored) {
+  if (photoUrl && !errored) {
     return (
       // eslint-disable-next-line @next/next/no-img-element -- external Gravatar URL, not an optimizable local asset
       <img
-        src={attendee.photoUrl}
+        src={photoUrl}
         alt={label}
         title={label}
         // Google (lh3.googleusercontent.com) avatars often 403 in-browser when a

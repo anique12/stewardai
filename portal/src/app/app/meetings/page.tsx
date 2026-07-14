@@ -88,33 +88,14 @@ export default async function MeetingsPage({
     syncUserMeetings(service, user.id, conn.google_refresh_token).catch(() => {});
   }
 
-  const meMeta = user.user_metadata ?? {};
-  const meAvatar =
-    (meMeta.avatar_url as string | undefined) ?? (meMeta.picture as string | undefined) ?? null;
-
   return (
     <Suspense key={tab} fallback={<MeetingsSkeleton />}>
-      <MeetingsContent
-        userId={user.id}
-        meEmail={(user.email ?? "").toLowerCase()}
-        meAvatar={meAvatar}
-        tab={tab}
-      />
+      <MeetingsContent userId={user.id} tab={tab} />
     </Suspense>
   );
 }
 
-async function MeetingsContent({
-  userId,
-  meEmail,
-  meAvatar,
-  tab,
-}: {
-  userId: string;
-  meEmail: string;
-  meAvatar: string | null;
-  tab: MeetingsTab;
-}) {
+async function MeetingsContent({ userId, tab }: { userId: string; tab: MeetingsTab }) {
   try {
     const db = createServerClient();
     const now = new Date();
@@ -170,9 +151,6 @@ async function MeetingsContent({
     // Best-effort, separate query: `attendees` may not exist yet in an
     // environment where migration 0016 hasn't been applied. Never let a
     // missing column break the whole list — fall back to no attendees.
-    // The owner's own attendee entry carries a stale email-based Gravatar (set
-    // by calendar sync). Override it with the current Google profile photo from
-    // the session (meEmail/meAvatar props) so the user sees their real avatar.
     const allIds = [...upcomingList, ...pastList].map((m) => m.id as string);
     const attendeesById = new Map<string, import("@/lib/meetings/attendee-types").Attendee[]>();
     if (allIds.length) {
@@ -182,11 +160,7 @@ async function MeetingsContent({
           .select("id,attendees")
           .in("id", allIds);
         for (const row of attendeeRows ?? []) {
-          const list = ((row.attendees as import("@/lib/meetings/attendee-types").Attendee[]) ?? []).map(
-            (a) =>
-              meAvatar && (a.email ?? "").toLowerCase() === meEmail ? { ...a, photoUrl: meAvatar } : a
-          );
-          attendeesById.set(row.id as string, list);
+          attendeesById.set(row.id as string, (row.attendees as never[]) ?? []);
         }
       } catch {
         // leave attendeesById empty — rows render with no attendees
