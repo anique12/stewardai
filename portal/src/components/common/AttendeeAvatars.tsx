@@ -22,6 +22,9 @@ function Avatar({ attendee, sizeClass }: { attendee: Attendee; sizeClass: string
         src={attendee.photoUrl}
         alt={label}
         title={label}
+        // Google (lh3.googleusercontent.com) avatars often 403 in-browser when a
+        // referer is sent; no-referrer makes them load reliably.
+        referrerPolicy="no-referrer"
         onError={() => setErrored(true)}
         className={`shrink-0 rounded-full border-2 border-surface object-cover ${sizeClass}`}
       />

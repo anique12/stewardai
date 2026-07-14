@@ -36,6 +36,9 @@ export function PersonAvatar({
         src={src}
         alt={label}
         title={label}
+        // Google (lh3.googleusercontent.com) avatars often 403 in-browser when a
+        // referer is sent; no-referrer makes them load reliably.
+        referrerPolicy="no-referrer"
         onError={() => setErrored(true)}
         className={`shrink-0 rounded-full object-cover ${className}`}
         style={{ height: size, width: size }}
