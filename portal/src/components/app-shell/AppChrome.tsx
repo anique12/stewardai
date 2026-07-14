@@ -20,10 +20,12 @@ import { SettingsModal } from "@/components/settings/SettingsModal";
  */
 export function AppChrome({
   email,
+  avatarUrl,
   counts,
   children,
 }: {
   email: string;
+  avatarUrl?: string | null;
   counts: NavCounts;
   children: React.ReactNode;
 }) {
@@ -66,8 +68,8 @@ export function AppChrome({
 
   return (
     <SettingsModalContext.Provider value={{ openSettings, settingsOpen }}>
-      <Sidebar email={email} counts={counts} />
-      <MobileNavDrawer open={drawerOpen} onClose={closeDrawer} email={email} counts={counts} />
+      <Sidebar email={email} avatarUrl={avatarUrl} counts={counts} />
+      <MobileNavDrawer open={drawerOpen} onClose={closeDrawer} email={email} avatarUrl={avatarUrl} counts={counts} />
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <Topbar

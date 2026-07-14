@@ -91,11 +91,18 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const theme = parseTheme(cookies().get(THEME_COOKIE)?.value);
   const counts = await loadNavCounts(supabase, user.id);
 
+  // Google sign-in populates the current profile photo in user_metadata
+  // (avatar_url / picture) — use it for the owner's own avatar instead of a
+  // stale email-based Gravatar.
+  const meta = user.user_metadata ?? {};
+  const avatarUrl =
+    (meta.avatar_url as string | undefined) ?? (meta.picture as string | undefined) ?? null;
+
   return (
     <ThemeProvider initial={theme} className={`steward-app ${display.variable} ${ui.variable} ${plex.variable}`}>
       <QueryProvider>
         <TimezoneSync />
-        <AppChrome email={user.email ?? "Account"} counts={counts}>
+        <AppChrome email={user.email ?? "Account"} avatarUrl={avatarUrl} counts={counts}>
           {children}
         </AppChrome>
       </QueryProvider>

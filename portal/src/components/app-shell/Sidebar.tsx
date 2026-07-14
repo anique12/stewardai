@@ -102,7 +102,7 @@ function NavGroup({
   );
 }
 
-export function Sidebar({ email, counts }: { email: string; counts: NavCounts }) {
+export function Sidebar({ email, avatarUrl, counts }: { email: string; avatarUrl?: string | null; counts: NavCounts }) {
   const pathname = usePathname();
 
   return (
@@ -127,7 +127,7 @@ export function Sidebar({ email, counts }: { email: string; counts: NavCounts })
       </nav>
 
       <div className="border-t border-line p-[10px]">
-        <UserMenu email={email} />
+        <UserMenu email={email} avatarUrl={avatarUrl} />
       </div>
     </aside>
   );
@@ -138,11 +138,13 @@ export function MobileNavDrawer({
   open,
   onClose,
   email,
+  avatarUrl,
   counts,
 }: {
   open: boolean;
   onClose: () => void;
   email: string;
+  avatarUrl?: string | null;
   counts: NavCounts;
 }) {
   const pathname = usePathname();
@@ -169,7 +171,7 @@ export function MobileNavDrawer({
 
         <div className="flex-1" />
         <div className="border-t border-line pt-3">
-          <UserMenu email={email} />
+          <UserMenu email={email} avatarUrl={avatarUrl} />
         </div>
       </div>
     </div>

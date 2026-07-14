@@ -15,15 +15,17 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useTheme } from "./ThemeProvider";
 import { useSettingsModal } from "./SettingsModalContext";
+import { PersonAvatar } from "@/components/common/PersonAvatar";
 
-function initials(email: string): string {
-  const name = email.split("@")[0] ?? "";
-  const parts = name.split(/[.\-_]+/).filter(Boolean);
-  const letters = (parts[0]?.[0] ?? email[0] ?? "?") + (parts[1]?.[0] ?? "");
-  return letters.toUpperCase();
-}
-
-export function UserMenu({ email, className }: { email: string; className?: string }) {
+export function UserMenu({
+  email,
+  avatarUrl,
+  className,
+}: {
+  email: string;
+  avatarUrl?: string | null;
+  className?: string;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const { openSettings } = useSettingsModal();
@@ -48,9 +50,7 @@ export function UserMenu({ email, className }: { email: string; className?: stri
             className
           )}
         >
-          <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-pill bg-brand-weak-2 text-[12.5px] font-bold text-brand-ink">
-            {initials(email)}
-          </span>
+          <PersonAvatar name={email.split("@")[0]} email={email} photoUrl={avatarUrl} size={30} />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[13px] font-semibold">{email.split("@")[0]}</span>
             <span className="block truncate text-[11px] text-ink-3">{email}</span>
