@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Sidebar, MobileNavDrawer } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { MobileBottomNav } from "./MobileBottomNav";
@@ -10,6 +10,8 @@ import { CommandPalette } from "./CommandPalette";
 import { NudgesPanel } from "./NudgesPanel";
 import { InstantJoinDialog } from "./InstantJoinDialog";
 import { Toast } from "./Toast";
+import { SettingsModalContext } from "./SettingsModalContext";
+import { SettingsModal } from "@/components/settings/SettingsModal";
 
 /**
  * Client shell composing Sidebar + Topbar + mobile nav/drawer, and owning
@@ -26,12 +28,15 @@ export function AppChrome({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { title, subtitle } = routeTitleFor(pathname);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [nudgesOpen, setNudgesOpen] = useState(false);
   const [instantOpen, setInstantOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [nudgeCount, setNudgeCount] = useState(0);
 
   // ⌘K / Ctrl+K opens the command palette from anywhere in the app shell.
@@ -46,10 +51,21 @@ export function AppChrome({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  // Deep-link support: `/app/settings` redirects to `/app?settings=1` — open
+  // the modal once on arrival, then strip the param so the URL stays clean.
+  useEffect(() => {
+    if (searchParams.get("settings") === "1") {
+      setSettingsOpen(true);
+      router.replace(pathname, { scroll: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+  const openSettings = useCallback(() => setSettingsOpen(true), []);
 
   return (
-    <>
+    <SettingsModalContext.Provider value={{ openSettings, settingsOpen }}>
       <Sidebar email={email} counts={counts} />
       <MobileNavDrawer open={drawerOpen} onClose={closeDrawer} email={email} counts={counts} />
 
@@ -72,7 +88,8 @@ export function AppChrome({
       <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} />
       <NudgesPanel open={nudgesOpen} onOpenChange={setNudgesOpen} onCountChange={setNudgeCount} />
       <InstantJoinDialog open={instantOpen} onOpenChange={setInstantOpen} />
+      <SettingsModal open={settingsOpen} onOpenChange={setSettingsOpen} />
       <Toast />
-    </>
+    </SettingsModalContext.Provider>
   );
 }

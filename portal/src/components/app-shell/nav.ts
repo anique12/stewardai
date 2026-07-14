@@ -12,7 +12,8 @@ import {
 export type NavIcon = React.ComponentType<{ className?: string }>;
 
 export type NavItem = {
-  href: string;
+  /** Omit for items that trigger a client-state action (see `action`) instead of navigating. */
+  href?: string;
   label: string;
   icon: NavIcon;
   isActive: (path: string) => boolean;
@@ -20,6 +21,8 @@ export type NavItem = {
   countKey?: "actions" | "review";
   /** Key into the counts map for a pulsing live-dot (e.g. a meeting in progress), if this item shows one. */
   liveKey?: "live";
+  /** Non-navigating items: rendered as a button that triggers this client-state action instead of a `Link`. */
+  action?: "settings";
 };
 
 /** Primary workspace section — Home, Meetings, Action items, Spaces. */
@@ -57,7 +60,8 @@ export const ACCOUNT_NAV: NavItem[] = [
     isActive: (p) => p.startsWith("/app/settings/connections"),
   },
   { href: "/app/usage", label: "Usage", icon: BarChart3, isActive: (p) => p.startsWith("/app/usage") },
-  { href: "/app/settings", label: "Settings", icon: Settings, isActive: (p) => p === "/app/settings" },
+  // No href: Settings opens as a client-state modal over the current page — see `action`.
+  { action: "settings", label: "Settings", icon: Settings, isActive: () => false },
 ];
 
 /** Mobile bottom nav — Home / Ask / Meetings / Actions / Spaces. */
@@ -94,7 +98,9 @@ export const ROUTE_TITLES: { prefix: string; title: string; subtitle?: string }[
   { prefix: "/app/actions", title: "Action items", subtitle: "Every task Steward captured across your meetings." },
   { prefix: "/app/settings/connections", title: "Connected apps", subtitle: "Manage calendar and meeting integrations." },
   { prefix: "/app/usage", title: "Usage", subtitle: "Your Steward usage and billing." },
-  { prefix: "/app/settings", title: "Settings", subtitle: "Manage your account and preferences." },
+  // No "/app/settings" entry: that route now only redirects (see
+  // app/app/settings/page.tsx) — Settings itself is a client-state modal,
+  // never a rendered page/pathname.
   { prefix: "/app/chat", title: "Ask Steward", subtitle: "Ask anything across your meetings and work." },
   { prefix: "/app", title: "Home", subtitle: "Your day, at a glance." },
 ];

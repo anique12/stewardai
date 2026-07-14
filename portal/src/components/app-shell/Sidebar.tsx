@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { MessageCircle, X } from "lucide-react";
 import { UserMenu } from "./UserMenu";
 import { WORKSPACE_NAV, ACCOUNT_NAV, type NavCounts, type NavItem } from "./nav";
+import { useSettingsModal } from "./SettingsModalContext";
 import { cn } from "@/lib/utils";
 
 function Wordmark({ compact }: { compact?: boolean }) {
@@ -38,23 +39,20 @@ function NavGroup({
   counts: NavCounts;
   onNavigate?: () => void;
 }) {
+  const { openSettings, settingsOpen } = useSettingsModal();
+
   return (
     <div className="flex flex-col gap-0.5">
       <div className="px-[11px] pb-[5px] pt-2 font-mono text-[9.5px] uppercase tracking-[0.09em] text-ink-4">{label}</div>
       {items.map((item) => {
-        const active = item.isActive(pathname);
+        const active = item.action === "settings" ? settingsOpen : item.isActive(pathname);
         const count = item.countKey ? counts[item.countKey] : undefined;
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={onNavigate}
-            aria-current={active ? "page" : undefined}
-            className={cn(
-              "flex items-center gap-[9px] rounded-md px-[11px] py-2 text-[13.5px] font-medium transition-colors",
-              active ? "bg-brand-weak text-brand-ink" : "text-ink-2 hover:bg-surface-2 hover:text-ink"
-            )}
-          >
+        const className = cn(
+          "flex items-center gap-[9px] rounded-md px-[11px] py-2 text-[13.5px] font-medium transition-colors",
+          active ? "bg-brand-weak text-brand-ink" : "text-ink-2 hover:bg-surface-2 hover:text-ink"
+        );
+        const content = (
+          <>
             <item.icon className="h-[17px] w-[17px] shrink-0" aria-hidden />
             <span className="flex-1 text-left">{item.label}</span>
             {item.liveKey && counts[item.liveKey] ? (
@@ -68,6 +66,35 @@ function NavGroup({
                 {count}
               </span>
             ) : null}
+          </>
+        );
+
+        if (item.action === "settings") {
+          return (
+            <button
+              key={item.label}
+              type="button"
+              onClick={() => {
+                openSettings();
+                onNavigate?.();
+              }}
+              aria-current={active ? "page" : undefined}
+              className={className}
+            >
+              {content}
+            </button>
+          );
+        }
+
+        return (
+          <Link
+            key={item.href}
+            href={item.href ?? "#"}
+            onClick={onNavigate}
+            aria-current={active ? "page" : undefined}
+            className={className}
+          >
+            {content}
           </Link>
         );
       })}

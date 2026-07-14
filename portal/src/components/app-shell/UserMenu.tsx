@@ -14,6 +14,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "./ThemeToggle";
+import { useSettingsModal } from "./SettingsModalContext";
 
 function initials(email: string): string {
   const name = email.split("@")[0] ?? "";
@@ -25,6 +26,7 @@ function initials(email: string): string {
 export function UserMenu({ email, className }: { email: string; className?: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const { openSettings } = useSettingsModal();
 
   async function signOut() {
     setBusy(true);
@@ -59,11 +61,9 @@ export function UserMenu({ email, className }: { email: string; className?: stri
           <div className="truncate text-[12.5px] font-semibold text-ink">{email.split("@")[0]}</div>
           <div className="truncate text-[11px] text-ink-3">{email}</div>
         </div>
-        <DropdownMenuItem asChild className="cursor-pointer rounded-md text-[13px]">
-          <Link href="/app/settings">
-            <Settings className="mr-2 h-4 w-4 text-ink-3" aria-hidden />
-            Settings
-          </Link>
+        <DropdownMenuItem onClick={openSettings} className="cursor-pointer rounded-md text-[13px]">
+          <Settings className="mr-2 h-4 w-4 text-ink-3" aria-hidden />
+          Settings
         </DropdownMenuItem>
         <DropdownMenuItem asChild className="cursor-pointer rounded-md text-[13px]">
           <Link href="/app/usage">

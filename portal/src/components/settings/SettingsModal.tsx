@@ -189,12 +189,17 @@ function AutoApprovalsSection() {
   );
 }
 
-export function SettingsModal() {
+export function SettingsModal({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const supabase = createBrowserClient();
   const router = useRouter();
   const { theme, toggle } = useTheme();
 
-  const [open, setOpen] = useState(true);
   const [activeSection, setActiveSection] = useState<SectionId>("general");
   const [navFilter, setNavFilter] = useState("");
 
@@ -241,9 +246,12 @@ export function SettingsModal() {
     }
   }, [supabase]);
 
+  // Lazy: only fetch profile/calendar state once the modal is actually open,
+  // since `SettingsModal` is now mounted permanently in `AppChrome`.
   useEffect(() => {
+    if (!open) return;
     load();
-  }, [load]);
+  }, [open, load]);
 
   async function saveProfile() {
     setSaving(true);
@@ -301,13 +309,6 @@ export function SettingsModal() {
     if (!q) return SECTIONS;
     return SECTIONS.filter((s) => s.label.toLowerCase().includes(q));
   }, [navFilter]);
-
-  function handleOpenChange(next: boolean) {
-    setOpen(next);
-    if (!next) {
-      router.push("/app");
-    }
-  }
 
   function renderSection() {
     if (phase === "loading") {
@@ -519,7 +520,7 @@ export function SettingsModal() {
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="flex h-[82vh] w-[min(960px,92vw)] max-w-none flex-col overflow-hidden p-0 sm:rounded-xl"
         aria-describedby={undefined}

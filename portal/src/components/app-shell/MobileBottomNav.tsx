@@ -19,7 +19,7 @@ export function MobileBottomNav({ counts }: { counts: NavCounts }) {
         return (
           <Link
             key={item.href}
-            href={item.href}
+            href={item.href ?? "#"}
             aria-current={active ? "page" : undefined}
             className={cn(
               "relative flex flex-1 flex-col items-center gap-1 rounded-md px-1 py-1.5 text-[10.5px] font-medium transition-colors",
