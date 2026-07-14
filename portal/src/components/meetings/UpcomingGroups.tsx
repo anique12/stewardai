@@ -19,8 +19,18 @@ function platformFromUrl(url: string | null): Platform {
   return "Video call";
 }
 
-function timeParts(iso: string): { time: string; ampm: string } {
-  const label = new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+// Pin BOTH the locale and the timeZone: with `[]` (runtime-default locale) and
+// no timeZone, the server (Node/UTC, en-US → 12h "7:32 PM") and the browser
+// (local tz + locale → 24h "19:32") produce different strings, tripping React's
+// hydration check ("7:32"/"19:32" and "AM"/"" mismatches). "en-US" + hour12
+// guarantees a stable "h:mm AM/PM" split on both sides.
+function timeParts(iso: string, timeZone: string): { time: string; ampm: string } {
+  const label = new Date(iso).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone,
+  });
   const [time, ampm] = label.split(" ");
   return { time, ampm: ampm ?? "" };
 }
@@ -92,7 +102,7 @@ export function UpcomingGroups({
             {group.items.map((row) => {
               const { meeting, seriesCount, cadence } = row;
               const isSeries = seriesCount > 1;
-              const { time, ampm } = timeParts(meeting.start_time);
+              const { time, ampm } = timeParts(meeting.start_time, timeZone);
               const duration = durationLabel(meeting.start_time, meeting.end_time ?? null);
               const spaceName = meeting.space_id ? spaceNameById[meeting.space_id] : undefined;
               const status = KNOWN_STATUSES.includes(meeting.bot_status as StatusPillStatus)

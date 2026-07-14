@@ -8,11 +8,14 @@ import type { MeetingListItem } from "@/lib/meetings/series";
 
 const KNOWN_STATUSES: StatusPillStatus[] = ["in_meeting", "done", "failed", "scheduled", "pending"];
 
-function dayLabel(iso: string): string {
-  return new Date(iso).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+// Pin locale + timeZone so server (Node/UTC) and client (browser-local) render
+// identical strings — otherwise React throws a hydration mismatch (see the same
+// note in UpcomingGroups.timeParts).
+function dayLabel(iso: string, timeZone: string): string {
+  return new Date(iso).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone });
 }
-function timeLabel(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+function timeLabel(iso: string, timeZone: string): string {
+  return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true, timeZone });
 }
 
 export type PastMeeting = MeetingListItem & { space_id?: string | null };
@@ -21,10 +24,12 @@ export function PastList({
   meetings,
   spaceNameById,
   actionCountById,
+  timeZone,
 }: {
   meetings: PastMeeting[];
   spaceNameById: Record<string, string>;
   actionCountById: Record<string, number>;
+  timeZone: string;
 }) {
   if (meetings.length === 0) {
     return <p className="py-8 text-center text-sm text-ink-3">No past meetings yet.</p>;
@@ -47,8 +52,8 @@ export function PastList({
             className="flex items-center gap-[15px] border-b border-line px-[18px] py-[15px] last:border-0 hover:bg-surface-2"
           >
             <div className="w-[60px] shrink-0 text-center">
-              <div className="font-mono text-[11px] text-ink-3">{dayLabel(m.start_time)}</div>
-              <div className="font-mono text-[13px] font-semibold">{timeLabel(m.start_time)}</div>
+              <div className="font-mono text-[11px] text-ink-3">{dayLabel(m.start_time, timeZone)}</div>
+              <div className="font-mono text-[13px] font-semibold">{timeLabel(m.start_time, timeZone)}</div>
             </div>
             <div className="h-10 w-px shrink-0 bg-line" />
             <div className="min-w-0 flex-1">

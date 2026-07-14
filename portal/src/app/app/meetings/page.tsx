@@ -229,6 +229,7 @@ async function MeetingsContent({ userId, tab }: { userId: string; tab: MeetingsT
             meetings={past as unknown as PastMeeting[]}
             spaceNameById={spaceNameById}
             actionCountById={actionCountById}
+            timeZone={timeZone}
           />
         )}
       </div>
