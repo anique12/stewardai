@@ -540,11 +540,14 @@ def build_meeting_agent(  # noqa: ANN001
     return MeetingAgent()
 
 
-def build_agent(settings: Settings | None = None):
-    """Build the ``Agent`` persona handed to ``session.start`` (lazy livekit)."""
+def build_agent(settings: Settings | None = None, *, instructions: str | None = None):
+    """Build the ``Agent`` persona handed to ``session.start`` (lazy livekit).
+
+    ``instructions`` overrides the default voice-assistant persona — the public
+    website demo passes a MeetBase product-guide persona (see web/app.py)."""
     from livekit.agents import Agent  # type: ignore
 
-    return Agent(instructions=_DEFAULT_INSTRUCTIONS)
+    return Agent(instructions=instructions or _DEFAULT_INSTRUCTIONS)
 
 
 async def run_agent(settings: Settings | None = None) -> None:

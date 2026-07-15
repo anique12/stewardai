@@ -286,6 +286,33 @@ async def _safe_send(ws: WebSocket, payload: dict) -> None:
         await ws.send_json(payload)
 
 
+MEETBASE_DEMO_INSTRUCTIONS = (
+    "You are the MeetBase guide — a warm, concise voice assistant on the MeetBase "
+    "website whose ONLY job is to help visitors understand the MeetBase product.\n\n"
+    "What MeetBase is: an AI meeting agent that joins your Google Meet calls, takes "
+    "notes and captures action items automatically, and organizes every meeting into "
+    "Spaces you can search and chat with. It's an ACTIVE agent, not a silent notetaker: "
+    "it shows up briefed on your past meetings, and it can speak up in the call — ask it "
+    "a question and it answers out loud, grounded in the live transcript (speaking is "
+    "optional, per meeting). It connects to apps like Notion, Slack, and Google Sheets — "
+    "with your permission — to turn meeting outcomes into action. Calendar access is "
+    "read-only by default; there's a free tier and no credit card to start. It supports "
+    "Google Meet today, with Zoom and Microsoft Teams coming soon.\n\n"
+    "How to behave:\n"
+    "- GREET the visitor first, warmly and in one short sentence, and invite a question "
+    "about MeetBase.\n"
+    "- Stay strictly on MeetBase: what it does, how it works, privacy, pricing, getting "
+    "started. This is a product-clarification chat.\n"
+    "- POLITELY DECLINE general or off-topic questions (trivia, world facts, coding, "
+    "advice unrelated to MeetBase). Redirect in one line, e.g. 'I'm just the MeetBase "
+    "guide — but I'd love to tell you how it handles your meetings.'\n"
+    "- Keep the visitor ENGAGED: after answering, offer a relevant follow-up, e.g. 'Want "
+    "to hear how it organizes everything into Spaces?'\n"
+    "- Your words are read aloud by TTS: plain natural sentences only — no markdown, "
+    "lists, emojis, or URLs. One or two sentences per reply."
+)
+
+
 @app.websocket("/ws/pipeline")
 async def ws_pipeline(ws: WebSocket) -> None:
     """Full voice loop driven by a real LiveKit ``AgentSession``.
@@ -340,7 +367,7 @@ async def ws_pipeline(ws: WebSocket) -> None:
             llm_backend=app.state.llm,
             tts_backend=app.state.tts,
         )
-        agent = build_agent(s)
+        agent = build_agent(s, instructions=MEETBASE_DEMO_INSTRUCTIONS)
         audio_in = _build_push_audio_input()()
         audio_out = QueueAudioOutput(label="web")
         session.input.audio = audio_in
@@ -405,6 +432,16 @@ async def ws_pipeline(ws: WebSocket) -> None:
         log.info("pipeline_agent_started")
         _emit({"type": "ready"})
         out_task = asyncio.create_task(_pump_output())
+
+        # Greet first — the MeetBase guide opens the conversation (product demo) so the
+        # visitor hears it speak before saying anything. Best-effort.
+        with suppress(Exception):
+            await session.generate_reply(
+                instructions=(
+                    "Greet the visitor in one short, warm sentence as the MeetBase guide "
+                    "and invite them to ask anything about the MeetBase product."
+                )
+            )
 
         # Demo session cap: when gated, end the session gracefully after the cap so a
         # tunnelled public endpoint can't be held open indefinitely (cost/abuse).
