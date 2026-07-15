@@ -10,10 +10,14 @@ export function SpeakerAvatar({
   name,
   email,
   photoUrl,
+  className = "",
 }: {
   name: string;
   email?: string | null;
   photoUrl?: string | null;
+  className?: string;
 }) {
-  return <PersonAvatar name={name} email={email} photoUrl={photoUrl} size={28} className="h-7 w-7 text-xs" />;
+  return (
+    <PersonAvatar name={name} email={email} photoUrl={photoUrl} size={28} className={`h-7 w-7 text-xs ${className}`} />
+  );
 }

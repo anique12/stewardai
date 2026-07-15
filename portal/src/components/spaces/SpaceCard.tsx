@@ -108,9 +108,9 @@ export function SpaceCard({
         <OpenChip count={stats.open} />
       </div>
       {stats.people.length > 0 ? (
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center -space-x-2">
           {stats.people.map((p) => (
-            <SpeakerAvatar key={p.id} name={p.name} email={p.email} />
+            <SpeakerAvatar key={p.id} name={p.name} email={p.email} className="border-2 border-surface" />
           ))}
         </div>
       ) : null}
