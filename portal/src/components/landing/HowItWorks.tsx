@@ -1,4 +1,4 @@
-import { CalendarPlus, ToggleRight, FileCheck2 } from "lucide-react";
+import { CalendarPlus, ToggleRight, FileCheck2, FolderKanban, MessageCircle } from "lucide-react";
 import { Container, SectionHeading } from "./primitives";
 
 const STEPS = [
@@ -11,14 +11,26 @@ const STEPS = [
   {
     n: "02",
     icon: ToggleRight,
-    title: "Steward joins your meetings",
-    body: "Flip on the meetings you want covered, or let Steward auto-join recurring calls. It dials into Meet and Zoom on time, every time.",
+    title: "MeetBase joins your meetings",
+    body: "Flip on the meetings you want covered, or let MeetBase auto-join recurring calls. You choose which ones it joins, and the bot is always visible on the call.",
   },
   {
     n: "03",
     icon: FileCheck2,
-    title: "Get transcripts, summaries & action items",
+    title: "Notes & action items, auto-captured",
     body: "Minutes after the call, your recap is waiting — named transcript, decisions, owners, and follow-ups, all searchable.",
+  },
+  {
+    n: "04",
+    icon: FolderKanban,
+    title: "Organized into Spaces",
+    body: "Every meeting is filed under the client, project, or topic it belongs to, so your history stays organized without any manual filing.",
+  },
+  {
+    n: "05",
+    icon: MessageCircle,
+    title: "Ask MeetBase about any of it",
+    body: "Chat with your entire meeting history — 'what did we decide', 'what are my open action items' — and get answers grounded in the transcript.",
   },
 ];
 
@@ -29,10 +41,10 @@ export function HowItWorks() {
         <SectionHeading
           align="center"
           eyebrow="Get started"
-          title="Live in three steps"
-          lead="No note-takers to invite, no recordings to babysit. Connect once and Steward handles the rest."
+          title="Live in a few minutes"
+          lead="No note-takers to invite, no recordings to babysit. Connect once and MeetBase handles the rest."
         />
-        <ol className="mt-14 grid gap-px overflow-hidden rounded-2xl border border-border bg-border md:grid-cols-3">
+        <ol className="mt-14 grid gap-px overflow-hidden rounded-2xl border border-border bg-border sm:grid-cols-2 lg:grid-cols-5">
           {STEPS.map((s) => (
             <li key={s.n} className="bg-card p-7">
               <div className="flex items-center justify-between">

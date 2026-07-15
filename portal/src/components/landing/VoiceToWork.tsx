@@ -311,7 +311,7 @@ function Stage({
         <span className="h-2.5 w-2.5 rounded-full bg-yellow-500/70" aria-hidden />
         <span className="h-2.5 w-2.5 rounded-full bg-primary/70" aria-hidden />
         <span className="ml-2 font-mono text-xs text-muted-foreground">
-          steward · voice → work
+          meetbase · voice → work
         </span>
         <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-primary">
           <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" aria-hidden />

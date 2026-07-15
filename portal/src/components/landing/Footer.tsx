@@ -1,25 +1,15 @@
 import Link from "next/link";
-import { Bot, GitBranch, AtSign, Mail } from "lucide-react";
+import { AtSign, Mail } from "lucide-react";
 import { Container } from "./primitives";
 
 const COLUMNS: { heading: string; links: { label: string; href: string }[] }[] = [
   {
-    heading: "Products",
+    heading: "Product",
     links: [
-      { label: "Steward", href: "#steward" },
-      { label: "Voice Agents", href: "#voice-agents" },
-      { label: "Speech-to-Text", href: "#developers" },
-      { label: "Text-to-Speech", href: "#developers" },
-      { label: "Pricing", href: "#pricing" },
-    ],
-  },
-  {
-    heading: "Developers",
-    links: [
-      { label: "Docs", href: "#developers" },
-      { label: "API reference", href: "#developers" },
-      { label: "Status", href: "#" },
-      { label: "Changelog", href: "#" },
+      { label: "Features", href: "#features" },
+      { label: "How it works", href: "#how" },
+      { label: "Speaks in meetings", href: "#speaks" },
+      { label: "Sign in", href: "/auth/login" },
     ],
   },
   {
@@ -37,13 +27,12 @@ const COLUMNS: { heading: string; links: { label: string; href: string }[] }[] =
       { label: "Privacy", href: "/privacy" },
       { label: "Terms", href: "/terms" },
       { label: "Cookie Policy", href: "/cookies" },
-      { label: "Security", href: "/trust" },
+      { label: "Security & trust", href: "/trust" },
     ],
   },
 ];
 
 const SOCIAL = [
-  { label: "GitHub", href: "#", icon: GitBranch },
   { label: "X", href: "#", icon: AtSign },
   { label: "Email us", href: "#", icon: Mail },
 ];
@@ -52,16 +41,18 @@ export function LandingFooter() {
   return (
     <footer id="footer" className="border-t border-border bg-card/30">
       <Container className="py-14">
-        <div className="grid gap-10 lg:grid-cols-[1.4fr_repeat(4,1fr)]">
+        <div className="grid gap-10 lg:grid-cols-[1.4fr_repeat(3,1fr)]">
           <div>
             <Link href="/" className="flex items-center gap-2.5">
-              <span className="grid h-7 w-7 place-items-center rounded-md bg-primary text-primary-foreground">
-                <Bot className="h-4 w-4" aria-hidden />
+              {/* eslint-disable-next-line @next/next/no-img-element -- small local brand mark */}
+              <img src="/meetbase-mark.png" alt="MeetBase" className="h-7 w-7 shrink-0" />
+              <span className="text-[15px] font-semibold tracking-tight text-foreground">
+                Meet<span className="text-primary">Base</span>
               </span>
-              <span className="text-[15px] font-semibold tracking-tight text-foreground">StewardAI</span>
             </Link>
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-muted-foreground">
-              The personal AI agent platform — and the real-time voice stack to build your own.
+              The AI meeting agent that joins your calls, takes notes, captures
+              action items, and organizes it all into Spaces you can chat with.
             </p>
             <div className="mt-5 flex gap-2">
               {SOCIAL.map((s) => (
@@ -96,7 +87,7 @@ export function LandingFooter() {
         </div>
 
         <div className="mt-12 flex flex-col items-center justify-between gap-3 border-t border-border pt-6 text-sm text-muted-foreground sm:flex-row">
-          <span>© {new Date().getFullYear()} StewardAI. All rights reserved.</span>
+          <span>© {new Date().getFullYear()} MeetBase. All rights reserved.</span>
           <span className="flex items-center gap-1.5">
             <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />
             All systems operational

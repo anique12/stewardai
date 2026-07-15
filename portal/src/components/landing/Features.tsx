@@ -3,18 +3,18 @@ import {
   Users,
   ListChecks,
   Search,
-  BellRing,
+  FolderKanban,
 } from "lucide-react";
 import { Container, SectionHeading } from "./primitives";
 
 export function Features() {
   return (
-    <section id="steward" className="border-t border-border bg-card/30 py-20 sm:py-28">
+    <section id="features" className="border-t border-border bg-card/30 py-20 sm:py-28">
       <Container>
         <SectionHeading
-          eyebrow="Steward · the flagship"
-          title="A personal agent that actually shows up"
-          lead="Steward sits in your day, not just your inbox. It joins meetings on its own, captures everything that matters, and follows up so nothing slips."
+          eyebrow="MeetBase · the meeting agent"
+          title="An agent that actually shows up to your meetings"
+          lead="MeetBase joins your calls on its own, captures everything that matters, and organizes it so nothing slips through the cracks."
         />
 
         <div className="mt-14 space-y-16 sm:space-y-24">
@@ -22,7 +22,7 @@ export function Features() {
             icon={CalendarCheck}
             kicker="Autonomy"
             title="Joins your meetings automatically"
-            body="Connect your calendar once. Steward watches your schedule and dials into the calls you mark, on Google Meet and Zoom — no copy-pasting links, no bot wrangling. It's listening from the first word."
+            body="Connect your calendar once. MeetBase watches your schedule and dials into the calls you mark, on Google Meet — no copy-pasting links, no bot wrangling. It's listening from the first word."
             visual={<JoinVisual />}
           />
           <FeatureRow
@@ -36,24 +36,24 @@ export function Features() {
           <FeatureRow
             icon={ListChecks}
             kicker="Synthesis"
-            title="Summaries, decisions & action items"
-            body="The moment a call ends, Steward delivers a structured recap: what was decided, who owns what, and the open questions left on the table. No more reconstructing a meeting from memory."
+            title="Notes, decisions & action items"
+            body="The moment a call ends, MeetBase delivers a structured recap: what was decided, who owns what, and the open questions left on the table. No more reconstructing a meeting from memory."
             visual={<SummaryVisual />}
           />
           <FeatureRow
             reverse
-            icon={Search}
-            kicker="Memory"
-            title="Recall anything that was ever said"
-            body="Steward remembers across every meeting. Ask it 'what did we decide about pricing last month?' and get the answer with the exact moment it was said — searchable, sourced, and grounded in the transcript."
-            visual={<RecallVisual />}
+            icon={FolderKanban}
+            kicker="Organization"
+            title="Every meeting sorted into Spaces"
+            body="MeetBase files each call under the client, project, or topic it belongs to — automatically. Open a Space and see the full history: notes, decisions, and action items in one place."
+            visual={<SpacesVisual />}
           />
           <FeatureRow
-            icon={BellRing}
-            kicker="Proactivity"
-            title="Nudges you before things slip"
-            body="Steward tracks the commitments made on your behalf and surfaces them at the right time — an action item going stale, a follow-up you promised, a decision waiting on your call."
-            visual={<NudgeVisual />}
+            icon={Search}
+            kicker="Memory"
+            title="Chat with your entire meeting history"
+            body="Ask 'what did we decide about pricing last month?' or 'what are my open action items?' and get an answer grounded in the transcript — with the exact moment it was said."
+            visual={<RecallVisual />}
           />
         </div>
       </Container>
@@ -120,7 +120,7 @@ function JoinVisual() {
               }`}
             >
               <span className={`h-1.5 w-1.5 rounded-full ${m.on ? "bg-primary" : "bg-muted-foreground"}`} aria-hidden />
-              {m.on ? "Steward joining" : "Off"}
+              {m.on ? "MeetBase joining" : "Off"}
             </span>
           </div>
         ))}
@@ -180,6 +180,33 @@ function SummaryVisual() {
   );
 }
 
+function SpacesVisual() {
+  return (
+    <Frame>
+      <div className="space-y-3">
+        {[
+          { n: "Acme · Customer", meetings: 12 },
+          { n: "Q3 Planning", meetings: 5 },
+          { n: "Hiring", meetings: 3 },
+        ].map((s) => (
+          <div
+            key={s.n}
+            className="flex items-center justify-between rounded-lg border border-border bg-background/50 px-4 py-3"
+          >
+            <div className="flex items-center gap-3">
+              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-primary/12 text-primary">
+                <FolderKanban className="h-3.5 w-3.5" aria-hidden />
+              </span>
+              <span className="text-sm text-foreground">{s.n}</span>
+            </div>
+            <span className="font-mono text-xs text-muted-foreground">{s.meetings} meetings</span>
+          </div>
+        ))}
+      </div>
+    </Frame>
+  );
+}
+
 function RecallVisual() {
   return (
     <Frame>
@@ -193,31 +220,6 @@ function RecallVisual() {
           for 90 days.
         </p>
         <p className="mt-2 text-xs text-muted-foreground">Source · Q3 planning · 11:30 · Dana</p>
-      </div>
-    </Frame>
-  );
-}
-
-function NudgeVisual() {
-  return (
-    <Frame>
-      <div className="space-y-3">
-        <div className="flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 p-3">
-          <BellRing className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
-          <div className="text-sm">
-            <p className="font-medium text-foreground">Follow-up due today</p>
-            <p className="text-muted-foreground">
-              You told Acme you&apos;d send pricing by EOD. Want a draft?
-            </p>
-          </div>
-        </div>
-        <div className="flex items-start gap-3 rounded-lg border border-border bg-background/50 p-3">
-          <ListChecks className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-          <div className="text-sm">
-            <p className="font-medium text-foreground">2 action items unassigned</p>
-            <p className="text-muted-foreground">From this morning&apos;s standup.</p>
-          </div>
-        </div>
       </div>
     </Frame>
   );
