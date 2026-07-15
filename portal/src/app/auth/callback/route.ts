@@ -21,11 +21,26 @@ export async function GET(request: Request) {
 
   const service = createServiceClient();
 
-  // Upsert profile
+  // Upsert profile (now also stores email for backend owner-email resolution)
   await service.from("profiles").upsert(
-    { user_id: data.user.id, display_name: data.user.user_metadata?.full_name ?? null },
+    {
+      user_id: data.user.id,
+      display_name: data.user.user_metadata?.full_name ?? null,
+      email: data.user.email ?? null,
+    },
     { onConflict: "user_id" }
   );
+
+  const { enqueueEmail } = await import("@/lib/email/enqueue");
+  if (data.user.email) {
+    await enqueueEmail(service, {
+      userId: data.user.id,
+      kind: "welcome",
+      toEmail: data.user.email,
+      dedupKey: `welcome:${data.user.id}`,
+      payload: { name: data.user.user_metadata?.full_name ?? null },
+    });
+  }
 
   // Only persist a calendar connection when this OAuth round-trip was
   // explicitly requesting calendar access (see /auth/connect-calendar,
@@ -47,6 +62,17 @@ export async function GET(request: Request) {
       },
       { onConflict: "user_id" }
     );
+
+    if (data.user.email) {
+      const { enqueueEmail } = await import("@/lib/email/enqueue");
+      await enqueueEmail(service, {
+        userId: data.user.id,
+        kind: "calendar_connected",
+        toEmail: data.user.email,
+        dedupKey: `calendar_connected:${data.user.id}`,
+        payload: { name: data.user.user_metadata?.full_name ?? null },
+      });
+    }
   }
 
   // A caller-supplied destination (e.g. the onboarding wizard resuming at
