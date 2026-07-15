@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Menu, X } from "lucide-react";
+import { Menu, Moon, Sun, X } from "lucide-react";
 import { Container } from "./primitives";
 import { cn } from "@/lib/utils";
 import { landingCta } from "@/lib/landing-cta";
+import { useLandingTheme } from "./LandingShell";
 
 const LINKS = [
   { name: "Features", href: "#features" },
@@ -18,6 +19,7 @@ export function LandingNav({ isAuthed = false }: { isAuthed?: boolean }) {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const cta = landingCta(isAuthed);
+  const { theme, toggle } = useLandingTheme();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
@@ -60,6 +62,14 @@ export function LandingNav({ isAuthed = false }: { isAuthed?: boolean }) {
 
           {/* Desktop CTAs */}
           <div className="hidden items-center gap-2 lg:flex">
+            <button
+              type="button"
+              onClick={toggle}
+              className="rounded-md p-2 text-muted-foreground transition-colors hover:text-foreground"
+              aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+            >
+              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </button>
             {cta.secondaryLabel ? (
               <Link
                 href="/auth/login"
@@ -76,16 +86,26 @@ export function LandingNav({ isAuthed = false }: { isAuthed?: boolean }) {
             </Link>
           </div>
 
-          {/* Mobile toggle */}
-          <button
-            type="button"
-            className="lg:hidden rounded-md p-2 text-foreground"
-            aria-label={mobileOpen ? "Close menu" : "Open menu"}
-            aria-expanded={mobileOpen}
-            onClick={() => setMobileOpen((v) => !v)}
-          >
-            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-          </button>
+          {/* Mobile controls */}
+          <div className="flex items-center gap-1 lg:hidden">
+            <button
+              type="button"
+              onClick={toggle}
+              className="rounded-md p-2 text-muted-foreground transition-colors hover:text-foreground"
+              aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+            >
+              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </button>
+            <button
+              type="button"
+              className="rounded-md p-2 text-foreground"
+              aria-label={mobileOpen ? "Close menu" : "Open menu"}
+              aria-expanded={mobileOpen}
+              onClick={() => setMobileOpen((v) => !v)}
+            >
+              {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
+          </div>
         </nav>
       </Container>
 

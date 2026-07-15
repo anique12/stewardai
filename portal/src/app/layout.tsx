@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+import { paperFontVars } from "@/lib/fonts";
 import "./globals.css";
 
 // Self-hosted Inter (variable) — avoids a build-time Google Fonts fetch that
@@ -40,7 +41,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} ${geistMono.variable}`}>
+    <html lang="en" className={`${inter.variable} ${geistMono.variable} ${paperFontVars}`}>
       <body className="antialiased font-sans">{children}</body>
     </html>
   );

@@ -110,14 +110,7 @@
   }
 
   .accent-text {
-    background: linear-gradient(
-      90deg,
-      hsl(172 84% 62%),
-      hsl(190 90% 66%)
-    );
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
+    color: hsl(var(--primary));
   }
 }
 

@@ -1,4 +1,6 @@
+import { cookies } from "next/headers";
 import { LandingNav } from "@/components/landing/Nav";
+import { LandingShell } from "@/components/landing/LandingShell";
 import { Hero } from "@/components/landing/Hero";
 import { Features } from "@/components/landing/Features";
 import { SpeaksInMeeting } from "@/components/landing/SpeaksInMeeting";
@@ -6,6 +8,7 @@ import { HowItWorks } from "@/components/landing/HowItWorks";
 import { FinalCTA } from "@/components/landing/FinalCTA";
 import { LandingFooter } from "@/components/landing/Footer";
 import { createServerClient } from "@/lib/supabase/server";
+import { THEME_COOKIE, parseTheme } from "@/lib/theme";
 
 export const dynamic = "force-dynamic";
 
@@ -15,9 +18,10 @@ export default async function HomePage() {
     data: { user },
   } = await supabase.auth.getUser();
   const isAuthed = !!user;
+  const theme = parseTheme(cookies().get(THEME_COOKIE)?.value);
 
   return (
-    <div className="dark bg-background text-foreground">
+    <LandingShell initial={theme}>
       <LandingNav isAuthed={isAuthed} />
       <main>
         <Hero isAuthed={isAuthed} />
@@ -27,6 +31,6 @@ export default async function HomePage() {
         <FinalCTA />
       </main>
       <LandingFooter />
-    </div>
+    </LandingShell>
   );
 }

@@ -1,38 +1,13 @@
 import { cookies } from "next/headers";
-import localFont from "next/font/local";
 import { TimezoneSync } from "@/components/TimezoneSync";
 import { AppChrome } from "@/components/app-shell/AppChrome";
 import { ThemeProvider } from "@/components/app-shell/ThemeProvider";
 import { QueryProvider } from "@/components/providers/QueryProvider";
 import type { NavCounts } from "@/components/app-shell/nav";
 import { THEME_COOKIE, parseTheme } from "@/lib/theme";
+import { display, ui, plex } from "@/lib/fonts";
 import { createServerClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-
-// Self-hosted "paper" design-system fonts (see scripts/fetch-design-fonts.sh).
-// All three were fetched successfully at implementation time; if a given
-// woff2 is ever missing from src/app/fonts, remove its localFont() call and
-// drop the corresponding className below — Tailwind's font-display/font-ui
-// already fall back to ui-sans-serif/system-ui, and font-mono falls back to
-// --font-mono (Geist) when --font-mono-plex is unset.
-const display = localFont({
-  src: "../fonts/BricolageGrotesk.woff2",
-  variable: "--font-display",
-  display: "swap",
-  weight: "400 800",
-});
-const ui = localFont({
-  src: "../fonts/HankenGrotesk.woff2",
-  variable: "--font-ui",
-  display: "swap",
-  weight: "400 800",
-});
-const plex = localFont({
-  src: "../fonts/IBMPlexMono.woff2",
-  variable: "--font-mono-plex",
-  display: "swap",
-  weight: "400 600",
-});
 
 /** Best-effort count query — a failure here should never break the shell. */
 async function safeCount(query: PromiseLike<{ count: number | null; error: unknown }>): Promise<number> {
