@@ -125,7 +125,7 @@ async def get_due_meetings(client: AsyncClient) -> list[dict]:
         await client.table("meetings")
         .select(
             "id, user_id, meet_url, native_meeting_id, opted_in, bot_status, "
-            "start_time, title"
+            "start_time, title, attendees, created_at"
         )
         .eq("opted_in", True)
         .eq("bot_status", "pending")
@@ -193,7 +193,7 @@ async def spawn_bot(
 
 async def dispatch_meeting(
     client: AsyncClient, settings: Settings, meeting: dict
-) -> None:
+) -> bool:
     """Spawn the Vexa bot for one meeting, transitioning bot_status.
 
     On success: mark the row bot_status='joining' (+ native_meeting_id from the
@@ -224,6 +224,7 @@ async def dispatch_meeting(
             native_meeting_id=native_id,
             user_id=meeting.get("user_id"),
         )
+        return True
     except Exception as exc:
         _log.warning("meeting_dispatch_failed", meeting_id=meeting_id, error=str(exc))
         try:
@@ -249,21 +250,53 @@ async def dispatch_meeting(
                 reason=str(exc)[:200],
             )
 
+        return False
+
+
+async def dispatch_group(client, settings, group: list[dict]) -> None:  # noqa: ANN001
+    """Dispatch ONE bot for a group of due rows sharing a native meeting.
+
+    Picks the lead, spawns one bot for it, and — only if that succeeds — marks
+    the other rows 'grouped' (pointing at the lead) so later polls never
+    re-dispatch them. If the lead fails, followers stay 'pending' to be retried
+    (a new lead may be chosen) on the next cycle.
+    """
+    lead = _pick_lead(group)
+    followers = [m for m in group if m.get("id") != lead.get("id")]
+
+    ok = await dispatch_meeting(client, settings, lead)
+    if not ok:
+        return
+    for f in followers:
+        with contextlib.suppress(Exception):
+            await (
+                client.table("meetings")
+                .update({"bot_status": "grouped", "bot_lead_meeting_id": lead["id"]})
+                .eq("id", f["id"])
+                .execute()
+            )
+    if followers:
+        _log.info(
+            "meeting_group_dispatched",
+            lead_id=lead["id"],
+            followers=len(followers),
+            native=_group_key(lead),
+        )
+
 
 async def run_once(client: AsyncClient, settings: Settings) -> None:
-    """One scheduler cycle: dispatch a bot for EVERY due meeting.
-
-    Concurrent meetings are fine — the multiplexer serves them all — so there is
-    no slot limit and no agent reaping here. Each dispatch is independent and
-    already guarded internally (marks the row failed on its own errors).
-    """
+    """One scheduler cycle: dedup due rows by native meeting, dispatch one bot
+    per group (+ one per keyless singleton)."""
     meetings = await get_due_meetings(client)
     if not meetings:
         return
 
-    _log.info("scheduler_dispatching", count=len(meetings))
-    for meeting in meetings:
+    groups, singletons = _partition_due(meetings)
+    _log.info("scheduler_dispatching", groups=len(groups), singletons=len(singletons))
+    for meeting in singletons:
         await dispatch_meeting(client, settings, meeting)
+    for group in groups:
+        await dispatch_group(client, settings, group)
 
 
 async def run_forever(interval_s: int = 30) -> None:

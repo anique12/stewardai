@@ -61,6 +61,8 @@ def _meeting(**over):
         "opted_in": True,
         "bot_status": "pending",
         "start_time": datetime.now(UTC).isoformat(),
+        "attendees": [],
+        "created_at": datetime.now(UTC).isoformat(),
     }
     row.update(over)
     return row
@@ -187,10 +189,26 @@ async def test_dispatch_bot_failure_marks_failed():
     assert any(p.get("bot_status") == "failed" for p in payloads), payloads
 
 
+async def test_dispatch_meeting_returns_true_on_success():
+    client, _ = _mock_client()
+    with patch.object(ms, "spawn_bot", AsyncMock(return_value={"id": 1, "native_meeting_id": "n"})):
+        assert await ms.dispatch_meeting(client, _settings(), _meeting()) is True
+
+
+async def test_dispatch_meeting_returns_false_on_failure():
+    client, _ = _mock_client()
+    with patch.object(ms, "spawn_bot", AsyncMock(side_effect=RuntimeError("boom"))):
+        assert await ms.dispatch_meeting(client, _settings(), _meeting()) is False
+
+
 # --- run_once dispatch-all (no slot limit) ----------------------------------
 
 async def test_run_once_dispatches_a_bot_for_every_due_meeting():
-    client, _ = _mock_client([_meeting(id="m-1"), _meeting(id="m-2"), _meeting(id="m-3")])
+    client, _ = _mock_client([
+        _meeting(id="m-1", meet_url="https://meet.google.com/aaa-1111-aaa"),
+        _meeting(id="m-2", meet_url="https://meet.google.com/bbb-2222-bbb"),
+        _meeting(id="m-3", meet_url="https://meet.google.com/ccc-3333-ccc"),
+    ])
 
     with patch.object(ms, "dispatch_meeting", AsyncMock()) as dispatch:
         await ms.run_once(client, _settings())
@@ -212,7 +230,10 @@ async def test_run_once_noop_when_no_due_meetings():
 
 async def test_run_once_calls_gateway_for_each_meeting_end_to_end():
     """Without mocking dispatch_meeting, each due meeting hits the gateway once."""
-    client, _ = _mock_client([_meeting(id="m-1"), _meeting(id="m-2")])
+    client, _ = _mock_client([
+        _meeting(id="m-1", meet_url="https://meet.google.com/aaa-1111-aaa"),
+        _meeting(id="m-2", meet_url="https://meet.google.com/bbb-2222-bbb"),
+    ])
 
     with patch.object(
         ms, "spawn_bot", AsyncMock(return_value={"id": 1, "native_meeting_id": "n"})
@@ -222,3 +243,46 @@ async def test_run_once_calls_gateway_for_each_meeting_end_to_end():
     assert spawn.await_count == 2
     payloads = _update_payloads(client)
     assert sum(1 for p in payloads if p.get("bot_status") == "joining") == 2
+
+
+# --- run_once dedup grouping -------------------------------------------------
+
+
+async def test_run_once_dedups_same_native_meeting_to_one_bot():
+    rows = [
+        _meeting(id="m-1", user_id="u-1", native_meeting_id="abc",
+                 attendees=[{"self": True, "organizer": True}]),
+        _meeting(id="m-2", user_id="u-2", native_meeting_id="abc", attendees=[{}]),
+        _meeting(id="m-3", user_id="u-3", native_meeting_id="zzz", attendees=[{}]),
+    ]
+    client, _ = _mock_client(rows)
+    with patch.object(
+        ms, "spawn_bot", AsyncMock(return_value={"id": 1, "native_meeting_id": "abc"})
+    ) as spawn:
+        await ms.run_once(client, _settings())
+
+    # One bot for the 'abc' group (lead = organizer m-1) + one for the 'zzz' group.
+    assert spawn.await_count == 2
+    payloads = _update_payloads(client)
+    # m-2 marked 'grouped' pointing at the lead m-1.
+    assert any(
+        p.get("bot_status") == "grouped" and p.get("bot_lead_meeting_id") == "m-1"
+        for p in payloads
+    ), payloads
+    # exactly one 'joining' per group (2 groups) -> 2 joining writes.
+    assert sum(1 for p in payloads if p.get("bot_status") == "joining") == 2
+
+
+async def test_run_once_group_lead_failure_leaves_followers_pending():
+    rows = [
+        _meeting(id="m-1", user_id="u-1", native_meeting_id="abc",
+                 attendees=[{"self": True, "organizer": True}]),
+        _meeting(id="m-2", user_id="u-2", native_meeting_id="abc", attendees=[{}]),
+    ]
+    client, _ = _mock_client(rows)
+    with patch.object(ms, "spawn_bot", AsyncMock(side_effect=RuntimeError("gateway"))):
+        await ms.run_once(client, _settings())
+    payloads = _update_payloads(client)
+    # Lead marked failed; NO follower marked 'grouped' (retry next poll).
+    assert any(p.get("bot_status") == "failed" for p in payloads), payloads
+    assert not any(p.get("bot_status") == "grouped" for p in payloads), payloads
