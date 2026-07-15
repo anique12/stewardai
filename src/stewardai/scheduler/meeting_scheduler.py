@@ -54,7 +54,7 @@ LOOK_AHEAD_S = 60     # join ~1 minute before start
 CALENDAR_SYNC_INTERVAL_S = 300  # 5 minutes
 
 # Bot identity shown in the meeting participant list.
-BOT_NAME = "StewardAI"
+BOT_NAME = "MeetBase"
 
 # How long the bot stays after it's the ONLY participant left before leaving
 # on its own (ms). Vexa's default is 900000 (15 min), which leaves the bot

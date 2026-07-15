@@ -174,7 +174,7 @@ class MeetingSession:
         self._meeting_keyterms: list[str] = []
         # Label for Steward's own spoken lines in the transcript (the owner's
         # configured bot display name; resolved in build(), defaults to "Steward").
-        self._bot_label: str = "Steward"
+        self._bot_label: str = "MeetBase"
         # Owner's IANA timezone (profiles.timezone) so calendar actions use their
         # LOCAL time, not UTC. Resolved in build(); defaults to UTC if unset.
         self._user_timezone: str = "UTC"
