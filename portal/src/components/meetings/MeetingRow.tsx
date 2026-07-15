@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { OptInToggle } from "./OptInToggle";
-import { StatusPill, type StatusPillStatus } from "@/components/common/StatusPill";
-
-const KNOWN_STATUSES: StatusPillStatus[] = ["in_meeting", "done", "failed", "scheduled", "pending"];
+import { StatusPill } from "@/components/common/StatusPill";
+import { toStatusPillStatus } from "@/lib/meetings/status-pill";
 
 type Meeting = {
   id: string;
@@ -18,9 +17,7 @@ export function MeetingRow({ meeting, isPast }: { meeting: Meeting; isPast: bool
   const start = new Date(meeting.start_time);
   const day = start.toLocaleDateString([], { month: "short", day: "numeric" });
   const time = start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  const status = KNOWN_STATUSES.includes(meeting.bot_status as StatusPillStatus)
-    ? (meeting.bot_status as StatusPillStatus)
-    : "done";
+  const status = toStatusPillStatus(meeting.bot_status);
 
   const body = (
     <div className="flex items-start gap-[13px] border-b border-line px-4 py-[13px] transition-colors last:border-0 hover:bg-surface-2">

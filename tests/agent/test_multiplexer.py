@@ -399,3 +399,90 @@ async def test_session_build_skips_action_tools_without_user_id(monkeypatch):
     composio.get_tools.assert_not_called()
     assert session._action_tools is None
     assert session._session is captured["session"]  # session still built
+
+
+# ---------------------------------------------------------------------------
+# Admission-gated bot_status lifecycle: 'in_meeting' only once the bot is
+# actually let in (first inbound PCM frame), 'done'/'failed' on teardown by
+# whether admission ever happened. A bot stuck in the Google Meet waiting room
+# (or rejected) must never be shown as live, and must land on 'failed'.
+# ---------------------------------------------------------------------------
+
+
+def _capturing_supabase(rows: list[dict]) -> tuple[MagicMock, list[dict]]:
+    """Supabase async client whose meetings read returns ``rows`` and whose
+    ``.update(payload)`` appends payload to the returned list for assertions."""
+    from unittest.mock import AsyncMock
+
+    updates: list[dict] = []
+    client = MagicMock()
+    chain = MagicMock()
+    chain.select.return_value = chain
+    chain.eq.return_value = chain
+    chain.order.return_value = chain
+
+    def _update(payload: dict):
+        updates.append(payload)
+        return chain
+
+    chain.update.side_effect = _update
+    chain.execute = AsyncMock(return_value=MagicMock(data=rows))
+    client.table.return_value = chain
+    return client, updates
+
+
+def _bare_session(supabase: MagicMock):
+    from stewardai.agent.meeting_runner import MeetingSession
+
+    s = Settings(redis_url="redis://localhost:6379")
+    return MeetingSession(
+        s,
+        meeting_id=43,
+        native_meeting_id="nkn-nsuq-qrw",
+        user_id="u-1",
+        conn=MagicMock(),
+        stt_backend=MagicMock(),
+        llm_backend=MagicMock(),
+        tts_backend=MagicMock(),
+        composio_service=None,
+        supabase_client=supabase,
+    )
+
+
+async def test_mark_admitted_flips_status_to_in_meeting():
+    """First inbound PCM frame = admitted → write 'in_meeting' and set the flag."""
+    client, updates = _capturing_supabase(
+        [{"id": "uuid-43", "bot_status": "joining", "created_at": "2026-01-01"}]
+    )
+    session = _bare_session(client)
+    assert session._admitted is False
+    await session._mark_admitted()
+    assert session._admitted is True
+    assert updates == [{"bot_status": "in_meeting"}]
+
+
+async def test_mark_admitted_is_idempotent():
+    """Repeated frames must not re-write 'in_meeting' on every PCM frame."""
+    client, updates = _capturing_supabase(
+        [{"id": "uuid-43", "bot_status": "joining", "created_at": "2026-01-01"}]
+    )
+    session = _bare_session(client)
+    await session._mark_admitted()
+    await session._mark_admitted()
+    assert updates == [{"bot_status": "in_meeting"}]
+
+
+def test_teardown_status_is_failed_when_never_admitted():
+    """Bot stuck in the waiting room / rejected → never admitted → 'failed'."""
+    client, _ = _capturing_supabase([])
+    session = _bare_session(client)
+    assert session._admitted is False
+    assert session._teardown_status() == "failed"
+
+
+def test_teardown_status_is_done_when_admitted():
+    """Bot was let in and the meeting ran → 'done'."""
+    client, _ = _capturing_supabase([])
+    session = _bare_session(client)
+    session._admitted = True
+    assert session._teardown_status() == "done"

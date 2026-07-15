@@ -1,9 +1,8 @@
 import Link from "next/link";
 import { SectionCard } from "@/components/common/SectionCard";
-import { StatusPill, type StatusPillStatus } from "@/components/common/StatusPill";
+import { StatusPill } from "@/components/common/StatusPill";
+import { toStatusPillStatus } from "@/lib/meetings/status-pill";
 import type { HomeMeetingRow } from "@/lib/home";
-
-const KNOWN_STATUSES: StatusPillStatus[] = ["in_meeting", "done", "failed", "scheduled", "pending"];
 
 function platformFromUrl(url: string | null): string {
   if (!url) return "No link";
@@ -34,9 +33,7 @@ export function TodaysAgenda({ meetings }: { meetings: HomeMeetingRow[] }) {
       ) : (
         meetings.map((m) => {
           const { time, ampm } = timeParts(m.start_time);
-          const status = KNOWN_STATUSES.includes(m.bot_status as StatusPillStatus)
-            ? (m.bot_status as StatusPillStatus)
-            : "scheduled";
+          const status = toStatusPillStatus(m.bot_status, "scheduled");
           return (
             <Link
               key={m.id}

@@ -220,6 +220,10 @@ class MeetingSession:
         self._roster_sub = None
         self._last_roster: dict[str, str] | None = None
         self._tasks: list[asyncio.Task] = []
+        # True once the bot is actually admitted (first inbound PCM frame). Gates the
+        # 'in_meeting' writeback (so a bot stuck in the Google Meet waiting room is
+        # never shown as live) and the teardown status ('done' vs 'failed').
+        self._admitted: bool = False
         # Serializes _write_summary (voice-command trigger vs teardown) so the
         # persist delete-then-insert can never interleave with itself.
         self._summary_lock = asyncio.Lock()
@@ -284,6 +288,24 @@ class MeetingSession:
                 status=status,
                 error=str(exc),
             )
+
+    async def _mark_admitted(self) -> None:
+        """Bot let into the meeting — fired on the FIRST inbound PCM frame (see
+        ``_feed_inbound``). The portal flips to 'in_meeting' (shown as "Live") HERE,
+        NOT at session start: a bot sitting in the Google Meet waiting room — or one
+        the host rejects/never admits — streams no meeting audio, so it must never
+        show as live. Idempotent: later frames are a no-op (writeback fires once)."""
+        if self._admitted:
+            return
+        self._admitted = True
+        await self._set_bot_status("in_meeting")
+
+    def _teardown_status(self) -> str:
+        """Final bot_status written on teardown. 'done' only if the bot was actually
+        admitted; otherwise 'failed' — the session ended without ever getting in
+        (rejected by the host, dismissed from the waiting room, or admission
+        timed out), which must not be recorded as a completed meeting."""
+        return "done" if self._admitted else "failed"
 
     async def _resolve_meeting_uuid(self) -> None:
         """Resolve + cache the Supabase meetings.id (UUID) for this meeting.
@@ -892,16 +914,19 @@ class MeetingSession:
         with contextlib.suppress(Exception):
             await self._roster_sub.start()
 
-        def _unmute_once() -> None:
-            loop.create_task(self._control.mic_on())
-
-        # When the owner has turned OFF "let Steward speak in meetings", never wire
-        # the unmute callback at all — the mic stays muted for the ENTIRE session no
-        # matter what the LLM decides (defense in depth alongside the prompt-level
-        # silent-observer instruction in build_meeting_system). Transcription is
-        # untouched: it rides the per-speaker frame tap + combined feed below, both
-        # of which run regardless of on_first_frame.
-        _on_first_frame = _unmute_once if self._speak_enabled else None
+        def _on_first_frame() -> None:
+            # First inbound PCM frame == bot admitted + meeting audio flowing. Flip
+            # the portal to 'in_meeting' ("Live") NOW — not at session start — so a
+            # bot stuck in / rejected from the Google Meet waiting room is never
+            # shown as live. Only THEN unmute, and only if the owner allows speech:
+            # when "let Steward speak in meetings" is OFF, the mic stays muted for the
+            # ENTIRE session no matter what the LLM decides (defense in depth alongside
+            # the prompt-level silent-observer instruction in build_meeting_system).
+            # Transcription is untouched either way: it rides the per-speaker frame tap
+            # + combined feed below, both of which run regardless of this callback.
+            loop.create_task(self._mark_admitted())
+            if self._speak_enabled:
+                loop.create_task(self._control.mic_on())
 
         pump = asyncio.create_task(_pump_paced(self._audio_out, self._conn))
         feed = asyncio.create_task(
@@ -926,8 +951,10 @@ class MeetingSession:
         else:
             self._tasks.append(asyncio.create_task(self._consume_speaker_names()))
         _log.info("meeting_session_started", meeting=self._mid, user_id=self.user_id)
-        # Multiplexer now owns the lifecycle writeback (scheduler no longer reaps).
-        await self._set_bot_status("in_meeting")
+        # NOTE: bot_status is NOT flipped to 'in_meeting' here. The session "starting"
+        # only means the bot connected its audio bridge — which happens while it is
+        # still in the Google Meet waiting room. Admission is signalled by the first
+        # inbound PCM frame, which fires _on_first_frame -> _mark_admitted above.
         # feed ends when the bot disconnects (frames() hits EOF) — that's teardown.
         self._feed_task = feed
 
@@ -1097,8 +1124,14 @@ class MeetingSession:
         with contextlib.suppress(Exception):
             await self._conn.aclose()
         # Close the meeting lifecycle now that the scheduler no longer reaps agents.
-        await self._set_bot_status("done")
-        _log.info("meeting_session_torn_down", meeting=self._mid)
+        # 'done' only if the bot was actually admitted; otherwise 'failed' (rejected /
+        # dismissed from the waiting room / admission timed out) — see _teardown_status.
+        await self._set_bot_status(self._teardown_status())
+        _log.info(
+            "meeting_session_torn_down",
+            meeting=self._mid,
+            admitted=self._admitted,
+        )
 
 
 async def run_multiplexer(settings: Settings | None = None) -> None:

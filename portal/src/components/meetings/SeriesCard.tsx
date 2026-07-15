@@ -5,9 +5,8 @@ import { ChevronRight } from "lucide-react";
 import type { SeriesEntry } from "@/lib/meetings/series";
 import { cadenceLabel } from "@/lib/meetings/cadence";
 import { OptInToggle } from "./OptInToggle";
-import { StatusPill, type StatusPillStatus } from "@/components/common/StatusPill";
-
-const KNOWN_STATUSES: StatusPillStatus[] = ["in_meeting", "done", "failed", "scheduled", "pending"];
+import { StatusPill } from "@/components/common/StatusPill";
+import { toStatusPillStatus } from "@/lib/meetings/status-pill";
 
 function dateLabel(iso: string): string {
   const d = new Date(iso);
@@ -70,9 +69,7 @@ export function SeriesCard({ entry }: { entry: SeriesEntry }) {
               </h4>
               <ul className="flex flex-col gap-2">
                 {entry.past.map((o) => {
-                  const status = KNOWN_STATUSES.includes(o.bot_status as StatusPillStatus)
-                    ? (o.bot_status as StatusPillStatus)
-                    : "done";
+                  const status = toStatusPillStatus(o.bot_status);
                   return (
                     <li key={o.id} className="flex items-start justify-between gap-3">
                       <div className="min-w-0">

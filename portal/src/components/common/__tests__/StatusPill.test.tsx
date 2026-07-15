@@ -48,3 +48,12 @@ test("pending shows Pending", () => {
   );
   expect(getByText(/pending/i)).toBeInTheDocument();
 });
+
+test("joining shows Joining (bot in the waiting room, not yet admitted)", () => {
+  const { getByText } = render(
+    <div className="steward-app">
+      <StatusPill status="joining" />
+    </div>
+  );
+  expect(getByText(/joining/i)).toBeInTheDocument();
+});

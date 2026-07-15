@@ -1,6 +1,7 @@
 import { cn } from "@/lib/utils";
 
 export type StatusPillStatus =
+  | "joining"
   | "in_meeting"
   | "done"
   | "failed"
@@ -11,6 +12,13 @@ const STATUS_CONFIG: Record<
   StatusPillStatus,
   { label: string; className: string; pulse?: boolean }
 > = {
+  joining: {
+    // Bot dispatched — asking to join / waiting in the lobby, NOT yet admitted.
+    // Pulses to read as in-progress, but distinct from the brand "Live" tone.
+    label: "Joining",
+    className: "text-attention-strong bg-attention-weak border-attention-weak",
+    pulse: true,
+  },
   in_meeting: {
     label: "Live",
     className: "text-brand bg-brand-weak border-brand-weak-2",
