@@ -4,6 +4,7 @@ import {
   ListChecks,
   Search,
   FolderKanban,
+  BookOpenCheck,
 } from "lucide-react";
 import { Container, SectionHeading } from "./primitives";
 
@@ -12,9 +13,9 @@ export function Features() {
     <section id="features" className="border-t border-border bg-card/30 py-20 sm:py-28">
       <Container>
         <SectionHeading
-          eyebrow="MeetBase · the meeting agent"
+          eyebrow="MeetBase · an active meeting agent"
           title="An agent that actually shows up to your meetings"
-          lead="MeetBase joins your calls on its own, captures everything that matters, and organizes it so nothing slips through the cracks."
+          lead="MeetBase doesn't just sit in the corner and transcribe. It arrives briefed on your history, speaks up the moment you ask, and captures everything — so it works like a teammate, not a recorder."
         />
 
         <div className="mt-14 space-y-16 sm:space-y-24">
@@ -27,6 +28,13 @@ export function Features() {
           />
           <FeatureRow
             reverse
+            icon={BookOpenCheck}
+            kicker="Comes prepared"
+            title="Walks in briefed on your history"
+            body="Before a recurring call, MeetBase reviews the Space it belongs to — the last meeting's decisions, open questions, and unfinished action items — and shows up with that context in hand. Ask 'where did we leave this?' and it already knows. You can get the same brief by email before the meeting starts."
+            visual={<BriefingVisual />}
+          />
+          <FeatureRow
             icon={Users}
             kicker="Transcription"
             title="Named-speaker transcripts, in real time"
@@ -34,6 +42,7 @@ export function Features() {
             visual={<TranscriptVisual />}
           />
           <FeatureRow
+            reverse
             icon={ListChecks}
             kicker="Synthesis"
             title="Notes, decisions & action items"
@@ -41,7 +50,6 @@ export function Features() {
             visual={<SummaryVisual />}
           />
           <FeatureRow
-            reverse
             icon={FolderKanban}
             kicker="Organization"
             title="Every meeting sorted into Spaces"
@@ -49,6 +57,7 @@ export function Features() {
             visual={<SpacesVisual />}
           />
           <FeatureRow
+            reverse
             icon={Search}
             kicker="Memory"
             title="Chat with your entire meeting history"
@@ -94,6 +103,41 @@ function FeatureRow({
 function Frame({ children }: { children: React.ReactNode }) {
   return (
     <div className="card-ring rounded-2xl p-5 shadow-xl shadow-black/30 sm:p-6">{children}</div>
+  );
+}
+
+function BriefingVisual() {
+  return (
+    <Frame>
+      <div className="flex items-center gap-2.5">
+        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-primary/12 text-primary">
+          <BookOpenCheck className="h-3.5 w-3.5" aria-hidden />
+        </span>
+        <div>
+          <p className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+            Briefing · before you join
+          </p>
+          <p className="text-sm text-foreground">Acme · Customer — weekly sync</p>
+        </div>
+      </div>
+      <div className="mt-4 space-y-4 text-sm">
+        <div>
+          <p className="text-xs font-medium text-primary">Last time you decided</p>
+          <p className="text-foreground">90-day migration window; enterprise pricing deferred.</p>
+        </div>
+        <div>
+          <p className="text-xs font-medium text-primary">Still open</p>
+          <p className="text-foreground">Who owns the SSO rollout?</p>
+        </div>
+        <div>
+          <p className="text-xs font-medium text-primary">Carried-over action items</p>
+          <ul className="mt-1 space-y-1 text-foreground">
+            <li>@Sam — send the revised SOW.</li>
+            <li>@You — confirm the migration date.</li>
+          </ul>
+        </div>
+      </div>
+    </Frame>
   );
 }
 

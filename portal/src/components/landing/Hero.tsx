@@ -27,14 +27,14 @@ export function Hero({ isAuthed = false }: { isAuthed?: boolean }) {
           </a>
 
           <h1 className="reveal reveal-2 mt-6 text-balance text-4xl font-semibold leading-[1.05] tracking-tight text-foreground sm:text-6xl">
-            The meeting agent that{" "}
-            <span className="accent-text">never forgets</span>.
+            An active teammate in every meeting —{" "}
+            <span className="accent-text">not a silent notetaker</span>.
           </h1>
 
           <p className="reveal reveal-3 mx-auto mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-muted-foreground">
-            MeetBase joins your calls, writes the notes, and tracks the action
-            items — then organizes every meeting into Spaces you can search and
-            chat with, whenever you need to remember what happened.
+            MeetBase walks into your calls already briefed on the last one, answers
+            out loud the moment you ask, and captures every decision and action
+            item — then files it all into Spaces you can search and chat with.
           </p>
 
           <div className="reveal reveal-3 mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
