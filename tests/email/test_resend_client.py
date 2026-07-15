@@ -44,3 +44,27 @@ async def test_send_posts_to_resend_with_auth_and_idempotency(monkeypatch):
     assert captured["json"]["from"] == "Steward <notes@x.ai>"
     assert captured["json"]["to"] == ["a@b.com"]
     assert captured["json"]["reply_to"] == "owner@x.ai"
+
+
+async def test_send_omits_optional_fields_when_none(monkeypatch):
+    captured = {}
+
+    async def fake_post(self, url, *, json=None, headers=None):
+        captured["url"] = url
+        captured["json"] = json
+        captured["headers"] = headers
+        return _Resp({"id": "msg_456"})
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    client = ResendClient("re_test")
+    mid = await client.send(
+        sender="Steward <notes@x.ai>",
+        to="a@b.com",
+        subject="Hi",
+        html="<p>Hi</p>",
+    )
+
+    assert mid == "msg_456"
+    assert "reply_to" not in captured["json"]
+    assert "headers" not in captured["json"]
+    assert "Idempotency-Key" not in captured["headers"]
