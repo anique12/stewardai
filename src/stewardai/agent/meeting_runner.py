@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 
+from stewardai.agent import fanout as _fanout_mod
 from stewardai.bridge.transport import MeetingConnection, MultiplexFrameServer
 from stewardai.bridge.vexa_control import RedisControl
 from stewardai.common.logging import get_logger
@@ -130,6 +131,39 @@ async def _resolve_user_id(supabase_client, native_meeting_id: str) -> str | Non
     return None
 
 
+async def _fanout_results(session, transcript: list[str]) -> None:  # noqa: ANN001
+    """Fan the lead bot's results out to every other opted-in MeetBase user in
+    the same call. Best-effort; the lead's own artifacts/extraction already ran
+    in teardown, so followers get artifacts + per-user actions and the whole
+    group gets a (dedup-keyed) notes email."""
+    if (
+        session._supabase is None
+        or not session.native_meeting_id
+        or session._last_summary is None
+    ):
+        return
+    group = await _fanout_mod.resolve_group_meetings(
+        session._supabase, session.native_meeting_id
+    )
+    if not group:
+        return
+    followers = [m for m in group if m.get("id") != session._meeting_uuid]
+    if followers:
+        await _fanout_mod.fanout_shared_artifacts(
+            session._supabase, followers, transcript, session._last_summary
+        )
+        if session._composio is not None:
+            await _fanout_mod.fanout_per_user_actions(
+                session._llm,
+                session._composio,
+                session._supabase,
+                followers,
+                transcript,
+                default_timezone=session._user_timezone,
+            )
+    await _fanout_mod.fanout_notes_emails(session._supabase, session._s, group)
+
+
 class MeetingSession:
     """One meeting's runtime: an AgentSession + I/O + control, scoped to one bot conn.
 
@@ -169,6 +203,10 @@ class MeetingSession:
         # keys transcript_segments/summaries/action_items/agent_actions on the UUID.
         # Resolved in build() before we write anything Supabase-side.
         self._meeting_uuid: str | None = None
+        # Latest generated summary (set by _write_summary), stashed so teardown's
+        # fan-out can share it with the other opted-in users in the same call
+        # without re-generating it.
+        self._last_summary: dict | None = None
         # Per-meeting STT keyterms (attendee names + domain terms) from the calendar
         # sync; fed to the Deepgram per-speaker transcriber. Empty if none / no column.
         self._meeting_keyterms: list[str] = []
@@ -739,6 +777,7 @@ class MeetingSession:
                         generate_summary(self._llm, transcript, user_id=self.user_id),
                         timeout=15.0,
                     )
+                    self._last_summary = summary
                     write_summary(self._mid, summary)
                     _log.info("summary_written", trigger=trigger, meeting=self._mid)
                     # Persist to Supabase so the portal panels populate (keyed on the
@@ -1069,6 +1108,11 @@ class MeetingSession:
                     timeout=15.0,
                 )
                 _log.info("post_meeting_actions_extracted", meeting=self._mid)
+        # Fan the results out to every OTHER opted-in MeetBase user in this same
+        # call (dedup-per-meeting: one bot, many owners). Guarded — never blocks
+        # the rest of teardown.
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(_fanout_results(self, teardown_transcript), timeout=30.0)
         # Knowledge Base ingestion (best-effort; never blocks teardown). Resolves
         # recurring_event_id/title from the meetings row the same way
         # _resolve_keyterms/_resolve_profile do; attendee_emails aren't stored
