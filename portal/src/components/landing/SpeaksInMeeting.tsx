@@ -1,5 +1,6 @@
 import { Volume2, EarOff, CheckCircle2 } from "lucide-react";
 import { Container, SectionHeading } from "./primitives";
+import { VoiceDemoDialog } from "./VoiceDemoDialog";
 
 // A spoken exchange shown as a "you → MeetBase" pair. `aloud` is what
 // MeetBase says back out loud; `note` is a small honesty/affordance caption
@@ -71,6 +72,10 @@ export function SpeaksInMeeting() {
           }
           lead="Every other notetaker just listens and transcribes. MeetBase can optionally speak up in the meeting: ask it a question and it answers out loud, tell it to summarize and it speaks the recap — then it still writes everything down."
         />
+
+        <div className="mt-8 flex justify-center">
+          <VoiceDemoDialog label="Talk to MeetBase Agent" />
+        </div>
 
         <div className="mt-12 grid items-start gap-10 lg:grid-cols-[0.85fr_1.15fr] lg:gap-14">
           {/* Left: the passive-vs-participant contrast. */}
