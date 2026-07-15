@@ -41,8 +41,8 @@ export function LandingNav({ isAuthed = false }: { isAuthed?: boolean }) {
         <nav className="flex h-16 items-center justify-between gap-6" aria-label="Primary">
           <Link href="/" className="flex items-center gap-2.5">
             {/* eslint-disable-next-line @next/next/no-img-element -- small local brand mark */}
-            <img src="/meetbase-mark.png" alt="MeetBase" className="h-7 w-7 shrink-0" />
-            <span className="text-[15px] font-semibold tracking-tight text-foreground">
+            <img src="/meetbase-mark.png" alt="MeetBase" className="h-9 w-9 shrink-0" />
+            <span className="text-[18px] font-semibold tracking-tight text-foreground">
               Meet<span className="text-primary">Base</span>
             </span>
           </Link>
