@@ -89,3 +89,34 @@ async def enqueue_bot_failed(
         payload={"title": title, "reason": reason},
         enabled=getattr(settings, "email_enabled", False),
     )
+
+
+async def enqueue_meeting_notes(
+    client,  # noqa: ANN001
+    settings,  # noqa: ANN001
+    *,
+    user_id: str,
+    meeting_id: str,
+    to_email: str,
+    title: str | None,
+    shared: bool = False,
+) -> bool:
+    """Enqueue one post-meeting notes email. dedup_key is (meeting_id, to_email)
+    so each recipient is emailed once per meeting even across teardown re-runs.
+    Best-effort; honors settings.email_enabled."""
+    from stewardai.email.keys import dedup_key_for
+
+    if not to_email:
+        return False
+    return await enqueue(
+        client,
+        user_id=user_id,
+        kind="meeting_notes",
+        to_email=to_email,
+        dedup_key=dedup_key_for(
+            "meeting_notes", meeting_id=meeting_id, to_email=to_email
+        ),
+        meeting_id=meeting_id,
+        payload={"title": title, "shared": shared},
+        enabled=getattr(settings, "email_enabled", False),
+    )

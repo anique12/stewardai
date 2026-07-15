@@ -12,3 +12,12 @@ def test_bot_failed_render_includes_meeting_title():
     subject, html = render("bot_failed", {"title": "Daily Standup", "app_url": "https://app.x.ai"})
     assert "Daily Standup" in html
     assert subject
+
+
+def test_meeting_notes_template_renders_subject_and_body():
+    subject, html = render(
+        "meeting_notes",
+        {"title": "Weekly Sync", "app_url": "https://app.example"},
+    )
+    assert "Weekly Sync" in subject
+    assert "https://app.example/app/meetings" in html

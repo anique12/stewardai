@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block subject %}Your notes for {{ title or "your meeting" }}{% endblock %}
+{% block content %}
+  <p>Hi {{ name or "there" }},</p>
+  {% if shared %}
+    <p>Notes from <strong>{{ title or "a meeting" }}</strong> were shared with you.</p>
+  {% else %}
+    <p>Your notes for <strong>{{ title or "your meeting" }}</strong> are ready.</p>
+  {% endif %}
+  <p><a href="{{ app_url }}/app/meetings" style="color:#2c6b58;font-weight:600">View notes &amp; action items →</a></p>
+{% endblock %}
