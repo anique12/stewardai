@@ -33,7 +33,7 @@ export function Composer({
   scope,
   onScopeChange,
   disabled = false,
-  placeholder = "Ask Steward, or tell it to do something…",
+  placeholder = "Ask MeetBase, or tell it to do something…",
 }: {
   onSend: (text: string, scope?: ChatScope) => void;
   scope: ChatScope;
@@ -149,7 +149,7 @@ export function Composer({
           </DropdownMenu>
 
           <span className="flex-1" />
-          <span className="hidden text-[10.5px] text-ink-4 sm:inline">Steward can act on connected apps</span>
+          <span className="hidden text-[10.5px] text-ink-4 sm:inline">MeetBase can act on connected apps</span>
           <button
             type="button"
             aria-label="Send"

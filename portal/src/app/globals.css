@@ -173,7 +173,7 @@
 }
 
 @layer base {
-  /* ---- StewardAI app palette (paper) — scoped so landing is untouched ---- */
+  /* ---- MeetBase app palette (paper) — scoped so landing is untouched ---- */
   .steward-app {
     --background: 42 31% 94%;      /* paper  #f4f1ea */
     --foreground: 50 12% 9%;       /* ink    #1b1a15 */

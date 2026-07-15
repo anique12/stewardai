@@ -29,7 +29,7 @@ export function LiveNowCard({ meeting }: { meeting: LiveMeeting }) {
           <span className="h-2 w-2 rounded-pill bg-brand" aria-hidden />
         </span>
         <span className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.1em] text-brand">
-          Happening now · Steward in room
+          Happening now · MeetBase in room
         </span>
         <span className="flex-1" />
         <span className="font-mono text-[11.5px] text-ink-3">{elapsedLabel(meeting.start_time)}</span>
@@ -38,7 +38,7 @@ export function LiveNowCard({ meeting }: { meeting: LiveMeeting }) {
         <div className="min-w-[200px] flex-1">
           <div className="font-display text-[17px] font-bold">{meeting.title}</div>
           <div className="mt-1 text-[12.5px] italic text-ink-2">
-            Steward is transcribing this meeting live.
+            MeetBase is transcribing this meeting live.
           </div>
         </div>
         <span className="inline-flex shrink-0 items-center rounded-md bg-brand px-4 py-2 text-[13.5px] font-semibold text-on-brand shadow-sh-1">

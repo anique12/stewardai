@@ -136,7 +136,7 @@ export default function ConnectionsPage() {
   if (loadError) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Connected apps" subtitle="What Steward can read from and act on — you control every connection" />
+        <PageHeader title="Connected apps" subtitle="What MeetBase can read from and act on — you control every connection" />
         <ErrorState title="Couldn't load integrations" onRetry={refreshStatus} />
       </div>
     );
@@ -146,7 +146,7 @@ export default function ConnectionsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Connected apps"
-        subtitle="What Steward can read from and act on — you control every connection"
+        subtitle="What MeetBase can read from and act on — you control every connection"
       />
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">

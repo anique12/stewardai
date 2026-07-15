@@ -59,7 +59,7 @@ export default async function UnfiledPage() {
       </Link>
       <h1 className="mb-1 font-display text-2xl font-bold tracking-tight text-ink">Review queue</h1>
       <p className="mb-[22px] text-[13px] text-ink-3">
-        Steward files most meetings on its own. These it wasn&apos;t sure about — confirm its guess, pick another
+        MeetBase files most meetings on its own. These it wasn&apos;t sure about — confirm its guess, pick another
         space, or file somewhere new. Nothing is locked in.
       </p>
 
@@ -67,7 +67,7 @@ export default async function UnfiledPage() {
         <EmptyState
           icon={<CheckCircleIcon />}
           title="All caught up"
-          body="Every meeting is filed with confidence. When Steward isn't sure where something belongs, it'll wait for you here."
+          body="Every meeting is filed with confidence. When MeetBase isn't sure where something belongs, it'll wait for you here."
         />
       ) : (
         <div className="flex flex-col gap-3.5">
@@ -100,7 +100,7 @@ export default async function UnfiledPage() {
                 <div className="mt-3.5 flex flex-wrap items-center gap-[10px] border-t border-line pt-[13px]">
                   {suggestedId ? (
                     <>
-                      <span className="text-[11.5px] text-ink-3">Steward suggests</span>
+                      <span className="text-[11.5px] text-ink-3">MeetBase suggests</span>
                       <ConfidenceBadge level={confidenceLevel(m.space_confidence)} />
                     </>
                   ) : null}

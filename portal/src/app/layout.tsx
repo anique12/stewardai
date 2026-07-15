@@ -19,17 +19,17 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://stewardai.com"),
+  metadataBase: new URL("https://meetbase.site"),
   title: {
-    default: "StewardAI — The personal AI agent platform",
-    template: "%s — StewardAI",
+    default: "MeetBase — AI notetaker & meeting assistant",
+    template: "%s — MeetBase",
   },
   description:
-    "StewardAI is a personal AI agent and the voice stack to build your own — real-time voice agents, fast multilingual speech-to-text, and natural low-latency text-to-speech, on one platform.",
+    "MeetBase joins your meetings, takes notes and action items automatically, and organizes everything into spaces — with an assistant you can ask about your entire meeting history.",
   openGraph: {
-    title: "StewardAI — The personal AI agent platform",
+    title: "MeetBase — AI notetaker & meeting assistant",
     description:
-      "A personal AI agent for you, and the voice infrastructure for developers: real-time voice agents, speech-to-text, and text-to-speech.",
+      "MeetBase joins your meetings, captures notes and action items, and lets you chat over your meeting history.",
     type: "website",
   },
 };

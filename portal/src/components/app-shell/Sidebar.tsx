@@ -11,15 +11,14 @@ import { cn } from "@/lib/utils";
 function Wordmark({ compact }: { compact?: boolean }) {
   return (
     <Link href="/app" className="flex items-center gap-2.5">
-      <span className={cn("grid shrink-0 place-items-center rounded-md bg-brand shadow-sh-1", compact ? "h-7 w-7" : "h-[30px] w-[30px]")}>
-        <span className="h-2.5 w-2.5 rounded-full border-2 border-on-brand" aria-hidden />
-      </span>
+      {/* eslint-disable-next-line @next/next/no-img-element -- small local brand mark */}
+      <img src="/meetbase-mark.png" alt="MeetBase" className={cn("shrink-0", compact ? "h-7 w-7" : "h-[30px] w-[30px]")} />
       <span className="leading-tight">
         <span className="block font-display text-[16px] font-bold tracking-tight text-ink">
-          Steward<span className="text-brand">AI</span>
+          Meet<span className="text-brand">Base</span>
         </span>
         {!compact ? (
-          <span className="block font-mono text-[9.5px] uppercase tracking-[0.08em] text-ink-3">Personal agent</span>
+          <span className="block font-mono text-[9.5px] uppercase tracking-[0.08em] text-ink-3">Meeting agent</span>
         ) : null}
       </span>
     </Link>
@@ -117,7 +116,7 @@ export function Sidebar({ email, avatarUrl, counts }: { email: string; avatarUrl
           className="flex w-full items-center justify-center gap-[9px] rounded-md bg-brand px-[11px] py-2.5 text-[13.5px] font-semibold text-on-brand shadow-sh-1 transition-colors hover:bg-brand-2"
         >
           <MessageCircle className="h-4 w-4" aria-hidden />
-          Ask Steward
+          Ask MeetBase
         </Link>
       </div>
 

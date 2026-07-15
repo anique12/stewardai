@@ -25,7 +25,7 @@ export function AskBar() {
           href="/app/chat"
           className="min-w-[180px] flex-1 rounded-lg border border-line-2 bg-surface px-[14px] py-[10px] text-left text-[13.5px] text-ink-3 hover:bg-surface-2"
         >
-          Ask Steward anything across your work…
+          Ask MeetBase anything across your work…
         </Link>
       </div>
       <div className="mt-[11px] flex flex-wrap gap-2">

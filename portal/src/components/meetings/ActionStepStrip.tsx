@@ -38,7 +38,7 @@ export function ActionStepStrip({
               {actions.map((a) => <ToolkitIcon key={a.id} toolkit={a.toolkit} />)}
             </span>
             <span className="font-medium text-ink">
-              Steward ran {actions.length} step{actions.length > 1 ? "s" : ""}
+              MeetBase ran {actions.length} step{actions.length > 1 ? "s" : ""}
             </span>
             {status.label && (
               <span className={`ml-auto rounded-full border px-2 py-0.5 text-[11px] ${TONE[status.tone]}`}>

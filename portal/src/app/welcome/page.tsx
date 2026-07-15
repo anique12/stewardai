@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
  *      yet) — separate, explicit consent via /auth/connect-calendar.
  *   3. "Done" (authenticated + calendar connected, or ?connected=1 fresh
  *      off the calendar-connect round trip) — enter the app.
- * (StewardAI.design.html ~1834-1856 for the visual spec of steps 2 & 3.)
+ * (MeetBase.design.html ~1834-1856 for the visual spec of steps 2 & 3.)
  */
 export default async function WelcomePage({
   searchParams,
@@ -64,7 +64,7 @@ export default async function WelcomePage({
             </svg>
           </div>
           <span className="font-display text-lg font-bold">
-            Steward<span className="opacity-70">AI</span>
+            Meet<span className="opacity-70">Base</span>
           </span>
         </div>
         <div className="flex max-w-[420px] flex-1 flex-col justify-center">
@@ -137,7 +137,7 @@ function CreateAccountStep() {
         </Reassurance>
         <Reassurance>
           <strong className="text-ink">No spam.</strong> We use this only to sign you in to
-          Steward.
+          MeetBase.
         </Reassurance>
       </div>
       <Button asChild className="w-full gap-2">
@@ -207,11 +207,11 @@ function ConnectCalendarStep() {
         Connect your calendar
       </h1>
       <p className="mb-5 text-[13.5px] leading-[1.55] text-ink-2">
-        This is how Steward knows when to show up. We only ever read your schedule.
+        This is how MeetBase knows when to show up. We only ever read your schedule.
       </p>
       <div className="mb-5 flex flex-col gap-[11px] rounded-xl border border-line bg-surface-2 p-[14px]">
         <Reassurance>
-          <strong className="text-ink">Read-only.</strong> Steward cannot create, move or delete
+          <strong className="text-ink">Read-only.</strong> MeetBase cannot create, move or delete
           events.
         </Reassurance>
         <Reassurance>
@@ -249,12 +249,12 @@ function DoneStep() {
         You&rsquo;re all set
       </h1>
       <p className="mb-[22px] text-[13.5px] leading-[1.55] text-ink-2">
-        Calendar connected. Steward will start joining your meetings and rolling up what was
+        Calendar connected. MeetBase will start joining your meetings and rolling up what was
         said — pick which ones from your Meetings home.
       </p>
       <Button asChild className="w-full gap-2">
         <Link href="/app">
-          Enter Steward
+          Enter MeetBase
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
             <path
               d="M5 12h14M13 6l6 6-6 6"

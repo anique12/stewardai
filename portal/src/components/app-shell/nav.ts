@@ -94,20 +94,20 @@ export const MOBILE_BOTTOM_NAV: NavItem[] = [
 export const ROUTE_TITLES: { prefix: string; title: string; subtitle?: string }[] = [
   { prefix: "/app/spaces/unfiled", title: "Review queue", subtitle: "Confirm where these meetings belong." },
   { prefix: "/app/spaces", title: "Spaces", subtitle: "Your work, organized into threads." },
-  { prefix: "/app/meetings", title: "Meetings", subtitle: "Every meeting Steward has joined or scheduled." },
-  { prefix: "/app/actions", title: "Action items", subtitle: "Every task Steward captured across your meetings." },
+  { prefix: "/app/meetings", title: "Meetings", subtitle: "Every meeting MeetBase has joined or scheduled." },
+  { prefix: "/app/actions", title: "Action items", subtitle: "Every task MeetBase captured across your meetings." },
   { prefix: "/app/settings/connections", title: "Connected apps", subtitle: "Manage calendar and meeting integrations." },
-  { prefix: "/app/usage", title: "Usage", subtitle: "Your Steward usage and billing." },
+  { prefix: "/app/usage", title: "Usage", subtitle: "Your MeetBase usage and billing." },
   // No "/app/settings" entry: that route now only redirects (see
   // app/app/settings/page.tsx) — Settings itself is a client-state modal,
   // never a rendered page/pathname.
-  { prefix: "/app/chat", title: "Ask Steward", subtitle: "Ask anything across your meetings and work." },
+  { prefix: "/app/chat", title: "Ask MeetBase", subtitle: "Ask anything across your meetings and work." },
   { prefix: "/app", title: "Home", subtitle: "Your day, at a glance." },
 ];
 
 export function routeTitleFor(pathname: string): { title: string; subtitle?: string } {
   const match = ROUTE_TITLES.find((r) => pathname === r.prefix || pathname.startsWith(`${r.prefix}/`));
-  return match ? { title: match.title, subtitle: match.subtitle } : { title: "StewardAI" };
+  return match ? { title: match.title, subtitle: match.subtitle } : { title: "MeetBase" };
 }
 
 export type NavCounts = { actions: number; review: number; live: boolean };

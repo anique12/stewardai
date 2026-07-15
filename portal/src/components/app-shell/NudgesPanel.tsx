@@ -113,11 +113,11 @@ export function NudgesPanel({
         className="steward-app fixed right-4 top-14 z-[51] w-[360px] max-w-[calc(100vw-32px)] overflow-hidden rounded-xl border border-line-2 bg-surface shadow-sh-pop"
         role="dialog"
         aria-modal="true"
-        aria-label="Nudges from Steward"
+        aria-label="Nudges from MeetBase"
       >
         <div className="flex items-center gap-[9px] border-b border-line px-[18px] py-[15px]">
           <Bell className="h-[17px] w-[17px] text-brand" aria-hidden />
-          <span className="flex-1 text-[14px] font-bold text-ink">Nudges from Steward</span>
+          <span className="flex-1 text-[14px] font-bold text-ink">Nudges from MeetBase</span>
           <button
             type="button"
             onClick={close}

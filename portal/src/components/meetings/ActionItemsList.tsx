@@ -190,7 +190,7 @@ export function ActionItemsList({ rows, timeZone }: { rows: ActionRow[]; timeZon
           </svg>
         }
         title="No open commitments"
-        body="As Steward captures commitments in your meetings, they collect here — with an owner, a due date, and a link to where they were made."
+        body="As MeetBase captures commitments in your meetings, they collect here — with an owner, a due date, and a link to where they were made."
       />
     );
   }

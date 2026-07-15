@@ -8,7 +8,7 @@ export function MeetingsError() {
   return (
     <ErrorState
       title="We couldn't reach your calendar"
-      body="Steward lost its connection to Google Calendar. Your data is safe — this is a temporary sync error."
+      body="MeetBase lost its connection to Google Calendar. Your data is safe — this is a temporary sync error."
       onRetry={() => router.refresh()}
     />
   );

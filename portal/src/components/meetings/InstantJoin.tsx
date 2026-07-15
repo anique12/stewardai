@@ -42,7 +42,7 @@ export function useInstantJoin() {
         setLoading(false);
         return;
       }
-      // Steward is queued — the backend scheduler will spawn the bot shortly.
+      // MeetBase is queued — the backend scheduler will spawn the bot shortly.
       setJoining(true);
       setUrl("");
       onSuccess?.();
@@ -69,7 +69,7 @@ export function InstantJoin() {
     <div className="rounded-lg border border-border bg-card p-5">
       <h2 className="text-lg font-semibold text-foreground">Instant join</h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        Paste a Google Meet, Zoom, or Teams link and Steward will join right away —
+        Paste a Google Meet, Zoom, or Teams link and MeetBase will join right away —
         no calendar sync needed.
       </p>
       <form
@@ -94,7 +94,7 @@ export function InstantJoin() {
           className="flex-1"
         />
         <Button type="submit" disabled={loading || url.trim().length === 0}>
-          {loading ? "Sending…" : "Send Steward"}
+          {loading ? "Sending…" : "Send MeetBase"}
         </Button>
       </form>
       {error && (
@@ -104,7 +104,7 @@ export function InstantJoin() {
       )}
       {joining && !error && (
         <p className="mt-2 text-sm text-muted-foreground">
-          Steward is joining… the bot appears once the scheduler picks it up (usually within a minute).
+          MeetBase is joining… the bot appears once the scheduler picks it up (usually within a minute).
         </p>
       )}
     </div>

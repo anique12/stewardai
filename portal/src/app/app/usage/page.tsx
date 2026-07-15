@@ -104,7 +104,7 @@ async function UsageDashboard({
           </svg>
         }
         title="No usage yet"
-        body="Once Steward starts processing meetings, your consumption and cost breakdown will appear here."
+        body="Once MeetBase starts processing meetings, your consumption and cost breakdown will appear here."
       />
     );
   }

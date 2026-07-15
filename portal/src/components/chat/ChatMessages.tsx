@@ -42,10 +42,10 @@ import { ConnectCard } from "./ConnectCard";
 import { PermissionCard } from "./PermissionCard";
 import { cn } from "@/lib/utils";
 
-// The Steward brand mark — two arcs + a dot, reused from the empty states
+// The MeetBase brand mark — two arcs + a dot, reused from the empty states
 // elsewhere in the app (dashboard/meetings) so the assistant's identity reads
 // consistently across the product.
-function StewardMark({ size = 16 }: { size?: number }) {
+function MeetBaseMark({ size = 16 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
       <circle cx="12" cy="12" r="3" fill="var(--on-brand)" />
@@ -465,7 +465,7 @@ function AssistantTurn({
   onSuggest?: (text: string) => void;
 }) {
   const { cite, sources } = collapseCitations(message.citations);
-  // Show EVERY action Steward takes (like the artifact) — including "Searched
+  // Show EVERY action MeetBase takes (like the artifact) — including "Searched
   // your knowledge base". We only hide the *inner* detail (query/params), not
   // the action line itself.
   const activities = message.activities;
@@ -479,9 +479,9 @@ function AssistantTurn({
             streaming && "anim-pulse",
           )}
         >
-          <StewardMark size={16} />
+          <MeetBaseMark size={16} />
         </span>
-        <span className="text-[12.5px] font-semibold text-ink">Steward</span>
+        <span className="text-[12.5px] font-semibold text-ink">MeetBase</span>
       </div>
 
       <ThinkingBlock
@@ -545,7 +545,7 @@ function AssistantTurn({
           <div
             className="flex w-fit items-center gap-[9px] rounded-pill border border-line bg-surface-2 px-3 py-[7px]"
             role="status"
-            aria-label="Steward is responding"
+            aria-label="MeetBase is responding"
           >
             <span className="flex gap-1">
               <span className="anim-pulse h-[6px] w-[6px] rounded-pill bg-brand" />
@@ -592,11 +592,11 @@ export function ChatMessages({
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 py-24 text-center">
         <div className="mb-1 grid h-[52px] w-[52px] shrink-0 place-items-center rounded-xl bg-brand shadow-sh-2">
-          <StewardMark size={28} />
+          <MeetBaseMark size={28} />
         </div>
-        <p className="font-display text-2xl font-bold tracking-tight text-ink">Ask Steward anything</p>
+        <p className="font-display text-2xl font-bold tracking-tight text-ink">Ask MeetBase anything</p>
         <p className="max-w-md text-sm leading-relaxed text-ink-2">
-          Steward reads across every meeting you&apos;ve had, cites its sources, and can act on your behalf — with
+          MeetBase reads across every meeting you&apos;ve had, cites its sources, and can act on your behalf — with
           your approval on anything that leaves your workspace.
         </p>
         <div className="mt-4 flex w-full max-w-md flex-col gap-2">

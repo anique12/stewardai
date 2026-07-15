@@ -10,7 +10,7 @@ export default function Loading() {
     <div className="space-y-6">
       <PageHeader
         title="Connected apps"
-        subtitle="What Steward can read from and act on — you control every connection"
+        subtitle="What MeetBase can read from and act on — you control every connection"
       />
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <Skeleton className="h-9 w-full rounded-md sm:max-w-[280px]" />

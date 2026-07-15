@@ -19,5 +19,5 @@ export function OptInToggle({ meetingId, initialValue }: { meetingId: string; in
     setLoading(false);
   }
 
-  return <Switch checked={checked} onCheckedChange={toggle} disabled={loading} aria-label="Send StewardAI to this meeting" />;
+  return <Switch checked={checked} onCheckedChange={toggle} disabled={loading} aria-label="Send MeetBase to this meeting" />;
 }

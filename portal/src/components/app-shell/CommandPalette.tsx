@@ -175,7 +175,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
           <span>↵ open</span>
           <span>esc close</span>
           <span className="flex-1" />
-          <span>Powered by Steward recall</span>
+          <span>Powered by MeetBase recall</span>
         </div>
       </div>
     </div>,

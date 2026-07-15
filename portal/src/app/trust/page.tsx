@@ -7,7 +7,7 @@ import { Container } from "@/components/landing/primitives";
 
 export const metadata: Metadata = {
   title: "Security & Trust",
-  description: "How StewardAI protects your data and keeps your meetings private.",
+  description: "How MeetBase protects your data and keeps your meetings private.",
 };
 
 const PILLARS = [
@@ -52,7 +52,7 @@ const PILLARS = [
 const STEPS = [
   {
     title: "Calendar opt-in",
-    body: "You choose which meetings to enable. StewardAI reads your calendar (read-only) to show upcoming events.",
+    body: "You choose which meetings to enable. MeetBase reads your calendar (read-only) to show upcoming events.",
   },
   {
     title: "Bot joins visibly",
@@ -135,7 +135,7 @@ export default function TrustPage() {
               <div>
                 <h3 className="mt-6 mb-3 text-base font-semibold text-foreground">Secure cloud infrastructure</h3>
                 <p className="mb-4 leading-7 text-muted-foreground">
-                  StewardAI is built on Supabase (database), Vercel (web hosting), and Hetzner (backend/bot
+                  MeetBase is built on Supabase (database), Vercel (web hosting), and Hetzner (backend/bot
                   infrastructure) — providers with strong security standards.
                 </p>
               </div>

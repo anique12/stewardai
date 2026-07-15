@@ -101,7 +101,7 @@ export default async function SpacesPage() {
         <div className="min-w-0 flex-1">
           <h1 className="font-display text-[26px] font-bold tracking-tight text-ink">Spaces</h1>
           <p className="mt-[3px] text-[13px] text-ink-3">
-            How Steward organizes your work — nestable threads across every meeting
+            How MeetBase organizes your work — nestable threads across every meeting
           </p>
         </div>
         <NewSpaceDialog />
@@ -120,7 +120,7 @@ export default async function SpacesPage() {
               {unfiledCount} meeting{unfiledCount === 1 ? "" : "s"} need filing
             </span>
             <span className="block text-[12.5px] text-ink-2">
-              Steward wasn&apos;t confident where these belong. Confirm or correct in a tap.
+              MeetBase wasn&apos;t confident where these belong. Confirm or correct in a tap.
             </span>
           </span>
           <span className="flex shrink-0 items-center gap-[6px] text-[12.5px] font-semibold text-attention-strong">
@@ -134,7 +134,7 @@ export default async function SpacesPage() {
         <EmptyState
           icon={<LayersIconLg />}
           title="No spaces yet"
-          body="As you meet, Steward files each meeting into a Space — a client, a project, a topic. Have a meeting or create your first Space to start."
+          body="As you meet, MeetBase files each meeting into a Space — a client, a project, a topic. Have a meeting or create your first Space to start."
           action={
             <NewSpaceDialog
               trigger={

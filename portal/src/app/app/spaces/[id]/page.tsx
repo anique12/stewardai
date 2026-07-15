@@ -144,7 +144,7 @@ export default async function SpaceDetailPage({ params }: { params: { id: string
         <EmptyState
           className="max-w-none rounded-2xl border border-dashed border-line-2 bg-surface"
           title="Nothing filed here yet"
-          body="When Steward files a meeting to this space, its facts, decisions and people will roll up here — each one sourced back to where it was said."
+          body="When MeetBase files a meeting to this space, its facts, decisions and people will roll up here — each one sourced back to where it was said."
         />
       ) : (
         <div className="grid gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">

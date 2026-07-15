@@ -80,7 +80,7 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
     db.from("spaces").select("id,name").eq("user_id", user.id).eq("status", "active").order("name"),
   ]);
 
-  const botName = profile?.bot_name ?? "StewardAI";
+  const botName = profile?.bot_name ?? "MeetBase";
 
   let meetingSpace: { id: string; name: string } | null = null;
   if (meeting.space_id) {
@@ -107,13 +107,13 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
           </svg>
         </div>
         <h2 className="mb-2 font-display text-xl font-bold tracking-tight text-ink">
-          Steward couldn&apos;t join this meeting
+          MeetBase couldn&apos;t join this meeting
         </h2>
         <p className="mb-1.5 text-sm leading-relaxed text-ink-2">
           The host didn&apos;t admit the bot before the meeting ended, so no transcript was captured.
         </p>
         <p className="mb-[22px] text-[12.5px] text-ink-3">
-          You can still add notes manually, or point Steward at the recording.
+          You can still add notes manually, or point MeetBase at the recording.
         </p>
         <div className="flex flex-wrap justify-center gap-2.5">
           <Link
@@ -165,12 +165,12 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
           </div>
           <h3 className="mb-[7px] font-display text-lg font-bold text-ink">Nothing recorded yet</h3>
           <p className="mx-auto mb-5 max-w-[400px] text-[13.5px] leading-relaxed text-ink-2">
-            This meeting hasn&apos;t started. Steward will join at{" "}
+            This meeting hasn&apos;t started. MeetBase will join at{" "}
             {new Date(meeting.start_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} and the
             named-speaker transcript, summary and action items will appear here live.
           </p>
           <div className="mb-[18px] inline-flex items-center gap-2.5 rounded-pill border border-brand-weak-2 bg-brand-weak py-2 pl-3.5 pr-2">
-            <span className="text-[12.5px] font-semibold text-brand-ink">Steward will join this meeting</span>
+            <span className="text-[12.5px] font-semibold text-brand-ink">MeetBase will join this meeting</span>
             <OptInToggle meetingId={meeting.id} initialValue={meeting.opted_in} />
           </div>
           {meeting.meet_url && (

@@ -22,7 +22,7 @@ function highlight(text: string, q: string): React.ReactNode {
       : <span key={i}>{p}</span>);
 }
 
-function StewardAvatar() {
+function MeetBaseAvatar() {
   return (
     <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-brand">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
@@ -113,7 +113,7 @@ export function MeetingTimeline({
             return (
               <div key={segment.id} className="flex gap-3 rounded-lg px-1 py-2">
                 {isAgent ? (
-                  <StewardAvatar />
+                  <MeetBaseAvatar />
                 ) : (
                   <SpeakerAvatar name={segment.speaker} email={match?.email} photoUrl={match?.photoUrl} />
                 )}

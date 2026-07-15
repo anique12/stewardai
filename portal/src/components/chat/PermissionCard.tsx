@@ -9,7 +9,7 @@
 // After a decision, the card swaps to a small receipt so the user gets confirmation
 // without waiting on the round trip to the server. This is local UI state only (no
 // new WS event) — and deliberately has no Undo action: undoing a sent email isn't
-// something Steward supports, so we don't offer a button that can't do anything.
+// something MeetBase supports, so we don't offer a button that can't do anything.
 
 import { useState } from "react";
 import { Check, Mail, ShieldCheck, X } from "lucide-react";
@@ -130,14 +130,14 @@ export function PermissionCard({
     return (
       <div className="flex items-center gap-2.5 rounded-xl border border-dashed border-line-2 px-3.5 py-3 text-[12.5px] text-ink-3">
         <X className="h-[15px] w-[15px] shrink-0" aria-hidden />
-        You discarded this draft. Steward didn&apos;t send anything.
+        You discarded this draft. MeetBase didn&apos;t send anything.
       </div>
     );
   }
 
   const title = email ? "Review & send email" : "Approve before running";
   const subtitle = email
-    ? "Steward drafted this — edit anything, then send."
+    ? "MeetBase drafted this — edit anything, then send."
     : "This runs on your behalf. Review the details, then approve.";
 
   return (

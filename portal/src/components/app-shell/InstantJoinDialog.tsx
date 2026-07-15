@@ -25,11 +25,11 @@ export function InstantJoinDialog({ open, onOpenChange }: { open: boolean; onOpe
           </div>
           <div>
             <div className="font-display text-[18px] font-bold text-ink">Instant join</div>
-            <div className="text-[12px] text-ink-3">Point Steward at a meeting happening now</div>
+            <div className="text-[12px] text-ink-3">Point MeetBase at a meeting happening now</div>
           </div>
         </div>
         <p className="mb-3 text-[13px] leading-[1.5] text-ink-2">
-          Paste a Google Meet, Zoom, or Teams link. Steward joins and starts transcribing — reliability is
+          Paste a Google Meet, Zoom, or Teams link. MeetBase joins and starts transcribing — reliability is
           currently best on Google Meet; Zoom and Teams joins are best-effort.
         </p>
         <input

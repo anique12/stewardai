@@ -10,7 +10,7 @@ type Summary = {
 type ActionItem = { id: string; owner: string; task: string; due: string | null; done: boolean };
 
 // One card per recap block — each is visually distinct so the reader never
-// confuses the summary, the human to-dos, and what Steward did.
+// confuses the summary, the human to-dos, and what MeetBase did.
 function Card({
   label,
   count,
@@ -128,7 +128,7 @@ export function MeetingSummary({
               <path d="M7 7a7 7 0 000 10M17 7a7 7 0 010 10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
             </svg>
             <span className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.08em] text-brand-ink">
-              What Steward did
+              What MeetBase did
             </span>
           </div>
           <AgentActionsPanel actions={agentActions} meetingId={meetingId} />

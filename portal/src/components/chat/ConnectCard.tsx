@@ -1,7 +1,7 @@
 "use client";
 
 // Shown inline in the assistant's turn when the server pauses the run on a
-// `connect_required` event (Steward needs a Composio connection to continue).
+// `connect_required` event (MeetBase needs a Composio connection to continue).
 //
 // The connect flow: POST /api/integrations/{app}/connect to get the Composio
 // OAuth URL, open it in a POPUP (so the chat WebSocket stays open and the paused
@@ -120,7 +120,7 @@ export function ConnectCard({
           <div className="mt-0.5 text-xs leading-relaxed text-ink-2">
             {phase === "connecting"
               ? `A window opened to connect ${label}. Approve access there — I'll continue automatically once it's linked.`
-              : `Steward needs access to ${label} to keep going. Connect it and I'll continue.`}
+              : `MeetBase needs access to ${label} to keep going. Connect it and I'll continue.`}
           </div>
           {error && <p className="mt-1 text-xs text-attention-strong">{error}</p>}
         </div>

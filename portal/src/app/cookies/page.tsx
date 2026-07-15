@@ -5,7 +5,7 @@ import { Container } from "@/components/landing/primitives";
 
 export const metadata: Metadata = {
   title: "Cookie Policy",
-  description: "How StewardAI uses cookies and similar technologies.",
+  description: "How MeetBase uses cookies and similar technologies.",
 };
 
 export default function CookiePage() {
@@ -27,7 +27,7 @@ export default function CookiePage() {
             <p className="mb-4 leading-7 text-muted-foreground">
               Cookies are small text files that a website stores on your device when you visit it. They are widely
               used to make websites work, to keep you signed in, and to remember information about your session. This
-              Cookie Policy explains how StewardAI uses cookies and similar technologies, and the choices you have.
+              Cookie Policy explains how MeetBase uses cookies and similar technologies, and the choices you have.
               It should be read alongside our{" "}
               <a href="/privacy" className="text-primary underline-offset-4 hover:underline">Privacy Policy</a>.
             </p>
@@ -35,7 +35,7 @@ export default function CookiePage() {
             <h2 className="mt-12 mb-4 text-xl font-semibold text-foreground">2. How We Use Cookies</h2>
             <p className="mb-4 leading-7 text-muted-foreground">
               We currently use only <strong className="text-foreground">strictly necessary</strong> cookies — the
-              cookies required for StewardAI to function and to keep your account secure. Specifically:
+              cookies required for MeetBase to function and to keep your account secure. Specifically:
             </p>
             <p className="mb-4 leading-7 text-muted-foreground">
               (a) <strong className="text-foreground">Authentication &amp; session cookies</strong> — set via our
@@ -63,7 +63,7 @@ export default function CookiePage() {
             <h2 className="mt-12 mb-4 text-xl font-semibold text-foreground">4. Managing Cookies</h2>
             <p className="mb-4 leading-7 text-muted-foreground">
               You can control and clear cookies through your browser settings — most browsers let you block or
-              delete cookies for specific sites or all sites. Please note that because StewardAI currently uses
+              delete cookies for specific sites or all sites. Please note that because MeetBase currently uses
               only strictly necessary cookies, disabling them will break sign-in and core functionality, and you may
               not be able to use the service.
             </p>

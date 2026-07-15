@@ -42,8 +42,8 @@ export default async function AppPage() {
             />
           </svg>
         }
-        title={`Welcome to Steward, ${firstName(user.email ?? "there")}`}
-        body="Connect your calendar and Steward starts joining your meetings. Your day, your commitments, and everything said will roll up here."
+        title={`Welcome to MeetBase, ${firstName(user.email ?? "there")}`}
+        body="Connect your calendar and MeetBase starts joining your meetings. Your day, your commitments, and everything said will roll up here."
         action={
           <Button asChild>
             <Link href="/welcome">Connect a calendar</Link>
@@ -212,7 +212,7 @@ async function HomeDashboard({ userId, userEmail }: { userId: string; userEmail:
                   <div className="text-[13.5px] font-bold">
                     {data.reviewCount} meeting{data.reviewCount === 1 ? "" : "s"} need filing
                   </div>
-                  <div className="text-xs text-ink-2">Confirm where Steward should file them</div>
+                  <div className="text-xs text-ink-2">Confirm where MeetBase should file them</div>
                 </div>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-attention-strong">
                   <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />

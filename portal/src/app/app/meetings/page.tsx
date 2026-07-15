@@ -53,7 +53,7 @@ export default async function MeetingsPage({
         title="Connect a calendar to begin"
         body={
           <>
-            Steward reads your schedule to know when to show up. It joins only the meetings you opt
+            MeetBase reads your schedule to know when to show up. It joins only the meetings you opt
             into — and asks for <strong className="text-ink">read-only</strong> calendar access,
             nothing more.
           </>

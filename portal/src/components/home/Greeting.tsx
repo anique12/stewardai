@@ -37,7 +37,7 @@ export function Greeting({ displayName, now, timeZone, meetingsToday, openAction
       <p className="text-[13.5px] text-ink-2">
         {dateLabel} ·{" "}
         <span className="font-semibold text-brand">
-          Steward is covering {meetingsToday} meeting{meetingsToday === 1 ? "" : "s"}
+          MeetBase is covering {meetingsToday} meeting{meetingsToday === 1 ? "" : "s"}
         </span>{" "}
         today · {openActions} open action item{openActions === 1 ? "" : "s"}
       </p>

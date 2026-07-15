@@ -45,17 +45,17 @@ const AUTO_JOIN_OPTIONS: { value: AutoJoinPolicy; label: string; description: st
   {
     value: "all",
     label: "Join every new meeting",
-    description: "Steward joins all new meetings on your calendar that have a video link.",
+    description: "MeetBase joins all new meetings on your calendar that have a video link.",
   },
   {
     value: "organizer",
     label: "Only meetings I organize",
-    description: "Steward joins only meetings you host.",
+    description: "MeetBase joins only meetings you host.",
   },
   {
     value: "none",
     label: "Don't join automatically",
-    description: "Steward joins nothing until you turn it on per meeting.",
+    description: "MeetBase joins nothing until you turn it on per meeting.",
   },
 ];
 
@@ -148,8 +148,8 @@ function AutoApprovalsSection() {
     <div>
       <SectionTitle>Automatic approvals</SectionTitle>
       <p className="mb-4 text-[12.5px] leading-relaxed text-ink-2">
-        Tools you&apos;ve told Steward to always run without asking first. Revoke any of these to have
-        Steward ask again next time.
+        Tools you&apos;ve told MeetBase to always run without asking first. Revoke any of these to have
+        MeetBase ask again next time.
       </p>
 
       {isLoading ? (
@@ -157,7 +157,7 @@ function AutoApprovalsSection() {
       ) : isError || !permissions || permissions.length === 0 ? (
         <div className="flex items-center gap-2.5 rounded-md border border-dashed border-line-2 px-3.5 py-3 text-[12.5px] text-ink-3">
           <ShieldCheck className="h-4 w-4 shrink-0 text-ink-4" aria-hidden />
-          No automatic approvals — Steward asks before every outward action.
+          No automatic approvals — MeetBase asks before every outward action.
         </div>
       ) : (
         <ul className="space-y-2">
@@ -323,7 +323,7 @@ export function SettingsModal({
         return (
           <div>
             <SectionTitle>General</SectionTitle>
-            <SettingRow label="Appearance" description="Choose how Steward looks on this device.">
+            <SettingRow label="Appearance" description="Choose how MeetBase looks on this device.">
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -363,7 +363,7 @@ export function SettingsModal({
               description={
                 <>
                   What you say to address the agent out loud — e.g. &ldquo;
-                  <span className="font-semibold text-foreground">{botName || "Steward"}</span>, summarize where we are.&rdquo;
+                  <span className="font-semibold text-foreground">{botName || "MeetBase"}</span>, summarize where we are.&rdquo;
                 </>
               }
               align="start"
@@ -373,7 +373,7 @@ export function SettingsModal({
                   value={botName}
                   onChange={(e) => setBotName(e.target.value)}
                   className="h-auto w-[180px] rounded-md border-line-2 bg-paper px-3 py-[9px] text-[13.5px] font-semibold"
-                  aria-label="Steward's name / wake word"
+                  aria-label="MeetBase's name / wake word"
                 />
                 <Button onClick={saveProfile} disabled={saving} size="sm">
                   {saving ? "Saving…" : "Save"}
@@ -385,7 +385,7 @@ export function SettingsModal({
                 <div className="min-w-0 max-w-[380px]">
                   <div className="text-[13.5px] font-medium text-foreground">Auto-join policy</div>
                   <div className="mt-0.5 text-[12px] leading-relaxed text-ink-3">
-                    Choose which new meetings Steward auto-joins by default when your calendar syncs.
+                    Choose which new meetings MeetBase auto-joins by default when your calendar syncs.
                   </div>
                 </div>
               </div>
@@ -426,15 +426,15 @@ export function SettingsModal({
               </p>
             </div>
             <SettingRow
-              label="Let Steward speak in meetings"
-              description="When off, Steward silently takes notes and does everything after the meeting — it won't talk in the room."
+              label="Let MeetBase speak in meetings"
+              description="When off, MeetBase silently takes notes and does everything after the meeting — it won't talk in the room."
               align="start"
             >
               <Switch
                 checked={allowMeetingSpeech}
                 onCheckedChange={saveAllowMeetingSpeech}
                 disabled={savingSpeech}
-                aria-label="Let Steward speak in meetings"
+                aria-label="Let MeetBase speak in meetings"
               />
             </SettingRow>
           </div>
@@ -501,7 +501,7 @@ export function SettingsModal({
                 </Button>
               </div>
             </SettingRow>
-            <SettingRow label="Sign out" description="You'll need to sign back in to use Steward.">
+            <SettingRow label="Sign out" description="You'll need to sign back in to use MeetBase.">
               <button
                 type="button"
                 onClick={signOut}

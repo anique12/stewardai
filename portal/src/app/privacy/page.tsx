@@ -5,7 +5,7 @@ import { Container } from "@/components/landing/primitives";
 
 export const metadata: Metadata = {
   title: "Privacy Policy",
-  description: "How StewardAI collects, uses, and protects your personal data.",
+  description: "How MeetBase collects, uses, and protects your personal data.",
 };
 
 export default function PrivacyPage() {
@@ -25,10 +25,10 @@ export default function PrivacyPage() {
             {/* prose sections */}
             <h2 className="mt-12 mb-4 text-xl font-semibold text-foreground">1. Introduction</h2>
             <p className="mb-4 leading-7 text-muted-foreground">
-              StewardAI (operated by [Legal Entity Name], [Registered Address]) provides an AI-powered personal
+              MeetBase (operated by [Legal Entity Name], [Registered Address]) provides an AI-powered personal
               assistant that joins your meetings, transcribes them, and syncs your Google Calendar. This Privacy
               Policy describes how we collect, use, and protect information when you use our services. If you do
-              not agree, please do not use StewardAI. Effective date: June 30, 2026.
+              not agree, please do not use MeetBase. Effective date: June 30, 2026.
             </p>
 
             <h2 className="mt-12 mb-4 text-xl font-semibold text-foreground">2. Information We Collect</h2>
@@ -38,7 +38,7 @@ export default function PrivacyPage() {
             </p>
             <p className="mb-4 leading-7 text-muted-foreground">
               (b) <strong className="text-foreground">Google Calendar data</strong> — With your authorisation,
-              StewardAI accesses your Google Calendar via the Google Calendar API using a read-only OAuth scope. We
+              MeetBase accesses your Google Calendar via the Google Calendar API using a read-only OAuth scope. We
               store your OAuth refresh token to sync your calendar on your behalf. We access event titles, dates
               and times, attendee lists, and conference/Google Meet links.
             </p>
@@ -60,7 +60,7 @@ export default function PrivacyPage() {
 
             <h2 className="mt-12 mb-4 text-xl font-semibold text-foreground">3. How We Use Your Information</h2>
             <p className="mb-4 leading-7 text-muted-foreground">
-              We use your information to: provide and operate the StewardAI service; generate, store, and display
+              We use your information to: provide and operate the MeetBase service; generate, store, and display
               transcripts, summaries, decisions, and action items; authenticate you and secure your account; detect
               abuse, debug issues, and improve the service; communicate with you about the service. We do not use
               your data for advertising or sell it to third parties.
@@ -71,13 +71,13 @@ export default function PrivacyPage() {
               Our meeting bot joins as a named, visible participant — it does not record covertly or impersonate a
               human. The bot&apos;s display name makes its presence apparent to all participants. You are responsible
               for ensuring all meeting participants are informed and that you have the legal right to record, prior
-              to enabling the StewardAI bot for any meeting.
+              to enabling the MeetBase bot for any meeting.
             </p>
             <p className="mb-4 leading-7 text-muted-foreground">
               Recording consent laws vary significantly by jurisdiction. Many jurisdictions — including several US
               states (e.g., California, Illinois) and EU member states under the GDPR — require all-party consent
               before a conversation may be recorded. It is your obligation to comply with applicable law.
-              StewardAI provides tooling to support compliance: the bot is always visible, and you can remove it
+              MeetBase provides tooling to support compliance: the bot is always visible, and you can remove it
               from any meeting at any time to stop recording.
             </p>
 
@@ -168,9 +168,9 @@ export default function PrivacyPage() {
 
             <h2 className="mt-12 mb-4 text-xl font-semibold text-foreground">10. Google API Limited Use Disclosure</h2>
             <p className="mb-4 leading-7 text-muted-foreground">
-              StewardAI&apos;s use of information received from Google APIs adheres to the Google API Services User
+              MeetBase&apos;s use of information received from Google APIs adheres to the Google API Services User
               Data Policy, including the Limited Use requirements. We use Google user data only to provide and
-              improve the features visible to the user within StewardAI; we do not use it for serving ads, for
+              improve the features visible to the user within MeetBase; we do not use it for serving ads, for
               unauthorized data sharing, or for purposes unrelated to the service.
             </p>
 
@@ -182,7 +182,7 @@ export default function PrivacyPage() {
 
             <h2 className="mt-12 mb-4 text-xl font-semibold text-foreground">12. Children</h2>
             <p className="mb-4 leading-7 text-muted-foreground">
-              StewardAI is not directed to individuals under the age of 16. We do not knowingly collect personal
+              MeetBase is not directed to individuals under the age of 16. We do not knowingly collect personal
               data from children. If you believe we have inadvertently collected data from a minor, contact us at
               [privacy@...] and we will delete it promptly.
             </p>

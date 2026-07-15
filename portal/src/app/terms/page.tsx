@@ -5,7 +5,7 @@ import { Container } from "@/components/landing/primitives";
 
 export const metadata: Metadata = {
   title: "Terms of Service",
-  description: "Terms governing your use of the StewardAI platform.",
+  description: "Terms governing your use of the MeetBase platform.",
 };
 
 export default function TermsPage() {
@@ -25,13 +25,13 @@ export default function TermsPage() {
             {/* prose sections */}
             <h2 className="mt-12 mb-4 text-xl font-semibold text-foreground">1. Acceptance of Terms</h2>
             <p className="mb-4 leading-7 text-muted-foreground">
-              By accessing or using StewardAI, you agree to be bound by these Terms. If you do not agree, you may
+              By accessing or using MeetBase, you agree to be bound by these Terms. If you do not agree, you may
               not use the Service. These Terms form a binding agreement between you and [Legal Entity Name].
             </p>
 
             <h2 className="mt-12 mb-4 text-xl font-semibold text-foreground">2. Description of Service</h2>
             <p className="mb-4 leading-7 text-muted-foreground">
-              StewardAI is an AI-powered personal assistant that:
+              MeetBase is an AI-powered personal assistant that:
             </p>
             <ul className="mb-4 space-y-1.5 pl-5 text-muted-foreground list-disc">
               <li className="leading-7">
@@ -48,7 +48,7 @@ export default function TermsPage() {
 
             <h2 className="mt-12 mb-4 text-xl font-semibold text-foreground">3. Eligibility &amp; Accounts</h2>
             <p className="mb-4 leading-7 text-muted-foreground">
-              You must be at least 18 years old to use StewardAI. You are responsible for maintaining the
+              You must be at least 18 years old to use MeetBase. You are responsible for maintaining the
               confidentiality of your credentials and all activity under your account. You must provide accurate
               information when creating your account.
             </p>
@@ -63,7 +63,7 @@ export default function TermsPage() {
 
             <h2 className="mt-12 mb-4 text-xl font-semibold text-foreground">5. Meeting Recording Responsibilities</h2>
             <p className="mb-4 leading-7 text-muted-foreground">
-              By enabling the StewardAI bot for a meeting, you represent and warrant that:
+              By enabling the MeetBase bot for a meeting, you represent and warrant that:
             </p>
             <ul className="mb-4 space-y-1.5 pl-5 text-muted-foreground list-disc">
               <li className="leading-7">
@@ -84,22 +84,22 @@ export default function TermsPage() {
 
             <h2 className="mt-12 mb-4 text-xl font-semibold text-foreground">6. Google/Calendar Integration</h2>
             <p className="mb-4 leading-7 text-muted-foreground">
-              By authorising Google Calendar access, you grant StewardAI permission to read your calendar data to
+              By authorising Google Calendar access, you grant MeetBase permission to read your calendar data to
               provide calendar-sync functionality. You may revoke this authorisation at any time via your Google
-              Account or in StewardAI settings. Revocation does not affect prior processing performed under your
+              Account or in MeetBase settings. Revocation does not affect prior processing performed under your
               authorisation.
             </p>
 
             <h2 className="mt-12 mb-4 text-xl font-semibold text-foreground">7. Plans &amp; Billing</h2>
             <p className="mb-4 leading-7 text-muted-foreground">
-              StewardAI is currently free during our beta period. We reserve the right to introduce paid plans
+              MeetBase is currently free during our beta period. We reserve the right to introduce paid plans
               with at least 30 days&apos; notice to existing users. No credit card is required during beta.
             </p>
 
             <h2 className="mt-12 mb-4 text-xl font-semibold text-foreground">8. Your Content &amp; Data</h2>
             <p className="mb-4 leading-7 text-muted-foreground">
               You retain ownership of your data including meeting content, transcripts, and summaries. By using
-              the Service, you grant StewardAI a limited, non-exclusive, royalty-free licence to process, store,
+              the Service, you grant MeetBase a limited, non-exclusive, royalty-free licence to process, store,
               and display your data solely to provide the Service. We do not use your data to train AI models. See
               our{" "}
               <a href="/privacy" className="text-primary underline-offset-4 hover:underline">Privacy Policy</a>{" "}
@@ -108,14 +108,14 @@ export default function TermsPage() {
 
             <h2 className="mt-12 mb-4 text-xl font-semibold text-foreground">9. Intellectual Property</h2>
             <p className="mb-4 leading-7 text-muted-foreground">
-              The StewardAI platform, software, design, and documentation are owned by [Legal Entity Name] and
+              The MeetBase platform, software, design, and documentation are owned by [Legal Entity Name] and
               protected by intellectual property laws. You may not copy, modify, distribute, or create derivative
               works without our written permission.
             </p>
 
             <h2 className="mt-12 mb-4 text-xl font-semibold text-foreground">10. Third-Party Services</h2>
             <p className="mb-4 leading-7 text-muted-foreground">
-              StewardAI integrates with Google, Supabase, Deepgram, and others. Your use of those services is
+              MeetBase integrates with Google, Supabase, Deepgram, and others. Your use of those services is
               governed by their respective terms. We are not responsible for third-party practices.
             </p>
 
@@ -136,7 +136,7 @@ export default function TermsPage() {
 
             <h2 className="mt-12 mb-4 text-xl font-semibold text-foreground">13. Indemnification</h2>
             <p className="mb-4 leading-7 text-muted-foreground">
-              You agree to indemnify StewardAI from claims arising from: your use of the Service; your violation
+              You agree to indemnify MeetBase from claims arising from: your use of the Service; your violation
               of these Terms; your violation of recording consent laws; or your content.
             </p>
 
