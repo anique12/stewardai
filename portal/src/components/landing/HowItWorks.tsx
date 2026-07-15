@@ -6,31 +6,31 @@ const STEPS = [
     n: "01",
     icon: CalendarPlus,
     title: "Connect your calendar",
-    body: "Sign in with Google and grant read-only calendar access. Setup takes under a minute — no extensions, no downloads.",
+    body: "Sign in with Google. Under a minute — no downloads.",
   },
   {
     n: "02",
     icon: ToggleRight,
     title: "MeetBase joins your meetings",
-    body: "Flip on the meetings you want covered, or let MeetBase auto-join recurring calls. You choose which ones it joins, and the bot is always visible on the call.",
+    body: "Pick which calls it joins, or auto-join recurring ones.",
   },
   {
     n: "03",
     icon: FileCheck2,
     title: "Notes & action items, auto-captured",
-    body: "Minutes after the call, your recap is waiting — named transcript, decisions, owners, and follow-ups, all searchable.",
+    body: "A searchable recap: transcript, decisions, follow-ups.",
   },
   {
     n: "04",
     icon: FolderKanban,
     title: "Organized into Spaces",
-    body: "Every meeting is filed under the client, project, or topic it belongs to, so your history stays organized without any manual filing.",
+    body: "Auto-filed by client, project, or topic — no manual sorting.",
   },
   {
     n: "05",
     icon: MessageCircle,
     title: "Ask MeetBase about any of it",
-    body: "Chat with your entire meeting history — 'what did we decide', 'what are my open action items' — and get answers grounded in the transcript.",
+    body: "Chat your whole history — answers grounded in the transcript.",
   },
 ];
 

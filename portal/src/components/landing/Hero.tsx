@@ -17,16 +17,7 @@ export function Hero({ isAuthed = false }: { isAuthed?: boolean }) {
 
       <Container className="relative pt-20 pb-16 sm:pt-28 sm:pb-24">
         <div className="mx-auto max-w-3xl text-center">
-          <a
-            href="#speaks"
-            className="reveal reveal-1 inline-flex items-center gap-2 rounded-full border border-border bg-secondary/40 px-3 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
-          >
-            <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />
-            New — MeetBase can speak up in your meetings
-            <ArrowRight className="h-3 w-3" aria-hidden />
-          </a>
-
-          <h1 className="reveal reveal-2 mt-6 text-balance text-4xl font-semibold leading-[1.05] tracking-tight text-foreground sm:text-6xl">
+          <h1 className="reveal reveal-2 text-balance text-4xl font-semibold leading-[1.05] tracking-tight text-foreground sm:text-6xl">
             An active teammate —{" "}
             <span className="accent-text">not a notetaker</span>.
           </h1>
@@ -53,7 +44,7 @@ export function Hero({ isAuthed = false }: { isAuthed?: boolean }) {
           </div>
 
           <ul className="reveal reveal-4 mx-auto mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
-            {["No credit card", "Free tier", "Read-only calendar access"].map((t) => (
+            {["No credit card", "Free tier"].map((t) => (
               <li key={t} className="flex items-center gap-1.5">
                 <Check className="h-3.5 w-3.5 text-primary" aria-hidden />
                 {t}
