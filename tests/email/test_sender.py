@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from stewardai.email.sender import run_pending_emails_once
 
 
@@ -88,3 +90,24 @@ async def test_failure_increments_attempts():
     n = await run_pending_emails_once(q, resend, _Settings())
     assert n == 0
     assert any(u.get("attempts") == 1 for u in q.updates)
+
+
+async def test_stale_welcome_is_canceled_not_sent():
+    stale_created_at = (datetime.now(UTC) - timedelta(days=3)).isoformat()
+    row = {"id": "1", "kind": "welcome", "to_email": "o@x.ai", "dedup_key": "welcome:u1",
+           "payload": {}, "attempts": 0, "created_at": stale_created_at}
+    q, resend = _Q(row), _FakeResend()
+    n = await run_pending_emails_once(q, resend, _Settings())
+    assert n == 0
+    assert resend.calls == []
+    assert any(u.get("status") == "canceled" for u in q.updates)
+
+
+async def test_fresh_welcome_still_sends():
+    fresh_created_at = datetime.now(UTC).isoformat()
+    row = {"id": "1", "kind": "welcome", "to_email": "o@x.ai", "dedup_key": "welcome:u1",
+           "payload": {}, "attempts": 0, "created_at": fresh_created_at}
+    q, resend = _Q(row), _FakeResend()
+    n = await run_pending_emails_once(q, resend, _Settings())
+    assert n == 1
+    assert any(u.get("status") == "sent" for u in q.updates)

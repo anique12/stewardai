@@ -11,6 +11,8 @@ from stewardai.email.templates import render
 
 _log = get_logger("email.sender")
 _MAX_ATTEMPTS = 5
+_STALE_LIFECYCLE_KINDS = {"welcome", "calendar_connected"}
+_STALE_AFTER = timedelta(hours=48)
 
 
 async def run_pending_emails_once(client, resend, settings) -> int:  # noqa: ANN001
@@ -19,9 +21,10 @@ async def run_pending_emails_once(client, resend, settings) -> int:  # noqa: ANN
     try:
         resp = await (
             client.table("email_outbox")
-            .select("id, kind, to_email, dedup_key, payload, attempts")
+            .select("id, kind, to_email, dedup_key, payload, attempts, created_at")
             .eq("status", "pending")
             .lte("scheduled_for", now.isoformat())
+            .order("scheduled_for")
             .limit(100)
             .execute()
         )
@@ -36,6 +39,14 @@ async def run_pending_emails_once(client, resend, settings) -> int:  # noqa: ANN
         # Suppression: skip + mark, never send.
         if await is_suppressed(client, to_email):
             await _update(client, rid, {"status": "suppressed"})
+            continue
+        if row["kind"] in _STALE_LIFECYCLE_KINDS and _is_stale(row.get("created_at"), now):
+            await _update(client, rid, {"status": "canceled"})
+            _log.info(
+                "email_canceled_stale",
+                kind=row["kind"],
+                dedup_key=row.get("dedup_key"),
+            )
             continue
         try:
             payload = dict(row.get("payload") or {})
@@ -67,6 +78,19 @@ async def run_pending_emails_once(client, resend, settings) -> int:  # noqa: ANN
                 error=str(exc)[:200],
             )
     return sent
+
+
+def _is_stale(created_at: str | None, now: datetime) -> bool:
+    """Return True if created_at parses and is older than _STALE_AFTER. Fail open (False)."""
+    if not created_at:
+        return False
+    try:
+        created = datetime.fromisoformat(created_at)
+    except (TypeError, ValueError):
+        return False
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=UTC)
+    return created < now - _STALE_AFTER
 
 
 async def _update(client, rid: str, patch: dict) -> None:  # noqa: ANN001
