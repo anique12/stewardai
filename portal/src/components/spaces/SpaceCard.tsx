@@ -108,11 +108,9 @@ export function SpaceCard({
         <OpenChip count={stats.open} />
       </div>
       {stats.people.length > 0 ? (
-        <div className="flex items-center">
-          {stats.people.map((p, i) => (
-            <span key={p.id} className={i > 0 ? "-ml-[5px]" : ""}>
-              <SpeakerAvatar name={p.name} email={p.email} />
-            </span>
+        <div className="flex items-center gap-1.5">
+          {stats.people.map((p) => (
+            <SpeakerAvatar key={p.id} name={p.name} email={p.email} />
           ))}
         </div>
       ) : null}
