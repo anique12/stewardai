@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
 import React from "react";
+import { cookies } from "next/headers";
 import { Lock, ShieldCheck, Brain, Eye, Settings2, List, ChevronRight } from "lucide-react";
 import { LandingNav } from "@/components/landing/Nav";
 import { LandingFooter } from "@/components/landing/Footer";
 import { Container } from "@/components/landing/primitives";
+import { LandingShell } from "@/components/landing/LandingShell";
+import { parseTheme, THEME_COOKIE } from "@/lib/theme";
 
 export const metadata: Metadata = {
   title: "Security & Trust",
@@ -69,8 +72,10 @@ const STEPS = [
 ];
 
 export default function TrustPage() {
+  const theme = parseTheme(cookies().get(THEME_COOKIE)?.value);
+
   return (
-    <>
+    <LandingShell initial={theme}>
       <LandingNav />
       <main>
         <Container>
@@ -180,6 +185,6 @@ export default function TrustPage() {
         </Container>
       </main>
       <LandingFooter />
-    </>
+    </LandingShell>
   );
 }

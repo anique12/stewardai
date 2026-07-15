@@ -40,6 +40,6 @@ export function LandingShell({
 
 export function useLandingTheme(): Ctx {
   const ctx = useContext(LandingThemeContext);
-  if (!ctx) throw new Error("useLandingTheme must be used within LandingShell");
+  if (!ctx) return { theme: "light" as const, toggle: () => {} };
   return ctx;
 }

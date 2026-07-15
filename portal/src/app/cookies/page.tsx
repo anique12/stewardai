@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { LandingNav } from "@/components/landing/Nav";
 import { LandingFooter } from "@/components/landing/Footer";
 import { Container } from "@/components/landing/primitives";
+import { LandingShell } from "@/components/landing/LandingShell";
+import { parseTheme, THEME_COOKIE } from "@/lib/theme";
 
 export const metadata: Metadata = {
   title: "Cookie Policy",
@@ -9,8 +12,10 @@ export const metadata: Metadata = {
 };
 
 export default function CookiePage() {
+  const theme = parseTheme(cookies().get(THEME_COOKIE)?.value);
+
   return (
-    <>
+    <LandingShell initial={theme}>
       <LandingNav />
       <main className="py-20">
         <Container>
@@ -83,6 +88,6 @@ export default function CookiePage() {
         </Container>
       </main>
       <LandingFooter />
-    </>
+    </LandingShell>
   );
 }
