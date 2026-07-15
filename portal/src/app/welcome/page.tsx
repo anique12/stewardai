@@ -86,7 +86,7 @@ export default async function WelcomePage({
           </div>
         </div>
         <div className="flex gap-[22px] text-xs opacity-80">
-          <span>SOC 2 Type II</span>
+          <span>Encrypted at rest</span>
           <span>·</span>
           <span>Read-only calendar</span>
           <span>·</span>

@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 const PILLARS = [
   {
     icon: Lock,
-    title: "End-to-end encryption",
+    title: "Encrypted in transit & at rest",
     description:
       "All data is encrypted in transit with TLS and encrypted at rest. Meeting audio is processed over secure channels only.",
   },

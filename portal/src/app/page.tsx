@@ -5,6 +5,7 @@ import { Hero } from "@/components/landing/Hero";
 import { Features } from "@/components/landing/Features";
 import { SpeaksInMeeting } from "@/components/landing/SpeaksInMeeting";
 import { HowItWorks } from "@/components/landing/HowItWorks";
+import { FAQ } from "@/components/landing/FAQ";
 import { FinalCTA } from "@/components/landing/FinalCTA";
 import { LandingFooter } from "@/components/landing/Footer";
 import { createServerClient } from "@/lib/supabase/server";
@@ -28,6 +29,7 @@ export default async function HomePage() {
         <Features />
         <SpeaksInMeeting />
         <HowItWorks />
+        <FAQ />
         <FinalCTA />
       </main>
       <LandingFooter />

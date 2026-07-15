@@ -64,7 +64,7 @@ export default async function MeetingsPage({
               <Link href="/welcome">Connect Google Calendar</Link>
             </Button>
             <div className="flex flex-wrap justify-center gap-2">
-              {["🔒 Read-only access", "SOC 2 Type II", "You choose every meeting"].map((t) => (
+              {["🔒 Read-only access", "Encrypted & isolated", "You choose every meeting"].map((t) => (
                 <span
                   key={t}
                   className="rounded-pill border border-line bg-surface-2 px-2.5 py-1 font-mono text-[10.5px] text-ink-3"
