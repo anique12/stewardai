@@ -69,9 +69,9 @@ export function InstantJoin() {
     <div className="rounded-lg border border-border bg-card p-5">
       <h2 className="text-lg font-semibold text-foreground">Instant join</h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        Paste a Google Meet, Zoom, or Teams link and MeetBase will join right away —
-        no calendar sync needed.
+        Paste a Google Meet link and MeetBase will join right away — no calendar sync needed.
       </p>
+      <p className="mt-1 text-xs text-muted-foreground/70">Zoom and Microsoft Teams — coming soon.</p>
       <form
         onSubmit={(e) => {
           e.preventDefault();

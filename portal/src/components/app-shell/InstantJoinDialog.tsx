@@ -29,8 +29,8 @@ export function InstantJoinDialog({ open, onOpenChange }: { open: boolean; onOpe
           </div>
         </div>
         <p className="mb-3 text-[13px] leading-[1.5] text-ink-2">
-          Paste a Google Meet, Zoom, or Teams link. MeetBase joins and starts transcribing — reliability is
-          currently best on Google Meet; Zoom and Teams joins are best-effort.
+          Paste a Google Meet link. MeetBase joins and starts transcribing right away. Zoom and
+          Microsoft Teams are coming soon.
         </p>
         <input
           value={url}
@@ -40,7 +40,7 @@ export function InstantJoinDialog({ open, onOpenChange }: { open: boolean; onOpe
           }}
           onKeyDown={(e) => e.key === "Enter" && join()}
           autoFocus
-          placeholder="https://meet.google.com/… or Zoom link"
+          placeholder="https://meet.google.com/abc-defg-hij"
           aria-label="Meeting link"
           aria-invalid={error ? true : undefined}
           disabled={loading}

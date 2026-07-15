@@ -31,11 +31,11 @@ const FAQS: { q: string; a: string }[] = [
   },
   {
     q: "Can MeetBase connect to my other tools?",
-    a: "Yes. Connect apps like Notion, Slack, and Google Sheets, and MeetBase can turn meeting outcomes into action — create a task, post a recap, or log a row — when you ask. You choose which apps are connected, and it only acts with your approval.",
+    a: "Yes. Connect apps like Notion, Slack, and Google Sheets, and MeetBase can turn meeting outcomes into action — create a task, post a recap, or log a row — when you ask. Connecting an app goes through that app's own permission screen, where you approve exactly what MeetBase can access, and you can disconnect anytime.",
   },
   {
     q: "Which meeting platforms does MeetBase support?",
-    a: "Google Meet and Google Calendar today. Support for Zoom and Microsoft Teams — both calls and calendars — is on the roadmap.",
+    a: "MeetBase works with Google Meet and Google Calendar.",
   },
   {
     q: "How much does MeetBase cost?",
