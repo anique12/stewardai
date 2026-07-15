@@ -13,7 +13,7 @@ import type { ChatState, Message, ServerEvent } from "@/lib/chat/types";
 
 export type PermissionDecision = "approve" | "reject" | "always";
 
-// A question can be scoped to narrow what Steward searches — "All work" (no
+// A question can be scoped to narrow what MeetBase searches — "All work" (no
 // scope), a specific Space, or a specific Meeting. Sent structurally as a
 // `scope` field on the `user_message` WS payload (see `send` below) so the
 // backend can actually constrain retrieval, rather than relying on a text

@@ -63,7 +63,7 @@ export function deriveNudges({ overdueActions, unfiledCount, failedMeetings }: D
   for (const meeting of failedMeetings) {
     nudges.push({
       kind: "bot_failed",
-      title: "Steward couldn't join",
+      title: "MeetBase couldn't join",
       body: `"${meeting.title}" failed to record.`,
       act: "View meeting",
       href: `/app/meetings/${meeting.id}`,
