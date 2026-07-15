@@ -25,6 +25,7 @@ dependencies = [
     "langgraph>=0.2",
     "langchain-litellm",
     "langchain-core",
+    "jinja2>=3.1",
 ]
 
 [project.optional-dependencies]

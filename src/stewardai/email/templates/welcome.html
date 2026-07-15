@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block subject %}Welcome to Steward{% endblock %}
+{% block content %}
+  <p>Hi {{ name or "there" }},</p>
+  <p>Steward joins your meetings, takes notes, and captures action items automatically.</p>
+  <p><a href="{{ app_url }}/app" style="color:#2c6b58;font-weight:600">Open Steward →</a></p>
+{% endblock %}
