@@ -6,6 +6,10 @@ const config: Config = {
     "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
+    // src/lib holds class strings too (e.g. speaker-colors.ts avatar chips);
+    // without this Tailwind never generates those rules → classes render with
+    // no styling.
+    "./src/lib/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   theme: {
     extend: {
