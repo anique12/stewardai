@@ -22,15 +22,15 @@ const geistMono = localFont({
 export const metadata: Metadata = {
   metadataBase: new URL("https://meetbase.site"),
   title: {
-    default: "MeetBase — AI notetaker & meeting assistant",
+    default: "MeetBase — The active AI meeting agent",
     template: "%s — MeetBase",
   },
   description:
-    "MeetBase joins your meetings, takes notes and action items automatically, and organizes everything into spaces — with an assistant you can ask about your entire meeting history.",
+    "MeetBase is an active AI meeting agent: it joins your calls prepared, speaks up when you ask, and captures every decision and action item — then organizes it into spaces you can chat with. Not a silent notetaker.",
   openGraph: {
-    title: "MeetBase — AI notetaker & meeting assistant",
+    title: "MeetBase — The active AI meeting agent",
     description:
-      "MeetBase joins your meetings, captures notes and action items, and lets you chat over your meeting history.",
+      "An active AI meeting agent that joins prepared, speaks up when asked, and captures every decision and action item — not a silent notetaker.",
     type: "website",
   },
 };
