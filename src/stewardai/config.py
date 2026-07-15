@@ -136,6 +136,20 @@ class Settings(BaseSettings):
     # rate the Vexa bot should paplay our PCM at; our pipeline is 16 kHz end-to-end (SAMPLE_RATE).
     playback_sample_rate: int = 16000
 
+    # --- Email (Resend transactional) ---
+    # Gated: when False, enqueue is a no-op and the sender processes nothing, so
+    # dev/staging never send real mail. Set True in prod once the domain is verified.
+    email_enabled: bool = False
+    resend_api_key: str | None = None
+    # From header, e.g. "Steward <notes@mail.yourdomain.ai>". Placeholder default
+    # is safe because email_enabled defaults False.
+    email_from: str = "Steward <notes@example.com>"
+    # Replies to owner-facing system emails go here (optional); notes/prep set
+    # reply-to per-message to the owner in the later plan.
+    email_reply_to: str | None = None
+    # Base URL for links in emails (e.g. https://app.yourdomain.ai).
+    public_app_url: str = "http://localhost:3000"
+
     # TTS
     tts_default_voice: str = "stub"
 
