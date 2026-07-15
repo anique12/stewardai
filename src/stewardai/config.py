@@ -143,7 +143,7 @@ class Settings(BaseSettings):
     resend_api_key: str | None = None
     # From header, e.g. "Steward <notes@mail.yourdomain.ai>". Placeholder default
     # is safe because email_enabled defaults False.
-    email_from: str = "MeetingBase <support@meetbase.site>"
+    email_from: str = "MeetBase <support@meetbase.site>"
     # Replies to owner-facing system emails go here (optional); notes/prep set
     # reply-to per-message to the owner in the later plan.
     email_reply_to: str | None = None

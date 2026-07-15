@@ -73,7 +73,7 @@ async def enqueue_bot_failed(
     title: str | None,
     reason: str | None,
 ) -> None:
-    """Enqueue the owner-only 'MeetingBase couldn't join' email. Best-effort."""
+    """Enqueue the owner-only 'MeetBase couldn't join' email. Best-effort."""
     from stewardai.email.keys import dedup_key_for
 
     email = await resolve_owner_email(client, user_id)

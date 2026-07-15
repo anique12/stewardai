@@ -3,7 +3,7 @@ from stewardai.email.templates import render
 
 def test_welcome_render_has_subject_and_name():
     subject, html = render("welcome", {"name": "Anique", "app_url": "https://app.x.ai"})
-    assert "MeetingBase" in subject
+    assert "MeetBase" in subject
     assert "Anique" in html
     assert "https://app.x.ai" in html
 
