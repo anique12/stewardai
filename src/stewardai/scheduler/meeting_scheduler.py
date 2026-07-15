@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING
 import httpx
 
 from stewardai.common.logging import get_logger
+from stewardai.scheduler.calendar_sync import _native_id
 
 if TYPE_CHECKING:
     from supabase import AsyncClient
@@ -61,6 +62,54 @@ BOT_NAME = "MeetBase"
 # lingering long after everyone has gone; 60s leaves promptly once alone.
 # "Alone" = only the bot remains, so this never fires while a human is present.
 ALONE_LEAVE_MS = 60_000
+
+
+def _group_key(meeting: dict) -> str | None:
+    """Dedup key for a due row: stored native_meeting_id, else derived from the
+    meet_url (instant-join rows may not have the column populated yet)."""
+    return meeting.get("native_meeting_id") or _native_id(
+        meeting.get("meet_url") or ""
+    )
+
+
+def _partition_due(
+    meetings: list[dict],
+) -> tuple[list[list[dict]], list[dict]]:
+    """Split due rows into (groups, singletons). Rows sharing a non-null
+    _group_key form one group (one bot for all of them); rows with no key are
+    dispatched individually as before."""
+    by_key: dict[str, list[dict]] = {}
+    singletons: list[dict] = []
+    for m in meetings:
+        key = _group_key(m)
+        if key:
+            by_key.setdefault(key, []).append(m)
+        else:
+            singletons.append(m)
+    return list(by_key.values()), singletons
+
+
+def _is_organizer(meeting: dict) -> bool:
+    """True if the row's owner organizes the event (its own attendee entry is
+    marked self+organizer). Derived from stored attendees — no extra column."""
+    for a in meeting.get("attendees") or []:
+        if isinstance(a, dict) and a.get("self") and a.get("organizer"):
+            return True
+    return False
+
+
+def _pick_lead(group: list[dict]) -> dict:
+    """Choose the row whose bot joins: organizer → most attendees → earliest
+    created_at → smallest id. Total order, so selection is deterministic."""
+    return sorted(
+        group,
+        key=lambda r: (
+            not _is_organizer(r),  # organizers first
+            -len(r.get("attendees") or []),  # then most attendees
+            str(r.get("created_at") or ""),  # then earliest created
+            str(r.get("id") or ""),  # tie-break: smallest id
+        ),
+    )[0]
 
 
 async def get_due_meetings(client: AsyncClient) -> list[dict]:
