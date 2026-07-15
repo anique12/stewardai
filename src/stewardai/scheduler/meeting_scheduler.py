@@ -25,6 +25,7 @@ owner via ``native_meeting_id`` instead.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
@@ -73,7 +74,10 @@ async def get_due_meetings(client: AsyncClient) -> list[dict]:
     window_end = (now + timedelta(seconds=LOOK_AHEAD_S)).isoformat()
     resp = (
         await client.table("meetings")
-        .select("id, user_id, meet_url, native_meeting_id, opted_in, bot_status, start_time")
+        .select(
+            "id, user_id, meet_url, native_meeting_id, opted_in, bot_status, "
+            "start_time, title"
+        )
         .eq("opted_in", True)
         .eq("bot_status", "pending")
         .gte("start_time", window_start)
@@ -183,6 +187,17 @@ async def dispatch_meeting(
         except Exception as exc2:  # noqa: BLE001 — best-effort failure marking
             _log.warning(
                 "meeting_failed_mark_failed", meeting_id=meeting_id, error=str(exc2)
+            )
+
+        with contextlib.suppress(Exception):
+            from stewardai.email.outbox import enqueue_bot_failed
+
+            await enqueue_bot_failed(
+                client, settings,
+                user_id=meeting.get("user_id"),
+                meeting_id=meeting_id,
+                title=meeting.get("title"),
+                reason=str(exc)[:200],
             )
 
 

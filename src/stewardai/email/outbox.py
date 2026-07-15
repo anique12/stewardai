@@ -62,3 +62,30 @@ async def resolve_owner_email(client, user_id: str) -> str | None:  # noqa: ANN0
         return (data.get("email") or None) if isinstance(data, dict) else None
     except Exception:  # noqa: BLE001
         return None
+
+
+async def enqueue_bot_failed(
+    client,  # noqa: ANN001
+    settings,  # noqa: ANN001
+    *,
+    user_id: str,
+    meeting_id: str,
+    title: str | None,
+    reason: str | None,
+) -> None:
+    """Enqueue the owner-only 'Steward couldn't join' email. Best-effort."""
+    from stewardai.email.keys import dedup_key_for
+
+    email = await resolve_owner_email(client, user_id)
+    if not email:
+        return
+    await enqueue(
+        client,
+        user_id=user_id,
+        kind="bot_failed",
+        to_email=email,
+        dedup_key=dedup_key_for("bot_failed", meeting_id=meeting_id),
+        meeting_id=meeting_id,
+        payload={"title": title, "reason": reason},
+        enabled=getattr(settings, "email_enabled", False),
+    )
