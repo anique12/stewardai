@@ -253,6 +253,27 @@ async def dispatch_meeting(
         return False
 
 
+async def _active_lead_for(client, native_meeting_id: str):  # noqa: ANN001, ANN201
+    """Return an existing row already hosting a bot for this native meeting
+    (bot_status joining/in_meeting), or None. Guarded → None on error."""
+    if not native_meeting_id:
+        return None
+    try:
+        resp = await (
+            client.table("meetings")
+            .select("id, bot_status")
+            .eq("native_meeting_id", native_meeting_id)
+            .in_("bot_status", ["joining", "in_meeting"])
+            .limit(1)
+            .execute()
+        )
+        rows = resp.data or []
+        return rows[0] if rows else None
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("active_lead_lookup_failed", native=native_meeting_id, error=str(exc))
+        return None
+
+
 async def dispatch_group(client, settings, group: list[dict]) -> None:  # noqa: ANN001
     """Dispatch ONE bot for a group of due rows sharing a native meeting.
 
@@ -260,7 +281,33 @@ async def dispatch_group(client, settings, group: list[dict]) -> None:  # noqa: 
     the other rows 'grouped' (pointing at the lead) so later polls never
     re-dispatch them. If the lead fails, followers stay 'pending' to be retried
     (a new lead may be chosen) on the next cycle.
+
+    Cross-cycle guard: if a bot is ALREADY joining/in_meeting for this native
+    meeting (from a prior cycle), attach every row in this group to it instead
+    of dispatching a second bot into the same call (late calendar sync / a
+    mid-meeting opt-in can otherwise resurface a new 'pending' row).
     """
+    native = _group_key(group[0])
+    active = await _active_lead_for(client, native)
+    if active is not None:
+        for m in group:
+            if m.get("id") == active["id"]:
+                continue
+            with contextlib.suppress(Exception):
+                await (
+                    client.table("meetings")
+                    .update({"bot_status": "grouped", "bot_lead_meeting_id": active["id"]})
+                    .eq("id", m["id"])
+                    .execute()
+                )
+        _log.info(
+            "meeting_group_attached_to_active_lead",
+            native=native,
+            active_id=active["id"],
+            rows=len(group),
+        )
+        return
+
     lead = _pick_lead(group)
     followers = [m for m in group if m.get("id") != lead.get("id")]
 

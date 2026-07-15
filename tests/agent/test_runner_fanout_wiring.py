@@ -15,6 +15,7 @@ class _Sess:
         self._meeting_uuid = "m-1"  # the lead
         self._last_summary = {"tldr": "x"}
         self._user_timezone = "UTC"
+        self._admitted = True
 
 
 async def test_fanout_results_targets_followers_and_all_for_email():
@@ -44,5 +45,28 @@ async def test_fanout_results_noop_without_summary():
     sess._last_summary = None
     with patch.object(mr, "_fanout_mod") as mod:
         mod.resolve_group_meetings = AsyncMock(return_value=[])
+        mod.fail_grouped_followers = AsyncMock()
         await mr._fanout_results(sess, ["t"])
     mod.resolve_group_meetings.assert_not_awaited()
+    mod.fail_grouped_followers.assert_awaited_once_with(
+        sess._supabase, sess.native_meeting_id, exclude_meeting_uuid=sess._meeting_uuid
+    )
+
+
+async def test_fanout_results_fails_followers_when_not_admitted():
+    """A bot that never got admitted (no-show) must NOT fan out artifacts/emails
+    even if it produced a (falsely) truthy summary — coherently fail followers
+    instead of stranding them or emailing "notes ready"."""
+    sess = _Sess()
+    sess._admitted = False
+    with patch.object(mr, "_fanout_mod") as mod:
+        mod.resolve_group_meetings = AsyncMock()
+        mod.fanout_shared_artifacts = AsyncMock()
+        mod.fail_grouped_followers = AsyncMock()
+        await mr._fanout_results(sess, ["t"])
+
+    mod.resolve_group_meetings.assert_not_awaited()
+    mod.fanout_shared_artifacts.assert_not_awaited()
+    mod.fail_grouped_followers.assert_awaited_once_with(
+        sess._supabase, sess.native_meeting_id, exclude_meeting_uuid=sess._meeting_uuid
+    )

@@ -53,6 +53,20 @@ async def fanout_shared_artifacts(
             await client.table("meetings").update({"bot_status": "done"}).eq("id", mid).execute()
 
 
+async def _user_timezone(client, user_id: str, fallback: str) -> str:  # noqa: ANN001
+    """This user's own profiles.timezone, falling back when unset/missing. Best-
+    effort — any failure (missing column, RLS, no row) returns the fallback."""
+    try:
+        resp = await (
+            client.table("profiles").select("timezone").eq("user_id", user_id).limit(1).execute()
+        )
+        rows = resp.data or []
+        tz = ((rows[0].get("timezone") if rows else None) or "").strip()
+        return tz or fallback
+    except Exception:  # noqa: BLE001
+        return fallback
+
+
 async def fanout_per_user_actions(
     llm: Any,
     composio: Any,
@@ -63,12 +77,16 @@ async def fanout_per_user_actions(
     default_timezone: str = "UTC",
 ) -> None:
     """Run post-meeting action extraction once per sibling user, with THAT user's
-    connected tools, writing agent_actions on that user's meeting_id."""
+    connected tools, writing agent_actions on that user's meeting_id. Each
+    follower's OWN timezone (profiles.timezone) drives their extraction — using
+    the lead's default_timezone for everyone would give a follower in another
+    tz wrong calendar due-dates."""
     for s in siblings:
         mid, uid = s.get("id"), s.get("user_id")
         if not mid or not uid:
             continue
         with contextlib.suppress(Exception):
+            tz = await _user_timezone(client, uid, default_timezone)
             writer = AgentActionsWriter(meeting_id=mid, user_id=uid, client=client)
             await extract_post_meeting_actions(
                 llm,
@@ -77,8 +95,33 @@ async def fanout_per_user_actions(
                 meeting_id=mid,
                 composio_service=composio,
                 writer=writer,
-                default_timezone=default_timezone,
+                default_timezone=tz,
             )
+
+
+async def fail_grouped_followers(
+    client, native_meeting_id: str, *, exclude_meeting_uuid: str | None = None  # noqa: ANN001
+) -> None:
+    """Mark still-'grouped' rows for this native meeting as 'failed' (the lead
+    never produced results). Best-effort; excludes the lead's own row."""
+    try:
+        resp = await (
+            client.table("meetings")
+            .select("id")
+            .eq("native_meeting_id", native_meeting_id)
+            .eq("bot_status", "grouped")
+            .execute()
+        )
+        rows = resp.data or []
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("fanout_fail_grouped_resolve_failed", native=native_meeting_id, error=str(exc))
+        return
+    for r in rows:
+        mid = r.get("id")
+        if not mid or mid == exclude_meeting_uuid:
+            continue
+        with contextlib.suppress(Exception):
+            await client.table("meetings").update({"bot_status": "failed"}).eq("id", mid).execute()
 
 
 async def fanout_notes_emails(client, settings, group: list[dict]) -> None:  # noqa: ANN001

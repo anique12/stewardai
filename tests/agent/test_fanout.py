@@ -8,6 +8,7 @@ def _client(rows=None):
     sel = MagicMock()
     sel.execute = AsyncMock(return_value=MagicMock(data=rows or []))
     sel.eq.return_value = sel
+    sel.limit.return_value = sel
     upd = MagicMock()
     upd.execute = AsyncMock(return_value=MagicMock(data=[{}]))
     upd.eq.return_value = upd
@@ -51,6 +52,51 @@ async def test_fanout_per_user_actions_runs_extraction_per_user():
     assert ex.await_args.kwargs["meeting_id"] == "m-2"
 
 
+async def test_fanout_per_user_actions_uses_each_followers_own_timezone():
+    """Each follower's OWN profiles.timezone must drive their action extraction,
+    not the lead's default_timezone (a follower in another tz otherwise gets
+    wrong calendar due-dates)."""
+    # u-2 has a profile timezone set; u-3's is empty and must fall back.
+    tz_rows = {"u-2": [{"timezone": "America/Los_Angeles"}], "u-3": []}
+
+    def _profiles_table():
+        table = MagicMock()
+
+        def _select(*_a, **_k):
+            chain = MagicMock()
+            chain.limit.return_value = chain
+
+            def _eq(field, value):
+                chain.execute = AsyncMock(
+                    return_value=MagicMock(data=tz_rows.get(value, []))
+                )
+                return chain
+
+            chain.eq.side_effect = _eq
+            return chain
+
+        table.select.side_effect = _select
+        return table
+
+    client = MagicMock()
+    client.table.side_effect = lambda name: _profiles_table() if name == "profiles" else MagicMock()
+
+    siblings = [
+        {"id": "m-2", "user_id": "u-2"},
+        {"id": "m-3", "user_id": "u-3"},
+    ]
+    with patch.object(fanout, "extract_post_meeting_actions", AsyncMock(return_value=1)) as ex, \
+         patch.object(fanout, "AgentActionsWriter", MagicMock()):
+        await fanout.fanout_per_user_actions(
+            MagicMock(), MagicMock(), client, siblings, ["t"], default_timezone="UTC"
+        )
+
+    assert ex.await_count == 2
+    tz_by_call = {c.kwargs["user_id"]: c.kwargs["default_timezone"] for c in ex.await_args_list}
+    assert tz_by_call["u-2"] == "America/Los_Angeles"
+    assert tz_by_call["u-3"] == "UTC"  # empty profile timezone falls back
+
+
 async def test_fanout_notes_emails_enqueues_owner_per_meeting():
     client = _client()
     group = [
@@ -69,6 +115,18 @@ async def test_fanout_notes_emails_enqueues_owner_per_meeting():
         await fanout.fanout_notes_emails(client, settings, group)
     assert enq.await_count == 2
     assert {c.kwargs["meeting_id"] for c in enq.await_args_list} == {"m-1", "m-2"}
+
+
+async def test_fail_grouped_followers_marks_non_excluded_rows_failed():
+    rows = [{"id": "m-2"}, {"id": "m-3"}, {"id": "m-1"}]  # m-1 is the lead
+    client = _client(rows)
+    await fanout.fail_grouped_followers(client, "abc", exclude_meeting_uuid="m-1")
+
+    update_calls = client.table.return_value.update.call_args_list
+    assert all(c.args[0] == {"bot_status": "failed"} for c in update_calls)
+    eq_calls = client.table.return_value.update.return_value.eq.call_args_list
+    updated_ids = {c.args[1] for c in eq_calls}
+    assert updated_ids == {"m-2", "m-3"}
 
 
 async def test_fanout_notes_emails_everyone_also_enqueues_attendees():

@@ -136,11 +136,18 @@ async def _fanout_results(session, transcript: list[str]) -> None:  # noqa: ANN0
     the same call. Best-effort; the lead's own artifacts/extraction already ran
     in teardown, so followers get artifacts + per-user actions and the whole
     group gets a (dedup-keyed) notes email."""
-    if (
-        session._supabase is None
-        or not session.native_meeting_id
-        or session._last_summary is None
-    ):
+    if session._supabase is None or not session.native_meeting_id:
+        return
+    if not session._admitted or session._last_summary is None:
+        # No-show (never admitted) or the summary failed — never fan out
+        # artifacts/emails on nothing real; coherently fail the followers
+        # instead of stranding them in 'grouped' or falsely emailing "notes
+        # ready".
+        await _fanout_mod.fail_grouped_followers(
+            session._supabase,
+            session.native_meeting_id,
+            exclude_meeting_uuid=session._meeting_uuid,
+        )
         return
     group = await _fanout_mod.resolve_group_meetings(
         session._supabase, session.native_meeting_id

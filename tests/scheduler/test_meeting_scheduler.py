@@ -29,6 +29,13 @@ def _mock_client(rows=None):
     select_chain.eq.return_value = select_chain
     select_chain.gte.return_value = select_chain
     select_chain.lte.return_value = select_chain
+    # The active-lead lookup (._active_lead_for) is the only caller that chains
+    # .in_(...).limit(...) off the select — route it to its OWN sub-chain (no
+    # active lead by default) so it never picks up get_due_meetings' `rows`.
+    in_chain = MagicMock()
+    in_chain.execute = AsyncMock(return_value=MagicMock(data=[]))
+    in_chain.limit.return_value = in_chain
+    select_chain.in_.return_value = in_chain
 
     update_execute = AsyncMock(return_value=MagicMock(data=[{}]))
     update_eq_chain = MagicMock()
@@ -286,3 +293,52 @@ async def test_run_once_group_lead_failure_leaves_followers_pending():
     # Lead marked failed; NO follower marked 'grouped' (retry next poll).
     assert any(p.get("bot_status") == "failed" for p in payloads), payloads
     assert not any(p.get("bot_status") == "grouped" for p in payloads), payloads
+
+
+# --- dispatch_group cross-cycle dedup guard ---------------------------------
+
+
+async def test_dispatch_group_attaches_to_existing_active_lead():
+    """A bot is already joining/in_meeting for this native meeting (prior cycle) —
+    new pending rows must be attached to it, NOT dispatched a second bot."""
+    group = [
+        _meeting(id="m-2", user_id="u-2", native_meeting_id="abc", attendees=[{}]),
+        _meeting(id="m-3", user_id="u-3", native_meeting_id="abc", attendees=[{}]),
+    ]
+    client, select_chain = _mock_client()
+    # The active-lead lookup (select().eq().in_().limit().execute()) returns an
+    # existing joining row from a prior cycle.
+    select_chain.in_.return_value.execute = AsyncMock(
+        return_value=MagicMock(data=[{"id": "lead-0", "bot_status": "joining"}])
+    )
+
+    with patch.object(ms, "spawn_bot", AsyncMock()) as spawn:
+        await ms.dispatch_group(client, _settings(), group)
+
+    spawn.assert_not_called()
+    payloads = _update_payloads(client)
+    assert len(payloads) == 2
+    for p in payloads:
+        assert p.get("bot_status") == "grouped"
+        assert p.get("bot_lead_meeting_id") == "lead-0"
+
+
+async def test_dispatch_group_dispatches_normally_when_no_active_lead():
+    """Default mock (no active lead) preserves existing dispatch behavior."""
+    group = [
+        _meeting(id="m-1", user_id="u-1", native_meeting_id="abc",
+                 attendees=[{"self": True, "organizer": True}]),
+        _meeting(id="m-2", user_id="u-2", native_meeting_id="abc", attendees=[{}]),
+    ]
+    client, _ = _mock_client()
+    with patch.object(
+        ms, "spawn_bot", AsyncMock(return_value={"id": 1, "native_meeting_id": "abc"})
+    ) as spawn:
+        await ms.dispatch_group(client, _settings(), group)
+
+    spawn.assert_awaited_once()
+    payloads = _update_payloads(client)
+    assert any(
+        p.get("bot_status") == "grouped" and p.get("bot_lead_meeting_id") == "m-1"
+        for p in payloads
+    ), payloads
