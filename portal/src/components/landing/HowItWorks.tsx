@@ -1,4 +1,4 @@
-import { CalendarPlus, ToggleRight, FileCheck2, FolderKanban, MessageCircle } from "lucide-react";
+import { CalendarPlus, FileCheck2, MessageCircle } from "lucide-react";
 import { Container, SectionHeading } from "./primitives";
 
 const STEPS = [
@@ -6,31 +6,19 @@ const STEPS = [
     n: "01",
     icon: CalendarPlus,
     title: "Connect your calendar",
-    body: "Sign in with Google. Under a minute — no downloads.",
+    body: "Sign in with Google — under a minute, no downloads.",
   },
   {
     n: "02",
-    icon: ToggleRight,
-    title: "MeetBase joins your meetings",
-    body: "Pick which calls it joins, or auto-join recurring ones.",
+    icon: FileCheck2,
+    title: "MeetBase joins & takes notes",
+    body: "It joins the calls you choose and auto-captures notes, decisions, and action items.",
   },
   {
     n: "03",
-    icon: FileCheck2,
-    title: "Notes & action items, auto-captured",
-    body: "A searchable recap: transcript, decisions, follow-ups.",
-  },
-  {
-    n: "04",
-    icon: FolderKanban,
-    title: "Organized into Spaces",
-    body: "Auto-filed by client, project, or topic — no manual sorting.",
-  },
-  {
-    n: "05",
     icon: MessageCircle,
-    title: "Ask MeetBase about any of it",
-    body: "Chat your whole history — answers grounded in the transcript.",
+    title: "Organized & searchable",
+    body: "Every meeting files into Spaces — then ask MeetBase anything about your history.",
   },
 ];
 
@@ -44,7 +32,7 @@ export function HowItWorks() {
           title="Live in a few minutes"
           lead="No note-takers to invite, no recordings to babysit. Connect once and MeetBase handles the rest."
         />
-        <ol className="mt-14 grid gap-px overflow-hidden rounded-2xl border border-border bg-border sm:grid-cols-2 lg:grid-cols-5">
+        <ol className="mt-14 grid gap-px overflow-hidden rounded-2xl border border-border bg-border sm:grid-cols-3">
           {STEPS.map((s) => (
             <li key={s.n} className="bg-card p-7">
               <div className="flex items-center justify-between">
