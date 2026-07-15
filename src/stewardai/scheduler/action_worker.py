@@ -97,27 +97,33 @@ async def run_pending_actions_once(
 
 
 async def run_forever(interval_s: int = 60) -> None:
-    """Poll and execute approved actions on a recurring interval.
-
-    Builds the service-role Supabase client and ComposioService once,
-    then loops run_pending_actions_once + sleep(interval_s).
-    """
+    """Poll approved actions AND drain the email outbox each cycle."""
     from stewardai.config import get_settings
+    from stewardai.email.resend_client import ResendClient
+    from stewardai.email.sender import run_pending_emails_once
     from stewardai.integrations.composio_service import ComposioService
     from stewardai.integrations.supabase_client import create_service_client
 
     s = get_settings()
     client = await create_service_client(s)
     service = ComposioService()
+    resend = ResendClient(s.resend_api_key) if (s.email_enabled and s.resend_api_key) else None
 
-    _log.info("action_worker_started", interval_s=interval_s)
+    _log.info("action_worker_started", interval_s=interval_s, email=bool(resend))
     while True:
         try:
             n = await run_pending_actions_once(client, service)
             if n:
                 _log.info("action_worker_cycle_done", processed=n)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             _log.warning("action_worker_cycle_error", error=str(exc))
+        if resend is not None:
+            try:
+                m = await run_pending_emails_once(client, resend, s)
+                if m:
+                    _log.info("email_sender_cycle_done", sent=m)
+            except Exception as exc:  # noqa: BLE001
+                _log.warning("email_sender_cycle_error", error=str(exc))
         await asyncio.sleep(interval_s)
 
 

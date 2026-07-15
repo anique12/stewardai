@@ -1,9 +1,11 @@
 """Tests for run_pending_actions_once."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, call
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
-from stewardai.scheduler.action_worker import run_pending_actions_once
+import pytest
+
+from stewardai.scheduler.action_worker import run_forever, run_pending_actions_once
 
 
 def _mock_client(rows=None):
@@ -143,3 +145,45 @@ async def test_approved_row_becomes_failed_on_unsuccessful_result():
         p.get("state") == "failed" and p.get("error") == "bad args"
         for p in update_payloads
     ), f"Expected a failed payload with error='bad args' in {update_payloads}"
+
+
+class _StopLoop(Exception):
+    """Raised from the patched asyncio.sleep to break run_forever after one cycle."""
+
+
+async def _run_forever_one_cycle(settings):
+    """Run run_forever for exactly one cycle, patching out all its dependencies."""
+    with (
+        patch("stewardai.config.get_settings", return_value=settings),
+        patch(
+            "stewardai.integrations.supabase_client.create_service_client",
+            new=AsyncMock(return_value=MagicMock()),
+        ),
+        patch("stewardai.integrations.composio_service.ComposioService"),
+        patch("stewardai.email.resend_client.ResendClient") as resend_cls,
+        patch(
+            "stewardai.email.sender.run_pending_emails_once", new=AsyncMock(return_value=0)
+        ) as emails_once,
+        patch(
+            "stewardai.scheduler.action_worker.run_pending_actions_once",
+            new=AsyncMock(return_value=0),
+        ),
+        patch("asyncio.sleep", new=AsyncMock(side_effect=_StopLoop)),
+    ):
+        with pytest.raises(_StopLoop):
+            await run_forever(interval_s=1)
+        return resend_cls, emails_once
+
+
+async def test_run_forever_builds_resend_when_email_enabled():
+    settings = MagicMock(email_enabled=True, resend_api_key="key123")
+    resend_cls, emails_once = await _run_forever_one_cycle(settings)
+    resend_cls.assert_called_once_with("key123")
+    emails_once.assert_awaited_once()
+
+
+async def test_run_forever_skips_resend_when_email_disabled():
+    settings = MagicMock(email_enabled=False, resend_api_key=None)
+    resend_cls, emails_once = await _run_forever_one_cycle(settings)
+    resend_cls.assert_not_called()
+    emails_once.assert_not_awaited()
