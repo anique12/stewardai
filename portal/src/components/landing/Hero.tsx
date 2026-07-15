@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowRight, Check } from "lucide-react";
 import { Container } from "./primitives";
 import { VoiceToWork } from "./VoiceToWork";
+import { VoiceDemoDialog } from "./VoiceDemoDialog";
 import { landingCta } from "@/lib/landing-cta";
 
 export function Hero({ isAuthed = false }: { isAuthed?: boolean }) {
@@ -35,13 +36,15 @@ export function Hero({ isAuthed = false }: { isAuthed?: boolean }) {
               {cta.primaryLabel}
               <ArrowRight className="h-4 w-4" aria-hidden />
             </Link>
-            <a
-              href="#how"
-              className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-transparent px-6 py-3 text-sm font-semibold text-foreground transition-colors hover:border-primary/60 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-            >
-              See how it works
-            </a>
+            <VoiceDemoDialog variant="outline" label="Talk to MeetBase Agent" className="px-6 py-3" />
           </div>
+
+          <a
+            href="#how"
+            className="reveal reveal-3 mt-4 inline-block text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
+          >
+            See how it works ↓
+          </a>
 
           <ul className="reveal reveal-4 mx-auto mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
             {["No credit card", "Free tier"].map((t) => (
