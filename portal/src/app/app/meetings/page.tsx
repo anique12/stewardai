@@ -54,8 +54,8 @@ export default async function MeetingsPage({
         body={
           <>
             MeetBase reads your schedule to know when to show up. It joins only the meetings you opt
-            into — and asks for <strong className="text-ink">read-only</strong> calendar access,
-            nothing more.
+            into — and starts with <strong className="text-ink">read-only</strong> calendar access,
+            so you&apos;re in control of anything more.
           </>
         }
         action={

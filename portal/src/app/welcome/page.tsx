@@ -207,12 +207,12 @@ function ConnectCalendarStep() {
         Connect your calendar
       </h1>
       <p className="mb-5 text-[13.5px] leading-[1.55] text-ink-2">
-        This is how MeetBase knows when to show up. We only ever read your schedule.
+        This is how MeetBase knows when to show up — it reads your schedule to time its joins.
       </p>
       <div className="mb-5 flex flex-col gap-[11px] rounded-xl border border-line bg-surface-2 p-[14px]">
         <Reassurance>
-          <strong className="text-ink">Read-only.</strong> MeetBase cannot create, move or delete
-          events.
+          <strong className="text-ink">Read-only to start.</strong> MeetBase only reads your
+          schedule — it won&apos;t create, move or delete events unless you choose to let it.
         </Reassurance>
         <Reassurance>
           <strong className="text-ink">Encrypted &amp; revocable.</strong> Disconnect in Settings

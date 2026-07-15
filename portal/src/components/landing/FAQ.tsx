@@ -27,11 +27,15 @@ const FAQS: { q: string; a: string }[] = [
   },
   {
     q: "What calendar access does MeetBase need?",
-    a: "Read-only access to your Google Calendar, only to see upcoming events so it knows when to join. It cannot create, edit, or delete anything on your calendar, and you can revoke access anytime.",
+    a: "By default MeetBase connects read-only — it only reads your calendar to know when to join. If you'd like it to create or manage calendar events for you, you can grant write access; that's entirely your choice, and you can revoke it anytime.",
+  },
+  {
+    q: "Can MeetBase connect to my other tools?",
+    a: "Yes. Connect apps like Notion, Slack, and Google Sheets, and MeetBase can turn meeting outcomes into action — create a task, post a recap, or log a row — when you ask. You choose which apps are connected, and it only acts with your approval.",
   },
   {
     q: "Which meeting platforms does MeetBase support?",
-    a: "Google Meet today. Support for more platforms is on the roadmap.",
+    a: "Google Meet and Google Calendar today. Support for Zoom and Microsoft Teams — both calls and calendars — is on the roadmap.",
   },
   {
     q: "How much does MeetBase cost?",
