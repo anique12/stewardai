@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 from typing import Any
 
+from stewardai.agent.action_link import close_agent_owned_items
 from stewardai.agent.actions import AgentActionsWriter, extract_post_meeting_actions
 from stewardai.agent.persistence import persist_meeting_artifacts
 from stewardai.common.logging import get_logger
@@ -67,6 +68,21 @@ async def _user_timezone(client, user_id: str, fallback: str) -> str:  # noqa: A
         return fallback
 
 
+async def _user_bot_label(client, user_id: str) -> str:  # noqa: ANN001
+    """This user's own profiles.bot_name, falling back to "MeetBase" when unset/
+    missing. Best-effort — any failure (missing column, RLS, no row) returns the
+    fallback, mirroring ``_user_timezone``."""
+    try:
+        resp = await (
+            client.table("profiles").select("bot_name").eq("user_id", user_id).limit(1).execute()
+        )
+        rows = resp.data or []
+        name = ((rows[0].get("bot_name") if rows else None) or "").strip()
+        return name or "MeetBase"
+    except Exception:  # noqa: BLE001
+        return "MeetBase"
+
+
 async def fanout_per_user_actions(
     llm: Any,
     composio: Any,
@@ -97,6 +113,9 @@ async def fanout_per_user_actions(
                 writer=writer,
                 default_timezone=tz,
             )
+        with contextlib.suppress(Exception):
+            bot_label = await _user_bot_label(client, uid)
+            await close_agent_owned_items(client, mid, bot_label)
 
 
 async def fail_grouped_followers(

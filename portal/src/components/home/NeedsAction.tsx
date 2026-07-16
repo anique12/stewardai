@@ -16,7 +16,16 @@ export function NeedsAction({ actions }: { actions: HomeActionRow[] }) {
 
   async function onToggle(id: string, done: boolean) {
     const supabase = createBrowserClient();
-    await supabase.from("action_items").update({ done }).eq("id", id);
+    let closed_by: string | null = null;
+    let closed_at: string | null = null;
+    if (done) {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      closed_by = user?.email ?? "You";
+      closed_at = new Date().toISOString();
+    }
+    await supabase.from("action_items").update({ done, closed_by, closed_at }).eq("id", id);
     setItems((prev) => prev.filter((i) => i.id !== id));
   }
 

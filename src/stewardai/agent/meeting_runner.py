@@ -1219,6 +1219,17 @@ class MeetingSession:
                     timeout=15.0,
                 )
                 _log.info("post_meeting_actions_extracted", meeting=self._mid)
+        # Auto-close any MeetBase-owned action_items a done agent_action just
+        # fulfilled (must run AFTER both action_items and agent_actions exist for
+        # this meeting — i.e. after both _write_summary above and the extraction
+        # just above). Best-effort/guarded — never blocks the rest of teardown.
+        if self._meeting_uuid:
+            with contextlib.suppress(Exception):
+                from stewardai.agent.action_link import close_agent_owned_items
+
+                await close_agent_owned_items(
+                    self._supabase, self._meeting_uuid, self._bot_label
+                )
         # Fan the results out to every OTHER opted-in MeetBase user in this same
         # call (dedup-per-meeting: one bot, many owners). Guarded — never blocks
         # the rest of teardown.
