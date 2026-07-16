@@ -1237,10 +1237,6 @@ class MeetingSession:
             )
         except Exception as exc:  # noqa: BLE001
             _log.warning("kb_ingest_wire_failed", error=str(exc))
-        # Enrich stored attendees with real participant profile images (Google Meet
-        # avatars) the Vexa bot scraped — best-effort, no-op until Vexa exposes them.
-        with contextlib.suppress(Exception):
-            await self._merge_attendee_photos()
         with contextlib.suppress(Exception):
             await self._session.aclose()
         if self._control is not None:
@@ -1259,7 +1255,15 @@ class MeetingSession:
         # Close the meeting lifecycle now that the scheduler no longer reaps agents.
         # 'done' only if the bot was actually admitted; otherwise 'failed' (rejected /
         # dismissed from the waiting room / admission timed out) — see _teardown_status.
+        # Write the FINAL status BEFORE the slow participant-image poll below, so the
+        # portal stops showing the meeting as "live" the moment the bot has left
+        # (the image retry can take ~15s and must not extend the live window).
         await self._set_bot_status(self._teardown_status())
+        # Enrich stored attendees with real participant profile images (Google Meet
+        # avatars) the Vexa bot scraped — best-effort, retried (Vexa builds them
+        # asynchronously). Runs last: it no longer gates the 'done' writeback.
+        with contextlib.suppress(Exception):
+            await self._merge_attendee_photos()
         _log.info(
             "meeting_session_torn_down",
             meeting=self._mid,
