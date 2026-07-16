@@ -307,9 +307,9 @@ async def test_generate_followups_defensive_on_llm_error(monkeypatch):
     assert await session_module._generate_followups("q?", "a.") == []
 
 
-def _kb_content(meeting_id: str, source_seq: int, text: str) -> str:
+def _kb_content(meeting_id: str, source_seq: int, text: str, n: int) -> str:
     passage = {
-        "n": 1,
+        "n": n,
         "text": text,
         "meeting_id": meeting_id,
         "source_seq": source_seq,
@@ -318,9 +318,13 @@ def _kb_content(meeting_id: str, source_seq: int, text: str) -> str:
     return json.dumps({"passages": [passage]})
 
 
-def _kb_event(meeting_id: str, seq: int, text: str, call_id: str):
+def _kb_event(meeting_id: str, seq: int, text: str, call_id: str, n: int = 1):
+    """``n`` mimics the turn-global number a real ``kb_search`` (sharing one
+    ``CiteRegistry`` across every call in the turn) would have assigned --
+    NOT a per-call reset. Callers with more than one ``_kb_event`` in a turn
+    must pass increasing ``n``s (1, 2, 3...) to stay realistic."""
     msg = ToolMessage(
-        content=_kb_content(meeting_id, seq, text), name="kb_search", tool_call_id=call_id
+        content=_kb_content(meeting_id, seq, text, n), name="kb_search", tool_call_id=call_id
     )
     return ("updates", {"tools": {"messages": [msg]}})
 
@@ -335,8 +339,8 @@ async def test_done_citations_filtered_to_those_the_answer_cites(monkeypatch):
     _stub_followups(monkeypatch)
     answer = "Only the first is relevant [1]."
     events = [
-        _kb_event("m1", 1, "alpha", "c1"),
-        _kb_event("m2", 2, "beta", "c2"),
+        _kb_event("m1", 1, "alpha", "c1", n=1),
+        _kb_event("m2", 2, "beta", "c2", n=2),
         _answer_event(answer),
     ]
     _install_fake_agent(monkeypatch, events, final_content=answer)
@@ -363,8 +367,8 @@ async def test_done_citations_handle_grouped_markers(monkeypatch):
     _stub_followups(monkeypatch)
     answer = "Priya owns the webhook work [1, 2]."
     events = [
-        _kb_event("m1", 1, "alpha", "c1"),
-        _kb_event("m2", 2, "beta", "c2"),
+        _kb_event("m1", 1, "alpha", "c1", n=1),
+        _kb_event("m2", 2, "beta", "c2", n=2),
         _answer_event(answer),
     ]
     _install_fake_agent(monkeypatch, events, final_content=answer)

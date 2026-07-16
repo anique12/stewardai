@@ -276,6 +276,116 @@ async def test_citations_are_globally_numbered_and_deduped_across_kb_search_call
     ]
 
 
+async def test_citations_trust_kb_search_turn_global_numbering_across_two_calls(monkeypatch):
+    """Regression for the citation-mismatch bug: kb_search must assign
+    turn-global (not per-call) numbers via a shared cite_registry, and
+    _collect_citations must trust those numbers as-is (not independently
+    reassign len(citations)+1) so the [n] the model saw from kb_search is
+    exactly the [n] resolved in the stored citations. Simulates a turn with
+    TWO kb_search calls: call 1 returns 2 passages from meeting A; call 2
+    repeats meeting A's first passage and adds one new passage from meeting
+    B."""
+    import stewardai.agent.chat.tools as T
+    from stewardai.agent.chat.tools import CiteRegistry, build_read_tools
+
+    class _FakeDBClient2:
+        pass
+
+    class _FakeEmbedLLM2:
+        async def aembed(self, texts, *, query=False):
+            return [[0.0] * 8 for _ in texts]
+
+    call_rows = [
+        [
+            {"text": "ship July 17", "meeting_id": "m1", "source_seq": 3, "kind": "fact"},
+            {"text": "budget approved", "meeting_id": "m1", "source_seq": 4, "kind": "fact"},
+        ],
+        [
+            {"text": "ship July 17 (again)", "meeting_id": "m1", "source_seq": 3, "kind": "fact"},
+            {"text": "launch Aug 1", "meeting_id": "m2", "source_seq": 7, "kind": "fact"},
+        ],
+    ]
+
+    async def fake_retrieve(client, llm, *, user_id, query, space_id=None, k=8):
+        return call_rows.pop(0)
+
+    monkeypatch.setattr(T, "retrieve", fake_retrieve)
+    registry = CiteRegistry()
+    tools = build_read_tools(
+        _FakeDBClient2(), _FakeEmbedLLM2(), user_id="u1", cite_registry=registry
+    )
+    kb = next(t for t in tools if t.name == "kb_search")
+
+    kb_out_1 = await kb.ainvoke({"query": "first"})
+    kb_out_2 = await kb.ainvoke({"query": "second"})
+
+    events = [
+        (
+            "updates",
+            {
+                "agent": {
+                    "messages": [
+                        AIMessage(content="", tool_calls=[_tool_call("kb_search", "call_1")])
+                    ]
+                }
+            },
+        ),
+        (
+            "updates",
+            {
+                "tools": {
+                    "messages": [
+                        ToolMessage(
+                            content=json.dumps(kb_out_1),
+                            name="kb_search",
+                            tool_call_id="call_1",
+                        )
+                    ]
+                }
+            },
+        ),
+        (
+            "updates",
+            {
+                "agent": {
+                    "messages": [
+                        AIMessage(content="", tool_calls=[_tool_call("kb_search", "call_2")])
+                    ]
+                }
+            },
+        ),
+        (
+            "updates",
+            {
+                "tools": {
+                    "messages": [
+                        ToolMessage(
+                            content=json.dumps(kb_out_2),
+                            name="kb_search",
+                            tool_call_id="call_2",
+                        )
+                    ]
+                }
+            },
+        ),
+    ]
+    _install_fake_agent(monkeypatch, events, final_content="Answer with [1][2][3].")
+
+    out = await _collect()
+
+    done = out[-1]
+    assert done["type"] == "done"
+    citations_by_key = {(c["meeting_id"], c["source_seq"]): c["n"] for c in done["citations"]}
+    assert citations_by_key == {("m1", 3): 1, ("m1", 4): 2, ("m2", 7): 3}
+
+    # What kb_search told the model must equal what got stored -- the whole
+    # point of the fix: the model's [n] and the stored citation n must agree.
+    assert kb_out_1["passages"][0]["n"] == citations_by_key[("m1", 3)]
+    assert kb_out_1["passages"][1]["n"] == citations_by_key[("m1", 4)]
+    assert kb_out_2["passages"][0]["n"] == citations_by_key[("m1", 3)]
+    assert kb_out_2["passages"][1]["n"] == citations_by_key[("m2", 7)]
+
+
 async def test_no_tool_calls_yields_no_citations(monkeypatch):
     events = [
         ("messages", (AIMessage(content="Hi there."), {"langgraph_node": "agent"})),

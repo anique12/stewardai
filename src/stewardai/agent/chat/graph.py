@@ -35,7 +35,7 @@ from langchain_core.messages import ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.prebuilt import create_react_agent
 
-from stewardai.agent.chat.tools import build_read_tools
+from stewardai.agent.chat.tools import CiteRegistry, build_read_tools
 
 SYSTEM = (
     "You are Steward, the user's personal assistant over their meetings, knowledge base, "
@@ -113,16 +113,15 @@ def _collect_citations(
     stream_mode=["updates", ...])`` for a completed ``kb_search`` tool call and
     append its passages to ``citations`` in place. Defensive: never raises.
 
-    ``kb_search`` numbers the passages it returns ``n=1..k`` *per call*, which
-    is meaningless once a turn makes more than one ``kb_search`` call -- those
-    per-call numbers collide and can't be mapped back to the ``[n]`` markers
-    the model writes in its answer. So the passage's own ``n`` is ignored here
-    and each collected citation is instead assigned a stable, globally-unique
-    ``n`` via ``len(citations) + 1`` at collection time (1, 2, 3... over the
-    whole turn, across every ``kb_search`` call). ``seen`` maps
-    ``(meeting_id, source_seq)`` -> the ``n`` it was first assigned, so a
-    passage retrieved again (e.g. by a second, overlapping ``kb_search`` call)
-    is deduped onto its original citation instead of getting a new number.
+    ``kb_search`` numbers the passages it returns via a shared, turn-scoped
+    ``CiteRegistry`` (see :mod:`stewardai.agent.chat.tools`), so its ``n`` is
+    already a stable, turn-global identity -- the SAME number the model saw
+    and may later cite as ``[n]``. That number is trusted as-is here (NOT
+    reassigned) so the stored citation's ``n`` always matches what the model
+    was shown. ``seen`` maps ``(meeting_id, source_seq)`` -> the ``n`` it was
+    first assigned, so a passage retrieved again (e.g. by a second,
+    overlapping ``kb_search`` call) is deduped onto its original citation
+    entry instead of being appended twice.
     """
     try:
         if mode != "updates" or not isinstance(chunk, dict):
@@ -143,7 +142,7 @@ def _collect_citations(
                     key = (p.get("meeting_id"), p.get("source_seq"))
                     if key in seen:
                         continue
-                    n = len(citations) + 1
+                    n = p.get("n")
                     seen[key] = n
                     citations.append(
                         {
@@ -188,7 +187,7 @@ async def run_chat_turn(
     # back here at module level would be a circular import.
     from stewardai.agent.chat.session import ChatSession
 
-    tools = build_read_tools(client, llm_reasoning, user_id=user_id)
+    tools = build_read_tools(client, llm_reasoning, user_id=user_id, cite_registry=CiteRegistry())
     session = ChatSession(
         client, llm_reasoning, user_id=user_id, thread_id=str(uuid.uuid4()), tools=tools
     )

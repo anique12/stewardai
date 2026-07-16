@@ -48,7 +48,7 @@ from langgraph.types import Command
 from stewardai.agent.chat import graph as chat_graph
 from stewardai.agent.chat.events import map_stream_event
 from stewardai.agent.chat.models import make_chat_llm
-from stewardai.agent.chat.tools import build_read_tools
+from stewardai.agent.chat.tools import CiteRegistry, build_read_tools
 from stewardai.common.logging import get_logger
 from stewardai.observability.usage_context import usage_scope
 
@@ -163,10 +163,21 @@ class ChatSession:
         self.llm = llm
         self.user_id = user_id
         self.thread_id = thread_id
+        # One turn-scoped citation registry, shared with kb_search's closure
+        # (when this session builds its own default tools below) so the
+        # model's [n] and the stored citation n always agree -- see
+        # CiteRegistry. Reset at the start of every stream_turn/resume.
+        self._cite_registry = CiteRegistry()
         self.tools = (
             tools
             if tools is not None
-            else build_read_tools(client, llm, user_id=user_id, scope_space_id=scope_space_id)
+            else build_read_tools(
+                client,
+                llm,
+                user_id=user_id,
+                scope_space_id=scope_space_id,
+                cite_registry=self._cite_registry,
+            )
         )
         from datetime import datetime
 
@@ -209,6 +220,10 @@ class ChatSession:
         :meth:`resume` with the human's decision to continue this turn).
         """
         messages = [*history, {"role": "user", "content": message}]
+        # Turn-scoped citation numbering starts fresh for every NEW turn (not
+        # on resume -- see resume() below, which continues the SAME turn's
+        # numbering across an interrupt/resume round-trip).
+        self._cite_registry.reset()
         # One request_id per turn groups all its LLM calls in usage_logs; resume
         # reuses it so a permission/connect round-trip stays one logical request.
         self._request_id = str(uuid.uuid4())
@@ -232,6 +247,7 @@ class ChatSession:
         another interrupt and end in ``permission_request``/
         ``connect_required`` again.
         """
+        self._cite_registry.reset()
         with usage_scope(
             feature="chat",
             user_id=self.user_id,

@@ -1,4 +1,4 @@
-from stewardai.agent.chat.tools import build_read_tools
+from stewardai.agent.chat.tools import CiteRegistry, build_read_tools
 
 
 class _Resp:
@@ -60,6 +60,41 @@ async def test_kb_search_returns_provenance(monkeypatch):
     kb = next(t for t in tools if t.name == "kb_search")
     out = await kb.ainvoke({"query": "when ship?"})
     assert out["passages"][0]["meeting_id"] == "m1" and out["passages"][0]["n"] == 1
+
+
+async def test_kb_search_numbers_are_turn_global_across_shared_registry(monkeypatch):
+    """Two kb_search calls sharing one cite_registry must NOT both restart
+    numbering at n=1 -- the model sees these numbers directly and later cites
+    [n] in its answer, so a per-call reset makes [n] ambiguous/wrong once a
+    turn makes more than one kb_search call. Numbers must continue across
+    calls, and a repeated (meeting_id, source_seq) must reuse its first n."""
+    import stewardai.agent.chat.tools as T
+
+    calls: list[list[dict]] = [
+        [
+            {"text": "a1", "meeting_id": "m1", "source_seq": 1, "kind": "fact"},
+            {"text": "a2", "meeting_id": "m1", "source_seq": 2, "kind": "fact"},
+        ],
+        [
+            {"text": "a1 again", "meeting_id": "m1", "source_seq": 1, "kind": "fact"},
+            {"text": "b1", "meeting_id": "m2", "source_seq": 5, "kind": "fact"},
+        ],
+    ]
+
+    async def fake_retrieve(client, llm, *, user_id, query, space_id=None, k=8):
+        return calls.pop(0)
+
+    monkeypatch.setattr(T, "retrieve", fake_retrieve)
+    registry = CiteRegistry()
+    tools = build_read_tools(_Client([]), _LLM(), user_id="u1", cite_registry=registry)
+    kb = next(t for t in tools if t.name == "kb_search")
+
+    out1 = await kb.ainvoke({"query": "first"})
+    assert [p["n"] for p in out1["passages"]] == [1, 2]
+
+    out2 = await kb.ainvoke({"query": "second"})
+    # The repeat of (m1, 1) reuses n=1; the new (m2, 5) continues at n=3.
+    assert [p["n"] for p in out2["passages"]] == [1, 3]
 
 
 async def test_kb_search_falls_back_to_scope_space_id(monkeypatch):
