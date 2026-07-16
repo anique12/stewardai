@@ -143,6 +143,41 @@ async def test_list_spaces_and_meetings_are_user_scoped():
     assert out2["meetings"] == meeting_rows
 
 
+async def test_get_meeting_flags_not_started_and_returns_invitees():
+    """A meeting that hasn't run must come back as lifecycle='not_started' with
+    its calendar people surfaced as `invitees` (not attendance) -- this is what
+    stops the agent saying people "were in" a meeting that hasn't happened."""
+    rows = [
+        {
+            "id": "m1",
+            "title": "Daily Upwork proposals",
+            "start_time": "2099-01-01T09:00:00Z",  # firmly in the future
+            "bot_status": "scheduled",
+            "attendees": [
+                {"name": "Humayun", "email": "h@x.com", "responseStatus": "accepted"},
+                {"name": "Zeshan", "email": "z@x.com", "responseStatus": "needsAction"},
+            ],
+        }
+    ]
+    tools = build_read_tools(_Client(rows), _LLM(), user_id="u1")
+    assert "get_meeting" in {t.name for t in tools}
+    get_meeting = next(t for t in tools if t.name == "get_meeting")
+    out = await get_meeting.ainvoke({"meeting_id": "m1"})
+    m = out["meeting"]
+    assert m["lifecycle"] == "not_started"
+    assert [i["name"] for i in m["invitees"]] == ["Humayun", "Zeshan"]
+    # `invitees` is the only participant field -- there is no "attended" list for
+    # a meeting that has not occurred.
+    assert "attendees" not in m
+
+
+async def test_get_meeting_missing_returns_none():
+    tools = build_read_tools(_Client([]), _LLM(), user_id="u1")
+    get_meeting = next(t for t in tools if t.name == "get_meeting")
+    out = await get_meeting.ainvoke({"meeting_id": "nope"})
+    assert out["meeting"] is None
+
+
 async def test_lookup_entity_filters_by_name_substring():
     rows = [
         {

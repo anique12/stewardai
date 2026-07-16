@@ -7,9 +7,30 @@ async Supabase REST client and are scoped with ``.eq("user_id", user_id)``.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from langchain_core.tools import StructuredTool
 
 from stewardai.agent.kb.retrieval import retrieve
+
+
+def _lifecycle(bot_status: str | None, start_iso: str | None, now: datetime) -> str:
+    """Where a meeting sits in its lifecycle, so the agent never claims a
+    not-yet-run meeting already happened. ``done`` => a transcript exists;
+    ``in_meeting`` => live now; a future ``start_time`` (or a still-``scheduled``
+    status) => hasn't started, so its attendees are INVITEES, not attendance."""
+    if bot_status == "done":
+        return "completed"
+    if bot_status == "in_meeting":
+        return "in_progress"
+    if start_iso:
+        try:
+            start = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+            if start > now:
+                return "not_started"
+        except ValueError:
+            pass
+    return "not_started" if bot_status in ("scheduled", "pending", None) else "unknown"
 
 
 class CiteRegistry:
@@ -103,6 +124,43 @@ def build_read_tools(
         )
         return {"meetings": resp.data or []}
 
+    async def get_meeting(meeting_id: str) -> dict:
+        resp = await (
+            client.table("meetings")
+            .select("id,title,start_time,bot_status,attendees")
+            .eq("user_id", user_id)
+            .eq("id", meeting_id)
+            .limit(1)
+            .execute()
+        )
+        rows = resp.data or []
+        if not rows:
+            return {"meeting": None}
+        row = rows[0]
+        lifecycle = _lifecycle(
+            row.get("bot_status"), row.get("start_time"), datetime.now(timezone.utc)
+        )
+        # `attendees` are calendar INVITEES (name/email/responseStatus), not
+        # verified attendance — the agent must treat them accordingly.
+        attendees = [
+            {
+                "name": a.get("name"),
+                "email": a.get("email"),
+                "responseStatus": a.get("responseStatus"),
+            }
+            for a in (row.get("attendees") or [])
+        ]
+        return {
+            "meeting": {
+                "id": row.get("id"),
+                "title": row.get("title"),
+                "start_time": row.get("start_time"),
+                "bot_status": row.get("bot_status"),
+                "lifecycle": lifecycle,
+                "invitees": attendees,
+            }
+        }
+
     async def lookup_entity(name: str) -> dict:
         resp = await (
             client.table("entities")
@@ -131,7 +189,18 @@ def build_read_tools(
         StructuredTool.from_function(
             coroutine=list_meetings,
             name="list_meetings",
-            description="List the user's recent meetings.",
+            description="List the user's recent meetings (id + title + start_time + status).",
+        ),
+        StructuredTool.from_function(
+            coroutine=get_meeting,
+            name="get_meeting",
+            description=(
+                "Get one meeting's details by id: title, start_time, status, lifecycle "
+                "('not_started' | 'in_progress' | 'completed'), and invitees "
+                "(calendar-invited people — NOT verified attendance). Use this to answer "
+                "who is in / expected at a meeting, and to check whether it has happened yet. "
+                "First find the id with list_meetings if you only have a title."
+            ),
         ),
         StructuredTool.from_function(
             coroutine=lookup_entity,
