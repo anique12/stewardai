@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import re
 
 from stewardai.agent import fanout as _fanout_mod
 from stewardai.bridge.transport import MeetingConnection, MultiplexFrameServer
@@ -33,6 +34,40 @@ _log = get_logger("agent.meeting_runner")
 # Separator between the stable speaker id and the display name inside a per-speaker
 # frame key ("<id>\x1f<name>"); mirrors transport/DeepgramSpeakerTranscriber.
 _SPEAKER_KEY_SEP = "\x1f"
+
+# A leading "[Name]: " speaker-label the meeting LLM sometimes echoes onto its
+# own spoken reply (it sees the labeled transcript as context and mimics the
+# format). Stripped before recording the bot's line so it isn't double-labeled.
+_LEADING_LABEL_RE = re.compile(r"^\s*\[[^\]]*\]:\s*")
+
+# "[speaker]: text" line, matching persistence._SEGMENT_RE.
+_SEG_RE = re.compile(r"^\[(?P<speaker>[^\]]*)\]:\s?(?P<text>.*)$", re.DOTALL)
+
+
+def _relabel_sole_human(transcript: list[str], bot_label: str) -> list[str]:
+    """Relabel generic "[Speaker]:" lines (a turn that finalized before speaker
+    diarization had a name — e.g. the very first utterance) to the meeting's one
+    human, when there IS exactly one. No-op for multi-party (ambiguous) or when
+    no real human name was ever captured."""
+    bot = (bot_label or "").strip().lower()
+    humans = {
+        sp
+        for line in transcript
+        if (m := _SEG_RE.match(line))
+        and (sp := (m.group("speaker") or "").strip())
+        and sp.lower() not in ("speaker", bot)
+    }
+    if len(humans) != 1:
+        return transcript
+    name = next(iter(humans))
+    out: list[str] = []
+    for line in transcript:
+        m = _SEG_RE.match(line)
+        if m and (m.group("speaker") or "").strip().lower() == "speaker":
+            out.append(f"[{name}]: {m.group('text')}")
+        else:
+            out.append(line)
+    return out
 
 # Vexa synthesizes participant_details (name -> avatar URL) in an async
 # post-meeting aggregation that often isn't ready the instant the bot leaves, so
@@ -611,6 +646,12 @@ class MeetingSession:
         text = (text or "").strip()
         if not text:
             return
+        # The LLM occasionally prefixes its reply with a "[Name]: " label copied
+        # from the transcript context; drop it so the bot's line isn't rendered
+        # as "[Anique]: ..." under the MeetBase speaker.
+        text = _LEADING_LABEL_RE.sub("", text).strip()
+        if not text:
+            return
         line = f"[{self._bot_label}]: {text}"
         self._attributed_transcript.append(line)
         self._transcript.append(line)
@@ -799,6 +840,7 @@ class MeetingSession:
                 with contextlib.suppress(Exception):
                     if transcript is None:
                         transcript = self._transcript_for_output()
+                    transcript = _relabel_sole_human(transcript, self._bot_label)
                     summary = await asyncio.wait_for(
                         generate_summary(self._llm, transcript, user_id=self.user_id),
                         timeout=15.0,
@@ -1128,7 +1170,9 @@ class MeetingSession:
         # Snapshot once so the summary's persisted transcript_segments.seq and the
         # extraction's action source_seq index into the SAME list (see
         # _transcript_for_output docstring: best-effort, can change across calls).
-        teardown_transcript = self._transcript_for_output()
+        teardown_transcript = _relabel_sole_human(
+            self._transcript_for_output(), self._bot_label
+        )
         with contextlib.suppress(Exception):
             await self._write_summary("shutdown", teardown_transcript)
         # Post-meeting action extraction (best-effort, guarded, timed out).
