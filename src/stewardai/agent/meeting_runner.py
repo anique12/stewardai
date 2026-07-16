@@ -34,6 +34,13 @@ _log = get_logger("agent.meeting_runner")
 # frame key ("<id>\x1f<name>"); mirrors transport/DeepgramSpeakerTranscriber.
 _SPEAKER_KEY_SEP = "\x1f"
 
+# Vexa synthesizes participant_details (name -> avatar URL) in an async
+# post-meeting aggregation that often isn't ready the instant the bot leaves, so
+# a single teardown fetch usually loses the race. Poll a few times with a short
+# backoff, stopping as soon as any real image lands (best-effort).
+_PARTICIPANT_IMAGE_ATTEMPTS = 4
+_PARTICIPANT_IMAGE_BACKOFF_S = 5.0
+
 
 async def _pump_paced(audio_out, conn: MeetingConnection) -> None:  # noqa: ANN001
     """Drain the paced output and stream each frame to the bot at ~real time.
@@ -1074,19 +1081,38 @@ class MeetingSession:
 
     async def _merge_attendee_photos(self) -> None:
         """Teardown fallback: fetch participant images from Vexa's HTTP surface
-        and apply them — belt-and-suspenders for anything the live roster
-        subscriber missed (e.g. the bot published nothing, or StewardAI attached
-        late). No-op when Vexa exposes nothing (see
-        :meth:`VexaClient.fetch_participant_images`)."""
+        and apply them to meetings.attendees[].photoUrl.
+
+        Vexa builds ``participant_details`` in an async post-meeting aggregation
+        that is often not ready the instant the bot leaves, so a single fetch
+        usually races it and comes back empty. Poll a few times with a short
+        backoff, stopping as soon as any real image lands. Runs BEFORE the final
+        'done' status writeback so the portal (which live-polls until the meeting
+        is done) picks the photos up without a manual reload. No-op when Vexa
+        exposes nothing (see :meth:`VexaClient.fetch_participant_images`)."""
         if self._supabase is None or not self._meeting_uuid or not self.native_meeting_id:
             return
         from stewardai.bridge.vexa_client import VexaClient
 
         vexa = VexaClient(self._s.vexa_gateway_url, self._s.vexa_api_key)
-        name_to_image = await vexa.fetch_participant_images(
-            self._s.vexa_platform, self.native_meeting_id
+        for attempt in range(_PARTICIPANT_IMAGE_ATTEMPTS):
+            name_to_image = await vexa.fetch_participant_images(
+                self._s.vexa_platform, self.native_meeting_id
+            )
+            if name_to_image:
+                await self._apply_participant_images(name_to_image)
+                _log.info(
+                    "participant_images_merged",
+                    meeting=self._mid,
+                    count=len(name_to_image),
+                    attempt=attempt,
+                )
+                return
+            if attempt < _PARTICIPANT_IMAGE_ATTEMPTS - 1:
+                await asyncio.sleep(_PARTICIPANT_IMAGE_BACKOFF_S)
+        _log.info(
+            "participant_images_none", meeting=self._mid, attempts=_PARTICIPANT_IMAGE_ATTEMPTS
         )
-        await self._apply_participant_images(name_to_image)
 
     async def teardown(self) -> None:
         """Summary + post-meeting actions, then tear down THIS session only.
