@@ -137,8 +137,59 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
     );
   }
 
-  // ----- Scheduled, nothing recorded yet -----
   const hasContent = (segments?.length ?? 0) > 0 || !!summary || (actionItems?.length ?? 0) > 0;
+
+  // ----- Bot dispatched, asking to join — NOT yet admitted -----
+  // bot_status stays 'joining' until the bot is actually let into the call
+  // (it flips to 'in_meeting' on first meeting audio). Show a clear "waiting to
+  // be admitted" state rather than the live view, and poll so it auto-advances.
+  if (!hasContent && meeting.bot_status === "joining") {
+    return (
+      <div className="mx-auto max-w-[720px] px-2 py-2">
+        <LiveRefresher intervalMs={3000} />
+        <Link href="/app/meetings" className="mb-3.5 inline-flex items-center gap-1.5 text-xs text-ink-3 hover:text-ink">
+          ← Meetings
+        </Link>
+        <div className="mb-1.5 flex flex-wrap items-center gap-2.5">
+          <h1 className="font-display text-2xl font-bold tracking-tight text-ink">{meeting.title}</h1>
+          <span className="inline-flex items-center gap-[5px] rounded-pill border border-attention-weak bg-attention-weak px-2 py-[3px] font-mono text-[9.5px] font-semibold text-attention-strong">
+            <span className="h-[6px] w-[6px] rounded-pill bg-current anim-pulse" />
+            Waiting to be admitted
+          </span>
+        </div>
+        <div className="mb-[26px] font-mono text-[12.5px] text-ink-3">
+          {metaLine(meeting.start_time, meeting.end_time, meeting.meet_url)}
+        </div>
+        <div className="rounded-2xl border border-dashed border-line-2 bg-surface px-6 py-12 text-center">
+          <div className="mx-auto mb-4 flex h-[52px] w-[52px] items-center justify-center rounded-[14px] bg-attention-weak text-attention-strong">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8" />
+              <path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+          <h3 className="mb-[7px] font-display text-lg font-bold text-ink">MeetBase is asking to join</h3>
+          <p className="mx-auto mb-5 max-w-[420px] text-[13.5px] leading-relaxed text-ink-2">
+            MeetBase is in the meeting&apos;s lobby, waiting for a host to admit it. The named-speaker
+            transcript, summary and action items will appear here live once it&apos;s let in.
+          </p>
+          {meeting.meet_url && (
+            <div className="flex justify-center">
+              <a
+                href={meeting.meet_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sh-1 hover:bg-brand-2"
+              >
+                Open meeting to admit ↗
+              </a>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ----- Scheduled, nothing recorded yet -----
   const notStarted = meeting.bot_status === "pending" || meeting.bot_status === "joining";
   if (!hasContent && notStarted && new Date(meeting.start_time).getTime() > Date.now()) {
     return (

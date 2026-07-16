@@ -27,7 +27,13 @@ function platformFromUrl(url: string | null): Platform {
 }
 
 function statusFromBotStatus(botStatus: string): StatusPillStatus {
-  if (botStatus === "in_meeting" || botStatus === "done" || botStatus === "failed") return botStatus;
+  if (
+    botStatus === "in_meeting" ||
+    botStatus === "done" ||
+    botStatus === "failed" ||
+    botStatus === "joining"
+  )
+    return botStatus;
   return "pending";
 }
 
