@@ -1,3 +1,4 @@
+import { LiveRefresher } from "@/components/meetings/LiveRefresher";
 import { MeetingHeader } from "@/components/meetings/MeetingHeader";
 import { MeetingSummary } from "@/components/meetings/MeetingSummary";
 import { MeetingTimeline, type SpeakerLookupEntry } from "@/components/meetings/MeetingTimeline";
@@ -142,6 +143,8 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
   if (!hasContent && notStarted && new Date(meeting.start_time).getTime() > Date.now()) {
     return (
       <div className="mx-auto max-w-[720px] px-2 py-2">
+        {/* Auto-advance to the live view when the bot joins / content appears. */}
+        <LiveRefresher />
         <Link href="/app/meetings" className="mb-3.5 inline-flex items-center gap-1.5 text-xs text-ink-3 hover:text-ink">
           ← Meetings
         </Link>
@@ -209,6 +212,9 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
 
   return (
     <div className="mx-auto max-w-[1200px]">
+      {/* Poll every server value on the page (status, summary, actions,
+          approvals) while the meeting is still active. */}
+      {meeting.bot_status !== "done" && meeting.bot_status !== "failed" && <LiveRefresher />}
       <MeetingHeader
         title={meeting.title}
         startTime={meeting.start_time}
