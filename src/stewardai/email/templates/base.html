@@ -1,9 +1,19 @@
 <!doctype html><html><body style="font-family:-apple-system,Segoe UI,sans-serif;color:#1f2421;background:#f4f2ec;margin:0;padding:24px">
-  <div style="max-width:560px;margin:0 auto;background:#fffdf8;border:1px solid #e7e3d8;border-radius:14px;padding:28px">
-    <div style="font-weight:700;font-size:18px;color:#2c6b58;margin-bottom:16px">MeetBase</div>
-    {% block content %}{% endblock %}
+  <div style="max-width:560px;margin:0 auto">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px">
+      <tr>
+        <td style="vertical-align:middle">
+          <img src="{{ app_url }}/meetbase-mark.png" width="28" height="28" alt="MeetBase" style="vertical-align:middle;border-radius:6px">
+          <span style="vertical-align:middle;font-weight:700;font-size:18px;color:#2c6b58;margin-left:8px">MeetBase</span>
+        </td>
+      </tr>
+    </table>
+    <div style="border-top:1px solid #e7e3d8;margin-bottom:20px"></div>
+    <div style="background:#fffdf8;border:1px solid #e7e3d8;border-radius:14px;padding:28px">
+      {% block content %}{% endblock %}
+    </div>
   </div>
-  <div style="max-width:560px;margin:12px auto 0;color:#9a978c;font-size:11px;line-height:1.5">
+  <div style="max-width:560px;margin:16px auto 0;color:#9a978c;font-size:11px;line-height:1.5;text-align:center">
     {% block footer %}You're receiving this because you use MeetBase.{% endblock %}
   </div>
 </body></html>

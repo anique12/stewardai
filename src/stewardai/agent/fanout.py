@@ -124,6 +124,66 @@ async def fail_grouped_followers(
             await client.table("meetings").update({"bot_status": "failed"}).eq("id", mid).execute()
 
 
+async def _fetch_notes_content(client, meeting_id: str) -> tuple[str, list[str], list[dict]]:  # noqa: ANN001
+    """(tldr, decisions:list[str], action_items:list[dict]) for a meeting.
+    Guarded — any failure returns empties."""
+    tldr = ""
+    decisions: list[str] = []
+    action_items: list[dict] = []
+    try:
+        resp = await (
+            client.table("summaries")
+            .select("tldr,decisions")
+            .eq("meeting_id", meeting_id)
+            .limit(1)
+            .execute()
+        )
+        rows = resp.data or []
+        if rows:
+            row = rows[0]
+            tldr = row.get("tldr") or ""
+            decisions = [
+                d.get("text", "")
+                for d in (row.get("decisions") or [])
+                if isinstance(d, dict)
+            ]
+    except Exception:  # noqa: BLE001
+        return "", [], []
+    try:
+        resp = await (
+            client.table("action_items")
+            .select("owner,task,due")
+            .eq("meeting_id", meeting_id)
+            .execute()
+        )
+        rows = resp.data or []
+        action_items = [
+            {"owner": r.get("owner"), "task": r.get("task"), "due": r.get("due")}
+            for r in rows
+        ]
+    except Exception:  # noqa: BLE001
+        return tldr, decisions, []
+    return tldr, decisions, action_items
+
+
+def _host_name(meeting_row: dict) -> str | None:  # noqa: ANN001
+    """Display name of the attendee who is 'self' (else 'organizer') on this row."""
+    attendees = meeting_row.get("attendees") or []
+    self_attendee = None
+    organizer_attendee = None
+    for a in attendees:
+        if not isinstance(a, dict):
+            continue
+        if a.get("self") and self_attendee is None:
+            self_attendee = a
+        if a.get("organizer") and organizer_attendee is None:
+            organizer_attendee = a
+    chosen = self_attendee or organizer_attendee
+    if not chosen:
+        return None
+    return chosen.get("name") or None
+
+
 async def fanout_notes_emails(client, settings, group: list[dict]) -> None:  # noqa: ANN001
     """Enqueue a meeting_notes email per user in the group (owner-only by default;
     also to non-self attendees when that user's notes_recipients is 'everyone')."""
@@ -132,12 +192,16 @@ async def fanout_notes_emails(client, settings, group: list[dict]) -> None:  # n
         if not mid or not uid:
             continue
         title = m.get("title")
+        tldr, decisions, action_items = await _fetch_notes_content(client, mid)
+        host_name = _host_name(m)
         owner_email = await resolve_owner_email(client, uid)
         if owner_email:
             with contextlib.suppress(Exception):
                 await enqueue_meeting_notes(
                     client, settings, user_id=uid, meeting_id=mid,
                     to_email=owner_email, title=title, shared=False,
+                    host_name=host_name, tldr=tldr, decisions=decisions,
+                    action_items=action_items,
                 )
         if (m.get("notes_recipients") or "only_me") == "everyone":
             for a in m.get("attendees") or []:
@@ -150,4 +214,6 @@ async def fanout_notes_emails(client, settings, group: list[dict]) -> None:  # n
                     await enqueue_meeting_notes(
                         client, settings, user_id=uid, meeting_id=mid,
                         to_email=ae, title=title, shared=True,
+                        host_name=host_name, tldr=tldr, decisions=decisions,
+                        action_items=action_items,
                     )

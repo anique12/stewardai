@@ -1,11 +1,65 @@
 {% extends "base.html" %}
-{% block subject %}Your notes for {{ title or "your meeting" }}{% endblock %}
+{% set notes_link = app_url ~ "/app/meetings/" ~ meeting_id %}
+{% set signup_link = app_url %}
+{% block subject %}{% if shared %}{{ host_name or "A MeetBase user" }} shared notes: {{ title or "a meeting" }}{% else %}Your notes for {{ title or "your meeting" }}{% endif %}{% endblock %}
 {% block content %}
-  <p>Hi {{ name or "there" }},</p>
   {% if shared %}
-    <p>Notes from <strong>{{ title or "a meeting" }}</strong> were shared with you.</p>
+    <p><strong>{{ host_name or "A MeetBase user" }}</strong> shared the notes from <strong>{{ title }}</strong> with you.</p>
+    <p style="color:#9a978c">These notes were captured automatically by MeetBase during the meeting.</p>
   {% else %}
-    <p>Your notes for <strong>{{ title or "your meeting" }}</strong> are ready.</p>
+    <p>Hi {{ name or "there" }},</p>
+    <p>Here are your notes for <strong>{{ title }}</strong>.</p>
   {% endif %}
-  <p><a href="{{ app_url }}/app/meetings" style="color:#2c6b58;font-weight:600">View notes &amp; action items →</a></p>
+
+  {% if tldr %}
+    <p style="font-weight:700;margin-bottom:4px">Summary</p>
+    <p style="margin-top:0">{{ tldr }}</p>
+  {% endif %}
+
+  {% if decisions %}
+    <p style="font-weight:700;margin-bottom:4px">Key decisions</p>
+    <ul style="margin-top:0;padding-left:20px">
+      {% for d in decisions %}
+        <li>{{ d }}</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  {% if action_items %}
+    <p style="font-weight:700;margin-bottom:4px">Action items</p>
+    <ul style="margin-top:0;padding-left:20px;list-style:none">
+      {% for item in action_items %}
+        <li style="margin-bottom:6px">
+          <span style="font-weight:600">{{ item.task }}</span>
+          <span style="color:#9a978c">
+            &middot; {{ item.owner }}{% if item.due %} &middot; due {{ item.due }}{% endif %}
+          </span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  {% if not tldr and not decisions and not action_items %}
+    <p>The full transcript and notes are available in MeetBase.</p>
+  {% endif %}
+
+  <p style="margin-top:20px">
+    <a href="{{ notes_link }}" style="background:#2c6b58;color:#fffdf8;font-weight:600;text-decoration:none;padding:12px 20px;border-radius:8px;display:inline-block">
+      {% if shared %}View full notes →{% else %}View in MeetBase →{% endif %}
+    </a>
+  </p>
+
+  {% if shared %}
+    <div style="border-top:1px solid #e7e3d8;margin:24px 0"></div>
+    <div style="background:#eef3f0;border-radius:12px;padding:20px">
+      <p style="font-weight:700;margin-top:0;margin-bottom:4px">Get AI notes for your own meetings</p>
+      <p style="margin-top:0;color:#1f2421">MeetBase joins your calls, writes the notes, and tracks the action items — automatically.</p>
+      <p style="margin-bottom:0">
+        <a href="{{ signup_link }}" style="background:#2c6b58;color:#fffdf8;font-weight:600;text-decoration:none;padding:12px 20px;border-radius:8px;display:inline-block">
+          Try MeetBase free →
+        </a>
+      </p>
+    </div>
+  {% endif %}
 {% endblock %}
+{% block footer %}{% if shared %}You received this because you attended this meeting and the host shared the notes via MeetBase.{% else %}You're receiving this because you use MeetBase.{% endif %}{% endblock %}

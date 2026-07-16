@@ -100,6 +100,11 @@ async def enqueue_meeting_notes(
     to_email: str,
     title: str | None,
     shared: bool = False,
+    name: str | None = None,
+    host_name: str | None = None,
+    tldr: str = "",
+    decisions: list[str] | None = None,
+    action_items: list[dict] | None = None,
 ) -> bool:
     """Enqueue one post-meeting notes email. dedup_key is (meeting_id, to_email)
     so each recipient is emailed once per meeting even across teardown re-runs.
@@ -117,6 +122,15 @@ async def enqueue_meeting_notes(
             "meeting_notes", meeting_id=meeting_id, to_email=to_email
         ),
         meeting_id=meeting_id,
-        payload={"title": title, "shared": shared},
+        payload={
+            "title": title,
+            "shared": shared,
+            "meeting_id": meeting_id,
+            "name": name,
+            "host_name": host_name,
+            "tldr": tldr,
+            "decisions": decisions or [],
+            "action_items": action_items or [],
+        },
         enabled=getattr(settings, "email_enabled", False),
     )

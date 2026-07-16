@@ -129,6 +129,75 @@ async def test_fail_grouped_followers_marks_non_excluded_rows_failed():
     assert updated_ids == {"m-2", "m-3"}
 
 
+async def test_fetch_notes_content_returns_empty_on_error():
+    client = MagicMock()
+    client.table.side_effect = Exception("boom")
+    result = await fanout._fetch_notes_content(client, "m-1")
+    assert result == ("", [], [])
+
+
+def test_host_name_prefers_self_then_organizer():
+    assert fanout._host_name({"attendees": [{"self": True, "name": "Jane"}]}) == "Jane"
+    assert fanout._host_name({"attendees": [{"organizer": True, "name": "Bob"}]}) == "Bob"
+    assert fanout._host_name({"attendees": []}) is None
+    assert fanout._host_name({}) is None
+
+
+async def test_fanout_notes_emails_fetches_content_and_passes_to_enqueue():
+    """fanout_notes_emails fetches summaries/action_items once per meeting and
+    forwards tldr/decisions/action_items/host_name into enqueue_meeting_notes;
+    the shared attendee send carries shared=True + the same host_name."""
+
+    def _table(name):
+        table = MagicMock()
+        sel = MagicMock()
+        if name == "summaries":
+            sel.execute = AsyncMock(
+                return_value=MagicMock(
+                    data=[{"tldr": "TLDR text", "decisions": [{"text": "Decision A"}]}]
+                )
+            )
+        elif name == "action_items":
+            sel.execute = AsyncMock(
+                return_value=MagicMock(
+                    data=[{"owner": "Bob", "task": "Do X", "due": "2026-01-01"}]
+                )
+            )
+        else:
+            sel.execute = AsyncMock(return_value=MagicMock(data=[]))
+        sel.eq.return_value = sel
+        sel.limit.return_value = sel
+        table.select.return_value = sel
+        return table
+
+    client = MagicMock()
+    client.table.side_effect = _table
+
+    group = [{
+        "id": "m-1", "user_id": "u-1", "title": "Sync", "notes_recipients": "everyone",
+        "attendees": [
+            {"email": "me@x.com", "self": True, "name": "Jane Host"},
+            {"email": "guest@x.com", "self": False},
+        ],
+    }]
+    settings = MagicMock(email_enabled=True)
+    with patch.object(fanout, "resolve_owner_email", AsyncMock(return_value="o@x.com")), \
+         patch.object(fanout, "enqueue_meeting_notes", AsyncMock(return_value=True)) as enq:
+        await fanout.fanout_notes_emails(client, settings, group)
+
+    assert enq.await_count == 2
+    calls_by_to = {c.kwargs["to_email"]: c.kwargs for c in enq.await_args_list}
+    owner_call = calls_by_to["o@x.com"]
+    guest_call = calls_by_to["guest@x.com"]
+    assert owner_call["tldr"] == "TLDR text"
+    assert owner_call["decisions"] == ["Decision A"]
+    assert owner_call["action_items"] == [{"owner": "Bob", "task": "Do X", "due": "2026-01-01"}]
+    assert owner_call["shared"] is False
+    assert owner_call["host_name"] == "Jane Host"
+    assert guest_call["shared"] is True
+    assert guest_call["host_name"] == "Jane Host"
+
+
 async def test_fanout_notes_emails_everyone_also_enqueues_attendees():
     client = _client()
     group = [{
