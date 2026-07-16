@@ -116,3 +116,44 @@ async def test_fetch_participant_images_parses_transcripts_response(monkeypatch)
 
     assert result == {"Jane Doe": "https://img/jane.png"}
     assert captured["url"] == "http://localhost:8056/transcripts/google_meet/abc-defg-hij"
+
+
+# --- list_bots -------------------------------------------------------------
+
+
+class _FakeGet:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self._payload
+
+
+async def test_list_bots_returns_bare_list(monkeypatch):
+    async def fake_get(self, url, *, headers=None, timeout=None):
+        assert url.endswith("/bots")
+        return _FakeGet([{"native_meeting_id": "abc", "status": "active"}])
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    out = await VexaClient("http://gw", "k").list_bots()
+    assert out == [{"native_meeting_id": "abc", "status": "active"}]
+
+
+async def test_list_bots_unwraps_dict_payload(monkeypatch):
+    async def fake_get(self, url, *, headers=None, timeout=None):
+        return _FakeGet({"meetings": [{"native_meeting_id": "x", "status": "completed"}]})
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    out = await VexaClient("http://gw", "k").list_bots()
+    assert out == [{"native_meeting_id": "x", "status": "completed"}]
+
+
+async def test_list_bots_empty_on_http_error(monkeypatch):
+    async def fake_get(self, url, *, headers=None, timeout=None):
+        raise httpx.ConnectError("boom")
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    assert await VexaClient("http://gw", "k").list_bots() == []

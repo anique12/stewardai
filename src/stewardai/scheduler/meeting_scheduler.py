@@ -54,6 +54,20 @@ LOOK_AHEAD_S = 60     # join ~1 minute before start
 # slowly and each sync is a Composio API call.
 CALENDAR_SYNC_INTERVAL_S = 300  # 5 minutes
 
+# Reconciliation: our meetings.bot_status is written by the agent's teardown, so
+# a bot that leaves cleanly transitions joining/in_meeting -> done. But if the
+# agent process is restarted or the connection drops, teardown never runs and the
+# row is stranded "live" forever. We resync against Vexa's authoritative meeting
+# status: Vexa itself ends the bot when it's alone (left_alone) or the call ends,
+# so if Vexa no longer reports an ACTIVE meeting for a native id, our row is stale.
+# Vexa MeetingStatus values that mean "still in the call" (anything else = ended).
+_VEXA_ACTIVE_STATUSES = frozenset(
+    {"requested", "joining", "awaiting_admission", "active", "needs_human_help", "stopping"}
+)
+# Only reconcile rows untouched for at least this long, so a just-dispatched bot
+# that Vexa's /bots list hasn't registered yet is never closed prematurely.
+RECONCILE_GRACE_S = 180
+
 # Bot identity shown in the meeting participant list.
 BOT_NAME = "MeetBase"
 
@@ -346,6 +360,68 @@ async def run_once(client: AsyncClient, settings: Settings) -> None:
         await dispatch_group(client, settings, group)
 
 
+async def reconcile_stuck_meetings(client: AsyncClient, settings: Settings) -> None:
+    """Close meetings stranded 'live' by syncing against Vexa's meeting status.
+
+    Our teardown normally writes the final 'done'/'failed', but if the agent is
+    restarted or the connection drops mid-meeting it never runs and the row stays
+    joining/in_meeting forever (shown as live). Vexa is authoritative: it ends the
+    bot when the call ends or it's left alone. So for each of our rows still
+    joining/in_meeting (and untouched for RECONCILE_GRACE_S), if Vexa reports no
+    ACTIVE meeting for that native id, the call is over — close the row
+    (in_meeting -> done, joining -> failed). Fully guarded; a live meeting Vexa
+    still reports active (even past its scheduled end) is left untouched.
+    """
+    now = datetime.now(UTC)
+    stale_before = (now - timedelta(seconds=RECONCILE_GRACE_S)).isoformat()
+    try:
+        resp = await (
+            client.table("meetings")
+            .select("id, native_meeting_id, bot_status, updated_at")
+            .in_("bot_status", ["joining", "in_meeting"])
+            .lte("updated_at", stale_before)
+            .execute()
+        )
+        rows = [r for r in (resp.data or []) if r.get("native_meeting_id")]
+    except Exception as exc:  # noqa: BLE001 — reconcile is best-effort
+        _log.warning("reconcile_query_failed", error=str(exc))
+        return
+    if not rows:
+        return
+
+    from stewardai.bridge.vexa_client import VexaClient
+
+    vexa = VexaClient(settings.vexa_gateway_url, settings.vexa_api_key)
+    bots = await vexa.list_bots()
+    # native_meeting_ids Vexa still reports as in-the-call.
+    active_natives = {
+        str(b.get("native_meeting_id"))
+        for b in bots
+        if isinstance(b, dict)
+        and str(b.get("status") or "").lower() in _VEXA_ACTIVE_STATUSES
+        and b.get("native_meeting_id")
+    }
+
+    for r in rows:
+        if str(r["native_meeting_id"]) in active_natives:
+            continue  # genuinely still live per Vexa — leave it
+        final = "done" if r["bot_status"] == "in_meeting" else "failed"
+        with contextlib.suppress(Exception):
+            await (
+                client.table("meetings")
+                .update({"bot_status": final})
+                .eq("id", r["id"])
+                .execute()
+            )
+            _log.info(
+                "meeting_reconciled_closed",
+                meeting_id=r["id"],
+                native=r["native_meeting_id"],
+                was=r["bot_status"],
+                now=final,
+            )
+
+
 async def run_forever(interval_s: int = 30) -> None:
     """Poll for due meetings on a recurring interval, dispatching a bot for each.
 
@@ -393,6 +469,10 @@ async def run_forever(interval_s: int = 30) -> None:
             await run_once(client, settings)
         except Exception as exc:  # noqa: BLE001 — never let one cycle kill the loop
             _log.warning("meeting_scheduler_cycle_error", error=str(exc))
+        try:
+            await reconcile_stuck_meetings(client, settings)
+        except Exception as exc:  # noqa: BLE001 — reconcile can't stop the loop
+            _log.warning("reconcile_cycle_error", error=str(exc))
         await asyncio.sleep(interval_s)
 
 

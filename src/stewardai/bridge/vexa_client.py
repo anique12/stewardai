@@ -147,6 +147,30 @@ class VexaClient:
         )
         return images
 
+    async def list_bots(self) -> list[dict]:
+        """Recent meetings/bots for this API key, from ``GET /bots``.
+
+        Each item carries at least ``native_meeting_id`` and ``status`` (Vexa's
+        MeetingStatus). Used to reconcile our meetings.bot_status against Vexa's
+        authoritative lifecycle (a bot that left / was left alone shows a terminal
+        status there). Best-effort — returns [] on any error; never raises."""
+        url = f"{self.base_url}/bots"
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(url, headers=self._headers(), timeout=8.0)
+                resp.raise_for_status()
+                payload = resp.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            _log.warning("vexa_list_bots_failed", error=str(exc))
+            return []
+        # The gateway may return a bare list or wrap it (e.g. {"meetings": [...]}).
+        if isinstance(payload, dict):
+            for key in ("meetings", "bots", "data", "items"):
+                if isinstance(payload.get(key), list):
+                    return payload[key]
+            return []
+        return payload if isinstance(payload, list) else []
+
     def mute(self, sink: str = "tts_sink") -> None:
         """Mute a PulseAudio sink (e.g. to silence the agent while a human speaks)."""
         self._pactl("set-sink-mute", sink, "1")
