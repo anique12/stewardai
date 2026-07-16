@@ -450,6 +450,7 @@ function FollowupChips({
 function AssistantTurn({
   message,
   streaming,
+  isLast,
   titles,
   onDecide,
   onConnect,
@@ -458,6 +459,7 @@ function AssistantTurn({
 }: {
   message: Message;
   streaming: boolean;
+  isLast: boolean;
   titles: Record<string, MeetingInfo>;
   onDecide: (decision: PermissionDecision, args?: Record<string, unknown>) => void;
   onConnect: () => void;
@@ -529,7 +531,9 @@ function AssistantTurn({
         </div>
       )}
 
-      {message.done && message.followups && message.followups.length > 0 && (
+      {/* Only on the latest turn — once the user picks a chip (or sends anything)
+          a new turn is appended and these disappear. */}
+      {isLast && message.done && message.followups && message.followups.length > 0 && (
         <FollowupChips items={message.followups} onSuggest={onSuggest} />
       )}
 
@@ -629,6 +633,7 @@ export function ChatMessages({
               <AssistantTurn
                 message={message}
                 streaming={streaming && isLast}
+                isLast={isLast}
                 titles={titles}
                 onDecide={onDecide}
                 onConnect={onConnect}

@@ -2,6 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { useChat, type ChatScope } from "@/hooks/useChat";
 import { ChatMessages } from "@/components/chat/ChatMessages";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
@@ -18,9 +19,14 @@ function ChatInner() {
 
   // Pin a freshly-created thread to the URL (so refresh + the sidebar restore it).
   // Fires only from the WS `thread` event, so it never bounces navigation.
+  const queryClient = useQueryClient();
   const onThreadCreated = useCallback(
-    (id: string) => router.replace(`/app/chat?thread=${id}`),
-    [router],
+    (id: string) => {
+      router.replace(`/app/chat?thread=${id}`);
+      // Refresh the sidebar so the new conversation shows without a manual reload.
+      queryClient.invalidateQueries({ queryKey: ["chat-threads"] });
+    },
+    [router, queryClient],
   );
   const { messages, streaming, connected, reason, send, decide, connectDone } = useChat(
     threadParam ?? undefined,
