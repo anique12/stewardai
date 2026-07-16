@@ -193,8 +193,8 @@ async function HomeDashboard({ userId, userEmail }: { userId: string; userEmail:
         <AskBar />
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.5fr_1fr]">
           <div className="flex min-w-0 flex-col gap-4">
-            <TodaysAgenda meetings={data.agenda} />
-            <RecentRecaps recaps={data.recaps} />
+            <TodaysAgenda meetings={data.agenda} timeZone={timeZone} />
+            <RecentRecaps recaps={data.recaps} timeZone={timeZone} />
           </div>
           <div className="flex min-w-0 flex-col gap-4">
             <NeedsAction actions={data.needsAction} />

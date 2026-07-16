@@ -1,13 +1,9 @@
 import Link from "next/link";
 import { SectionCard } from "@/components/common/SectionCard";
 import { SpaceChip } from "@/components/common/SpaceChip";
-import type { HomeRecapRow } from "@/lib/home";
+import { recapDateLabel, type HomeRecapRow } from "@/lib/home";
 
-function whenLabel(iso: string): string {
-  return new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" });
-}
-
-export function RecentRecaps({ recaps }: { recaps: HomeRecapRow[] }) {
+export function RecentRecaps({ recaps, timeZone }: { recaps: HomeRecapRow[]; timeZone: string }) {
   return (
     <SectionCard label="Recent recaps">
       {recaps.length === 0 ? (
@@ -33,7 +29,7 @@ export function RecentRecaps({ recaps }: { recaps: HomeRecapRow[] }) {
             <span className="min-w-0 flex-1">
               <span className="flex items-center gap-2">
                 <span className="truncate text-[13.5px] font-semibold">{r.title}</span>
-                <span className="shrink-0 font-mono text-[10px] text-ink-4">{whenLabel(r.start_time)}</span>
+                <span className="shrink-0 font-mono text-[10px] text-ink-4">{recapDateLabel(r.start_time, timeZone)}</span>
               </span>
               <span className="mt-0.5 block text-xs leading-snug text-ink-2">{r.tldr}</span>
               {r.space_name ? (

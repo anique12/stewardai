@@ -63,6 +63,28 @@ function isSameDayInTimeZone(iso: string, now: Date, timeZone: string): boolean 
   return localDateKey(new Date(iso), timeZone) === localDateKey(now, timeZone);
 }
 
+// Time-of-day for the agenda row ("9:00" + "AM"), rendered in the user's
+// timezone. These home components render on the SERVER, so an unqualified
+// toLocaleTimeString would format in the server's zone (UTC on Vercel) — the
+// timezone MUST be passed explicitly. See the meeting detail header, which is
+// a client component and formats in the browser's zone for free.
+export function agendaTimeParts(iso: string, timeZone: string): { time: string; ampm: string } {
+  const label = new Date(iso).toLocaleTimeString("en-US", {
+    timeZone,
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const [time, ampm] = label.split(" ");
+  return { time, ampm: ampm ?? "" };
+}
+
+// Short calendar date for a recap ("Jul 16"), in the user's timezone — same
+// server-rendering caveat as agendaTimeParts: without timeZone a late-evening
+// meeting can render on the wrong day.
+export function recapDateLabel(iso: string, timeZone: string): string {
+  return new Date(iso).toLocaleDateString("en-US", { timeZone, month: "short", day: "numeric" });
+}
+
 // Ascending by due date, with undated items pushed to the end — same ordering
 // as groupActionItems() in lib/meetings/actions.ts, but kept generic here so
 // callers don't lose the space_name field to that function's ActionRow[] type.

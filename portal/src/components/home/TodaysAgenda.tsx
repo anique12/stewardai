@@ -2,7 +2,7 @@ import Link from "next/link";
 import { SectionCard } from "@/components/common/SectionCard";
 import { StatusPill } from "@/components/common/StatusPill";
 import { toStatusPillStatus } from "@/lib/meetings/status-pill";
-import type { HomeMeetingRow } from "@/lib/home";
+import { agendaTimeParts, type HomeMeetingRow } from "@/lib/home";
 
 function platformFromUrl(url: string | null): string {
   if (!url) return "No link";
@@ -12,13 +12,7 @@ function platformFromUrl(url: string | null): string {
   return "Video call";
 }
 
-function timeParts(iso: string): { time: string; ampm: string } {
-  const label = new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  const [time, ampm] = label.split(" ");
-  return { time, ampm: ampm ?? "" };
-}
-
-export function TodaysAgenda({ meetings }: { meetings: HomeMeetingRow[] }) {
+export function TodaysAgenda({ meetings, timeZone }: { meetings: HomeMeetingRow[]; timeZone: string }) {
   return (
     <SectionCard
       label="Today's agenda"
@@ -32,7 +26,7 @@ export function TodaysAgenda({ meetings }: { meetings: HomeMeetingRow[] }) {
         <p className="px-4 py-6 text-sm text-ink-3">Nothing on the calendar for today.</p>
       ) : (
         meetings.map((m) => {
-          const { time, ampm } = timeParts(m.start_time);
+          const { time, ampm } = agendaTimeParts(m.start_time, timeZone);
           const status = toStatusPillStatus(m.bot_status, "scheduled");
           return (
             <Link
