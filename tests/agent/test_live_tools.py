@@ -38,7 +38,25 @@ def _make_service(slugs_risk=None):
 def _make_writer():
     writer = MagicMock()
     writer.insert = AsyncMock(return_value="row-1")
+    # No prior actions by default → live dedup guard is a no-op.
+    writer.existing_action_keys = AsyncMock(return_value=set())
     return writer
+
+
+async def test_low_risk_tool_dedups_when_already_done():
+    """The model re-calls a low-risk tool on each nudge; an identical
+    (slug, args) action already recorded must NOT execute or insert again."""
+    svc = _make_service({"GMAIL_FETCH_EMAILS": "low"})
+    writer = _make_writer()
+    # Called with no args → canonical args "{}".
+    writer.existing_action_keys = AsyncMock(
+        return_value={("GMAIL_FETCH_EMAILS", "{}")}
+    )
+    tools = build_live_tool_functions("u1", "m1", svc, writer)
+    result = await tools[0]._func()
+    assert "already" in result.lower()
+    svc.execute.assert_not_called()
+    writer.insert.assert_not_called()
 
 
 async def test_low_risk_tool_executes_and_writes():

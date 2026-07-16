@@ -15,6 +15,8 @@ is never called and the session simply has no Composio tools — no error.
 
 from __future__ import annotations
 
+import contextlib
+import json
 from typing import Any
 
 from stewardai.common.logging import get_logger
@@ -218,6 +220,16 @@ async def _execute_and_log(
     Returns a spoken confirmation string suitable for the agent to say aloud.
     On failure, returns an error phrase and logs state='failed'.
     """
+    # Dedup: with native tool-calling the model re-invokes a low-risk tool (e.g.
+    # create-draft) on each user nudge ("is it done?", "send it"), and every call
+    # would otherwise create a real draft + a fresh audit row. Skip when an
+    # identical (slug, canonical-args) action already exists for this meeting,
+    # mirroring the post-meeting extraction guard. Best-effort — never blocks.
+    canon_args = json.dumps(kwargs or {}, sort_keys=True, separators=(",", ":"))
+    with contextlib.suppress(Exception):
+        if (slug, canon_args) in await writer.existing_action_keys():
+            _log.info("live_tool_dedup_skipped", slug=slug, meeting_id=meeting_id)
+            return f"That's already done — I completed {_slug_to_human(slug)} earlier."
     try:
         result = composio_service.execute(
             user_id, slug, kwargs, default_timezone=default_timezone
