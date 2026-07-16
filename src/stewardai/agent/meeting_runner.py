@@ -510,6 +510,18 @@ class MeetingSession:
         """
         async for key, pcm in self._conn.speaker_frames():
             name = key.split(_SPEAKER_KEY_SEP, 1)[1] if _SPEAKER_KEY_SEP in key else ""
+            # The bot's OWN audio is tapped here too (carrying its room/account
+            # display name). Never let it reach the speaker tracker or the
+            # per-speaker transcriber: it would surface as a phantom participant
+            # AND — since the tracker labels a finalized turn with the most
+            # recently active speaker — steal the label of the next human turn,
+            # so the human's speech shows up under the bot's name. The bot's own
+            # spoken content is captured separately via _record_bot_line. This
+            # match relies on the bot's room display name equaling its configured
+            # name (self._bot_label / profiles.bot_name); keep the two in sync.
+            bot_label = (getattr(self, "_bot_label", "") or "").strip().lower()
+            if name and bot_label and name.strip().lower() == bot_label:
+                continue
             tracker = getattr(self, "_tracker", None)
             if name and tracker is not None:
                 tracker.note_active(name)
