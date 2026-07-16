@@ -7,6 +7,7 @@ import {
   Bot,
   Calendar as CalendarIcon,
   LogOut,
+  Mail,
   Moon,
   Search,
   Settings as SettingsIcon,
@@ -59,12 +60,28 @@ const AUTO_JOIN_OPTIONS: { value: AutoJoinPolicy; label: string; description: st
   },
 ];
 
-type SectionId = "general" | "assistant" | "calendar" | "approvals" | "account";
+type SectionId = "general" | "assistant" | "calendar" | "notifications" | "approvals" | "account";
+
+type NotesRecipients = "only_me" | "everyone";
+
+const NOTES_RECIPIENT_OPTIONS: { value: NotesRecipients; label: string; description: string }[] = [
+  {
+    value: "only_me",
+    label: "Only me",
+    description: "After each meeting, the notes email is sent to you only.",
+  },
+  {
+    value: "everyone",
+    label: "All participants",
+    description: "Send the notes email to everyone on the meeting invite.",
+  },
+];
 
 const SECTIONS: { id: SectionId; label: string; icon: typeof SettingsIcon }[] = [
   { id: "general", label: "General", icon: SettingsIcon },
   { id: "assistant", label: "Assistant", icon: Bot },
   { id: "calendar", label: "Calendar", icon: CalendarIcon },
+  { id: "notifications", label: "Notifications", icon: Mail },
   { id: "approvals", label: "Automatic approvals", icon: ShieldCheck },
   { id: "account", label: "Account", icon: UserIcon },
 ];
@@ -215,20 +232,24 @@ export function SettingsModal({
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [allowMeetingSpeech, setAllowMeetingSpeech] = useState(true);
   const [savingSpeech, setSavingSpeech] = useState(false);
+  const [notesRecipients, setNotesRecipients] = useState<NotesRecipients>("only_me");
+  const [savingNotes, setSavingNotes] = useState(false);
 
   const load = useCallback(async () => {
     setPhase("loading");
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("no user");
-      const [{ data: profile, error: profileErr }, { data: conn }] = await Promise.all([
-        supabase
-          .from("profiles")
-          .select("bot_name,plan,timezone,auto_join_policy,allow_meeting_speech")
-          .eq("user_id", user.id)
-          .single(),
-        supabase.from("calendar_connections").select("id").eq("user_id", user.id).single(),
-      ]);
+      const [{ data: profile, error: profileErr }, { data: conn }, { data: prefs }] =
+        await Promise.all([
+          supabase
+            .from("profiles")
+            .select("bot_name,plan,timezone,auto_join_policy,allow_meeting_speech")
+            .eq("user_id", user.id)
+            .single(),
+          supabase.from("calendar_connections").select("id").eq("user_id", user.id).single(),
+          supabase.from("email_prefs").select("notes_recipients").eq("user_id", user.id).maybeSingle(),
+        ]);
       if (profileErr) throw profileErr;
       setEmail(user.email ?? "");
       if (profile) {
@@ -239,6 +260,10 @@ export function SettingsModal({
         const speech = (profile as { allow_meeting_speech?: boolean }).allow_meeting_speech;
         setAllowMeetingSpeech(speech ?? true);
       }
+      setNotesRecipients(
+        ((prefs as { notes_recipients?: string } | null)?.notes_recipients as NotesRecipients) ??
+          "only_me",
+      );
       setHasCalendar(Boolean(conn));
       setPhase("ready");
     } catch {
@@ -275,6 +300,25 @@ export function SettingsModal({
       setAutoJoinPolicy(prev); // revert on failure
     } finally {
       setSavingPolicy(false);
+    }
+  }
+
+  async function saveNotesRecipients(next: NotesRecipients) {
+    const prev = notesRecipients;
+    setNotesRecipients(next); // optimistic
+    setSavingNotes(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("no user");
+      // email_prefs may not have a row yet (created lazily) → upsert on the PK.
+      const { error } = await supabase
+        .from("email_prefs")
+        .upsert({ user_id: user.id, notes_recipients: next }, { onConflict: "user_id" });
+      if (error) throw error;
+    } catch {
+      setNotesRecipients(prev); // revert on failure
+    } finally {
+      setSavingNotes(false);
     }
   }
 
@@ -472,6 +516,56 @@ export function SettingsModal({
                 </a>
               </div>
             </SettingRow>
+          </div>
+        );
+      case "notifications":
+        return (
+          <div>
+            <SectionTitle>Notifications</SectionTitle>
+            <div className="py-4">
+              <div className="mb-3 min-w-0 max-w-[380px]">
+                <div className="text-[13.5px] font-medium text-foreground">Meeting notes email</div>
+                <div className="mt-0.5 text-[12px] leading-relaxed text-ink-3">
+                  After each meeting, MeetBase emails the summary, decisions and action items.
+                  Choose who receives it.
+                </div>
+              </div>
+              <div className="flex flex-col gap-2" role="radiogroup" aria-label="Meeting notes recipients">
+                {NOTES_RECIPIENT_OPTIONS.map((opt) => {
+                  const selected = notesRecipients === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      disabled={savingNotes}
+                      onClick={() => saveNotesRecipients(opt.value)}
+                      className={cn(
+                        "flex items-start gap-3 rounded-md border px-3.5 py-3 text-left transition-colors hover:bg-surface-2 disabled:opacity-60",
+                        selected ? "border-brand bg-brand-weak" : "border-line-2 bg-paper"
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-pill border",
+                          selected ? "border-brand" : "border-line-2"
+                        )}
+                      >
+                        {selected ? <span className="h-2 w-2 rounded-pill bg-brand" /> : null}
+                      </span>
+                      <span className="flex-1">
+                        <span className="block text-[13px] font-semibold text-foreground">{opt.label}</span>
+                        <span className="block text-[12px] text-ink-3">{opt.description}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-3 text-xs text-ink-4">
+                External participants receive a lightly different note explaining MeetBase captured it.
+              </p>
+            </div>
           </div>
         );
       case "approvals":
