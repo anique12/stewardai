@@ -2,7 +2,7 @@ import { bucketActions, groupActionItems, type ActionRow } from "./actions";
 
 const row = (over: Partial<ActionRow>): ActionRow => ({
   id: "1", owner: "unassigned", task: "t", due: null, done: false,
-  meeting_id: "m1", meeting_title: "Sync", ...over,
+  meeting_id: "m1", meeting_title: "Sync", closed_by: null, closed_at: null, ...over,
 });
 
 describe("groupActionItems", () => {

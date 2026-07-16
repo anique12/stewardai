@@ -48,6 +48,33 @@ function OwnerAvatar({ owner }: { owner: string }) {
   );
 }
 
+// Same lightweight relative-time formatting pattern used by ChatSidebar's
+// formatThreadTime, kept local here so this file stays dependency-free.
+function formatClosedTime(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const minutes = Math.floor((Date.now() - d.getTime()) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function ClosedByLine({ r }: { r: ActionRow }) {
+  if (!r.done || !r.closed_by) return null;
+  const time = formatClosedTime(r.closed_at);
+  return (
+    <p className="mt-1 text-[11px] text-ink-4">
+      Closed by {r.closed_by}
+      {time ? ` · ${time}` : ""}
+    </p>
+  );
+}
+
 function formatDue(due: string): string {
   return new Date(`${due}T00:00:00`).toLocaleDateString([], { month: "short", day: "numeric" });
 }
@@ -86,6 +113,7 @@ function Row({
         >
           {r.meeting_title}
         </Link>
+        <ClosedByLine r={r} />
       </div>
       <OwnerAvatar owner={r.owner} />
       <DuePill r={r} kind={kind} />
@@ -173,8 +201,17 @@ export function ActionItemsList({ rows, timeZone }: { rows: ActionRow[]; timeZon
 
   async function onToggle(id: string, done: boolean) {
     const supabase = createBrowserClient();
-    await supabase.from("action_items").update({ done }).eq("id", id);
-    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, done } : i)));
+    let closed_by: string | null = null;
+    let closed_at: string | null = null;
+    if (done) {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      closed_by = user?.email ?? "You";
+      closed_at = new Date().toISOString();
+    }
+    await supabase.from("action_items").update({ done, closed_by, closed_at }).eq("id", id);
+    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, done, closed_by, closed_at } : i)));
   }
 
   const now = useMemo(() => new Date(), []);

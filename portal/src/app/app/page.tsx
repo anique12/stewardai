@@ -106,7 +106,7 @@ async function HomeDashboard({ userId, userEmail }: { userId: string; userEmail:
         .eq("bot_status", "done")
         .or("space_source.in.(suggested,unfiled),space_id.is.null"),
       // RLS-scoped: action_items has no user_id column, scoping is via the meetings.user_id join.
-      db.from("action_items").select("id,owner,task,due,done,meeting_id,meetings(title,space_id)").eq("done", false),
+      db.from("action_items").select("id,owner,task,due,done,meeting_id,closed_by,closed_at,meetings(title,space_id)").eq("done", false),
       db.from("profiles").select("display_name,timezone").eq("user_id", userId).maybeSingle(),
     ]);
 
@@ -155,6 +155,8 @@ async function HomeDashboard({ userId, userEmail }: { userId: string; userEmail:
         done: Boolean(r.done),
         meeting_id: r.meeting_id as string,
         meeting_title: meetingRel?.title ?? "Meeting",
+        closed_by: (r.closed_by as string | null) ?? null,
+        closed_at: (r.closed_at as string | null) ?? null,
         space_name: meetingRel?.space_id ? spaceNameById.get(meetingRel.space_id) ?? null : null,
       };
     });

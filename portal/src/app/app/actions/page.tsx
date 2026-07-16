@@ -30,7 +30,7 @@ async function ActionItemsContent() {
     const [{ data, error }, { data: profile }] = await Promise.all([
       db
         .from("action_items")
-        .select("id,owner,task,due,done,meeting_id,meetings(title)")
+        .select("id,owner,task,due,done,meeting_id,closed_by,closed_at,meetings(title)")
         .order("created_at", { ascending: false }),
       db.from("profiles").select("timezone").eq("user_id", user.id).maybeSingle(),
     ]);
@@ -45,6 +45,8 @@ async function ActionItemsContent() {
       done: Boolean(r.done),
       meeting_id: r.meeting_id as string,
       meeting_title: ((r as unknown as { meetings: { title: string } | null }).meetings?.title) ?? "Meeting",
+      closed_by: (r.closed_by as string | null) ?? null,
+      closed_at: (r.closed_at as string | null) ?? null,
     }));
 
     const timeZone = (profile?.timezone as string | null) ?? "UTC";

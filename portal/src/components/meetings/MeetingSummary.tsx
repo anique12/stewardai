@@ -7,7 +7,15 @@ type Summary = {
   decisions: { text: string }[];
   discrepancies: { text: string }[];
 } | null;
-type ActionItem = { id: string; owner: string; task: string; due: string | null; done: boolean };
+type ActionItem = {
+  id: string;
+  owner: string;
+  task: string;
+  due: string | null;
+  done: boolean;
+  closed_by?: string | null;
+  closed_at?: string | null;
+};
 
 // One card per recap block — each is visually distinct so the reader never
 // confuses the summary, the human to-dos, and what MeetBase did.

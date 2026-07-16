@@ -6,6 +6,8 @@ export type ActionRow = {
   done: boolean;
   meeting_id: string;
   meeting_title: string;
+  closed_by: string | null;
+  closed_at: string | null;
 };
 
 export function groupActionItems(rows: ActionRow[]): { open: ActionRow[]; done: ActionRow[] } {

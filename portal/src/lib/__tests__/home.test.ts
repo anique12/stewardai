@@ -19,6 +19,8 @@ const action = (over: Partial<HomeActionRow>): HomeActionRow => ({
   done: false,
   meeting_id: "m1",
   meeting_title: "Standup",
+  closed_by: null,
+  closed_at: null,
   space_name: null,
   ...over,
 });
