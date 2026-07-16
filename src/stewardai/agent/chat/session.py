@@ -331,7 +331,13 @@ class ChatSession:
         # (e.g. "I don't have any recorded content for that meeting yet") cites
         # none — showing the unrelated meetings it swept up as "Sources" is
         # misleading. Keep only citations whose [n] marker appears in the answer.
-        cited_ns = {int(n) for n in re.findall(r"\[(\d+)\]", answer)}
+        # Markers can be single ("[1]") or grouped ("[1, 6]", "[3,4]") — extract
+        # every number inside any bracket group, not just lone [n].
+        cited_ns = {
+            int(n)
+            for group in re.findall(r"\[([\d,\s]+)\]", answer)
+            for n in re.findall(r"\d+", group)
+        }
         citations = [c for c in citations if c.get("n") in cited_ns]
 
         thinking_seconds: int | None = None

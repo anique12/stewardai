@@ -355,3 +355,19 @@ async def test_done_citations_empty_when_answer_cites_nothing(monkeypatch):
     out = await _collect(_make_session().stream_turn("q", []))
     done = next(e for e in out if e["type"] == "done")
     assert done["citations"] == []
+
+
+async def test_done_citations_handle_grouped_markers(monkeypatch):
+    """Grouped markers like '[1, 2]' must keep BOTH sources (regression: the
+    single-[n] regex matched nothing on '[1, 2]' and dropped all sources)."""
+    _stub_followups(monkeypatch)
+    answer = "Priya owns the webhook work [1, 2]."
+    events = [
+        _kb_event("m1", 1, "alpha", "c1"),
+        _kb_event("m2", 2, "beta", "c2"),
+        _answer_event(answer),
+    ]
+    _install_fake_agent(monkeypatch, events, final_content=answer)
+    out = await _collect(_make_session().stream_turn("q", []))
+    done = next(e for e in out if e["type"] == "done")
+    assert sorted(c["n"] for c in done["citations"]) == [1, 2]
