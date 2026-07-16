@@ -11,9 +11,10 @@ after this refactor (see session.py's module docstring).
 """
 from __future__ import annotations
 
+import json
 from collections import namedtuple
 
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.types import Command
 
 import stewardai.agent.chat.graph as graph_module
@@ -304,3 +305,53 @@ async def test_generate_followups_defensive_on_llm_error(monkeypatch):
     monkeypatch.setattr(session_module, "make_chat_llm", _boom)
 
     assert await session_module._generate_followups("q?", "a.") == []
+
+
+def _kb_content(meeting_id: str, source_seq: int, text: str) -> str:
+    passage = {
+        "n": 1,
+        "text": text,
+        "meeting_id": meeting_id,
+        "source_seq": source_seq,
+        "kind": "fact",
+    }
+    return json.dumps({"passages": [passage]})
+
+
+def _kb_event(meeting_id: str, seq: int, text: str, call_id: str):
+    msg = ToolMessage(
+        content=_kb_content(meeting_id, seq, text), name="kb_search", tool_call_id=call_id
+    )
+    return ("updates", {"tools": {"messages": [msg]}})
+
+
+def _answer_event(text: str):
+    return ("updates", {"agent": {"messages": [AIMessage(content=text)]}})
+
+
+async def test_done_citations_filtered_to_those_the_answer_cites(monkeypatch):
+    """kb_search sweeps up two meetings, but the answer only cites [1] — the
+    done event must drop the uncited source (m2)."""
+    _stub_followups(monkeypatch)
+    answer = "Only the first is relevant [1]."
+    events = [
+        _kb_event("m1", 1, "alpha", "c1"),
+        _kb_event("m2", 2, "beta", "c2"),
+        _answer_event(answer),
+    ]
+    _install_fake_agent(monkeypatch, events, final_content=answer)
+    out = await _collect(_make_session().stream_turn("q", []))
+    done = next(e for e in out if e["type"] == "done")
+    assert [c["n"] for c in done["citations"]] == [1]
+    assert all(c["meeting_id"] != "m2" for c in done["citations"])
+
+
+async def test_done_citations_empty_when_answer_cites_nothing(monkeypatch):
+    """A 'no recorded content' answer cites nothing → no Sources at all."""
+    _stub_followups(monkeypatch)
+    answer = "I don't have any recorded content for that meeting yet."
+    events = [_kb_event("m1", 1, "alpha", "c1"), _answer_event(answer)]
+    _install_fake_agent(monkeypatch, events, final_content=answer)
+    out = await _collect(_make_session().stream_turn("q", []))
+    done = next(e for e in out if e["type"] == "done")
+    assert done["citations"] == []

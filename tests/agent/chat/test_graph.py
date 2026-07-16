@@ -117,7 +117,9 @@ SCRIPTED_EVENTS = [
 
 
 async def test_yields_token_events_then_terminal_done(monkeypatch):
-    fake_agent = _install_fake_agent(monkeypatch, SCRIPTED_EVENTS)
+    # A cited answer references its source with an [n] marker (only referenced
+    # citations are surfaced now — see session._drive's citation filter).
+    fake_agent = _install_fake_agent(monkeypatch, SCRIPTED_EVENTS, final_content="final answer [1]")
 
     out = await _collect()
 
@@ -127,7 +129,7 @@ async def test_yields_token_events_then_terminal_done(monkeypatch):
 
     done = out[-1]
     assert done["type"] == "done"
-    assert done["answer"] == "final answer"
+    assert done["answer"] == "final answer [1]"
     assert done["citations"] == [
         {"n": 1, "meeting_id": "m1", "source_seq": 3, "kind": "fact", "text": "ship July 17"}
     ]
@@ -168,9 +170,9 @@ async def test_done_falls_back_to_accumulated_text_if_state_fetch_fails(monkeypa
 
     assert out[-1]["type"] == "done"
     assert out[-1]["answer"] == "The answer is 42."
-    assert out[-1]["citations"] == [
-        {"n": 1, "meeting_id": "m1", "source_seq": 3, "kind": "fact", "text": "ship July 17"}
-    ]
+    # The fallback answer text carries no [n] marker, so no source is surfaced
+    # (citations are filtered to those the answer actually references).
+    assert out[-1]["citations"] == []
 
 
 async def test_citations_are_globally_numbered_and_deduped_across_kb_search_calls(monkeypatch):

@@ -35,6 +35,7 @@ looks it up dynamically (``chat_graph.build_chat_agent``), not to a
 from __future__ import annotations
 
 import json
+import re
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -324,6 +325,14 @@ class ChatSession:
         if not (answer or "").strip():
             _log.warning("chat_empty_answer", thread_id=self.thread_id)
             answer = "I wasn't able to generate a response — could you rephrase or try again?"
+
+        # Only surface sources the answer actually cites. kb_search collects every
+        # retrieved passage as a citation, but a turn that finds nothing relevant
+        # (e.g. "I don't have any recorded content for that meeting yet") cites
+        # none — showing the unrelated meetings it swept up as "Sources" is
+        # misleading. Keep only citations whose [n] marker appears in the answer.
+        cited_ns = {int(n) for n in re.findall(r"\[(\d+)\]", answer)}
+        citations = [c for c in citations if c.get("n") in cited_ns]
 
         thinking_seconds: int | None = None
         if t_first_think is not None:
