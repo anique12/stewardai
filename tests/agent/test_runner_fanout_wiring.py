@@ -16,6 +16,8 @@ class _Sess:
         self._last_summary = {"tldr": "x"}
         self._user_timezone = "UTC"
         self._admitted = True
+        self._mid = "1"
+        self.user_id = "u-1"
 
 
 async def test_fanout_results_targets_followers_and_all_for_email():
@@ -70,3 +72,30 @@ async def test_fanout_results_fails_followers_when_not_admitted():
     mod.fail_grouped_followers.assert_awaited_once_with(
         sess._supabase, sess.native_meeting_id, exclude_meeting_uuid=sess._meeting_uuid
     )
+
+
+async def test_fanout_skips_notes_email_when_transcript_empty():
+    """Admitted but nothing captured (empty transcript → fallback summary) must
+    NOT send a 'here are your notes' email."""
+    sess = _Sess()  # _admitted=True, _last_summary set
+    with patch.object(mr, "_fanout_mod") as mod:
+        mod.resolve_group_meetings = AsyncMock(return_value=[{"id": "m-1", "user_id": "u-1"}])
+        mod.fail_grouped_followers = AsyncMock()
+        mod.fanout_notes_emails = AsyncMock()
+        await mr._fanout_results(sess, ["", "   "])  # no real content
+    mod.fanout_notes_emails.assert_not_awaited()
+    mod.resolve_group_meetings.assert_not_awaited()
+
+
+async def test_fanout_not_admitted_sends_reason_email_no_notes():
+    """Never admitted → send a 'couldn't join' reason email, not notes."""
+    sess = _Sess()
+    sess._admitted = False
+    with patch.object(mr, "_fanout_mod") as mod, \
+         patch("stewardai.email.outbox.enqueue_bot_failed", AsyncMock()) as failed:
+        mod.fail_grouped_followers = AsyncMock()
+        mod.fanout_notes_emails = AsyncMock()
+        mod.resolve_group_meetings = AsyncMock(return_value=[])
+        await mr._fanout_results(sess, ["[Anique]: hi"])
+    failed.assert_awaited_once()
+    mod.fanout_notes_emails.assert_not_awaited()

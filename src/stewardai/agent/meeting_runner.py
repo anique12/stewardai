@@ -180,11 +180,33 @@ async def _fanout_results(session, transcript: list[str]) -> None:  # noqa: ANN0
     group gets a (dedup-keyed) notes email."""
     if session._supabase is None or not session.native_meeting_id:
         return
-    if not session._admitted or session._last_summary is None:
-        # No-show (never admitted) or the summary failed — never fan out
-        # artifacts/emails on nothing real; coherently fail the followers
-        # instead of stranding them in 'grouped' or falsely emailing "notes
-        # ready".
+    if not session._admitted:
+        # Never admitted (rejected / not let in / admission timed out). Don't send
+        # "here are your notes" — tell the owner WHY instead, and coherently fail
+        # any grouped followers rather than stranding them.
+        with contextlib.suppress(Exception):
+            from stewardai.email.outbox import enqueue_bot_failed
+
+            await enqueue_bot_failed(
+                session._supabase,
+                session._s,
+                user_id=session.user_id,
+                meeting_id=session._meeting_uuid,
+                title=None,
+                reason="MeetBase wasn't admitted to the meeting",
+            )
+        await _fanout_mod.fail_grouped_followers(
+            session._supabase,
+            session.native_meeting_id,
+            exclude_meeting_uuid=session._meeting_uuid,
+        )
+        return
+    # Admitted, but nothing was actually captured (no one spoke / audio issue) —
+    # the summary is just the empty-transcript fallback ("I need a transcript…").
+    # Never email "here are your notes" for an empty meeting.
+    has_content = any((line or "").strip() for line in (transcript or []))
+    if session._last_summary is None or not has_content:
+        _log.info("fanout_skipped_no_content", meeting=getattr(session, "_mid", None))
         await _fanout_mod.fail_grouped_followers(
             session._supabase,
             session.native_meeting_id,
