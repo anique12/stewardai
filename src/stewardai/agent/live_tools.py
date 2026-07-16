@@ -172,14 +172,32 @@ def _make_tool(
             meeting_id=meeting_id,
         )
         if risk == "high":
-            # Emit a verbal confirmation request.  The AgentSession will speak
-            # this text aloud; the user's response will come back as the next
-            # turn.  At that point the LLM decides whether to call again.
-            # The convention: this turn returns a "confirm?" text; on the NEXT
-            # turn the LLM re-calls the tool (or drops it) based on the reply.
+            # Never execute a high-risk action in-meeting. Record it as a
+            # 'proposed' (needs-approval) action so it appears LIVE in the
+            # approvals panel with Approve/Dismiss; approving it runs it via the
+            # action worker (proposed -> approved -> executed). Deduped so the
+            # model re-calling on a nudge doesn't queue the same action twice.
+            canon_args = json.dumps(kwargs or {}, sort_keys=True, separators=(",", ":"))
+            with contextlib.suppress(Exception):
+                if (slug, canon_args) in await writer.existing_action_keys():
+                    return (
+                        f"That's already waiting for your approval — "
+                        f"{_slug_to_human(slug)}."
+                    )
+            with contextlib.suppress(Exception):
+                await writer.insert(
+                    source="directed",
+                    toolkit=_slug_to_toolkit(slug),
+                    action_slug=slug,
+                    args=kwargs,
+                    risk=risk,
+                    title=_slug_to_human(slug),
+                    state="proposed",
+                )
+            _log.info("live_tool_proposed", slug=slug, meeting_id=meeting_id, risk=risk)
             return (
-                f"Before I go ahead and do that — want me to proceed with: "
-                f"{_slug_to_human(slug)}?"
+                f"I've queued that for your approval — {_slug_to_human(slug)}. "
+                f"Approve it in MeetBase whenever you're ready and I'll do it."
             )
 
         # Low risk: execute immediately

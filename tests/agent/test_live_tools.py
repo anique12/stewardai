@@ -75,18 +75,33 @@ async def test_low_risk_tool_executes_and_writes():
     assert call_kwargs["state"] == "done"
 
 
-async def test_high_risk_tool_returns_confirm_string_no_execute():
+async def test_high_risk_tool_proposes_for_approval_without_executing():
+    """A high-risk action is NOT run in-meeting: it writes a 'proposed'
+    (needs-approval) row so it shows live in the approvals panel, and speaks a
+    'queued for approval' message. Approving it later runs it via the worker."""
     svc = _make_service({"GMAIL_SEND_EMAIL": "high"})
     writer = _make_writer()
     tools = build_live_tool_functions("u1", "m1", svc, writer)
     assert len(tools) == 1
-    tool = tools[0]
-    result = await tool._func()
-    assert isinstance(result, str)
-    assert len(result) > 0
-    # Should NOT have executed
+    result = await tools[0]._func()
+    assert isinstance(result, str) and "approv" in result.lower()
+    # Proposed, not executed.
     svc.execute.assert_not_called()
+    writer.insert.assert_called_once()
+    assert writer.insert.call_args.kwargs["state"] == "proposed"
+    assert writer.insert.call_args.kwargs["action_slug"] == "GMAIL_SEND_EMAIL"
+
+
+async def test_high_risk_tool_dedups_repeat_proposal():
+    """The model re-asking to send must not queue a duplicate approval row."""
+    svc = _make_service({"GMAIL_SEND_EMAIL": "high"})
+    writer = _make_writer()
+    writer.existing_action_keys = AsyncMock(return_value={("GMAIL_SEND_EMAIL", "{}")})
+    tools = build_live_tool_functions("u1", "m1", svc, writer)
+    result = await tools[0]._func()
+    assert "already" in result.lower()
     writer.insert.assert_not_called()
+    svc.execute.assert_not_called()
 
 
 async def test_low_risk_tool_failure_writes_failed_row():
