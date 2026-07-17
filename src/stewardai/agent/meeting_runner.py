@@ -31,6 +31,36 @@ from stewardai.config import Settings, get_settings
 
 _log = get_logger("agent.meeting_runner")
 
+
+def _alpha(s: str) -> str:
+    """Lowercase, letters-only. Collapses a Meet display name ("Ahmad Mursal")
+    and a calendar attendee name that is really an email localpart
+    ("ahmadmursal968") to the same "ahmadmursal" so the two can be matched."""
+    return re.sub(r"[^a-z]", "", (s or "").lower())
+
+
+def resolve_participant_image(attendee_name: str, roster: dict[str, str]) -> str | None:
+    """Best avatar URL for a calendar attendee from a ``{meet_display_name:
+    image_url}`` roster. Tries an exact normalized (whitespace-collapsed,
+    casefolded) match first, then a letters-only match with containment —
+    guarded by a length floor to avoid short-name false positives — so
+    "Ahmad Mursal" resolves to the "ahmadmursal968" calendar attendee. Returns
+    ``None`` when nothing matches confidently."""
+    if not attendee_name or not roster:
+        return None
+    norm = {" ".join(n.split()).lower(): img for n, img in roster.items()}
+    exact = norm.get(" ".join(attendee_name.split()).lower())
+    if exact:
+        return exact
+    a = _alpha(attendee_name)
+    if len(a) < 5:
+        return None
+    for meet_name, img in roster.items():
+        b = _alpha(meet_name)
+        if len(b) >= 5 and (a == b or a in b or b in a):
+            return img
+    return None
+
 # Separator between the stable speaker id and the display name inside a per-speaker
 # frame key ("<id>\x1f<name>"); mirrors transport/DeepgramSpeakerTranscriber.
 _SPEAKER_KEY_SEP = "\x1f"
@@ -1105,10 +1135,6 @@ class MeetingSession:
         if name_to_image == self._last_roster:
             return
         self._last_roster = dict(name_to_image)
-        # Normalize (collapse whitespace, casefold) both sides so "John  Doe" from
-        # the Meet tile matches "John Doe" from the calendar.
-        norm = {" ".join(n.split()).lower(): img for n, img in name_to_image.items()}
-
         resp = await (
             self._supabase.table("meetings")
             .select("attendees")
@@ -1127,8 +1153,7 @@ class MeetingSession:
         for a in attendees:
             if not isinstance(a, dict):
                 continue
-            key = " ".join((a.get("name") or "").split()).lower()
-            img = norm.get(key)
+            img = resolve_participant_image(a.get("name") or "", name_to_image)
             if img and a.get("photoUrl") != img:
                 a["photoUrl"] = img
                 updated += 1
