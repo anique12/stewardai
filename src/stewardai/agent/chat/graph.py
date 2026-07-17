@@ -92,7 +92,14 @@ SYSTEM = (
     "(recipient_email / to) with their ACTUAL email addresses — get them from get_meeting's "
     "invitees (comma-separate multiple recipients) — do NOT leave the recipient blank or a "
     "placeholder when you already know who they are. Only leave a placeholder for a recipient "
-    "you genuinely cannot determine."
+    "you genuinely cannot determine. "
+    "When the user pastes a DOCUMENT or FILE URL (e.g. a docs.google.com/document, Drive, or "
+    "Sheets link) and asks you to summarize / read / answer about IT, READ THAT SPECIFIC "
+    "DOCUMENT via the matching integration — for a Google Doc, run_integration_action with "
+    "GOOGLEDOCS_GET_DOCUMENT_PLAINTEXT, passing the document id parsed from the URL (the "
+    "'/d/<id>/' segment) — and answer ONLY from that document's real content. Do NOT use "
+    "kb_search for a document the user linked: kb_search covers the user's own past MEETINGS, "
+    "never an external file. NEVER answer about a linked document using an unrelated meeting."
 )
 
 
