@@ -27,12 +27,47 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from typing import Any
 
 from langchain_core.tools import StructuredTool
 from langgraph.types import interrupt
 
 from stewardai.agent.chat.permissions import gate
+
+
+def _normalize_gmail_recipients(slug: str, kwargs: dict) -> dict:
+    """GMAIL_SEND_EMAIL's ``recipient_email`` is a SINGLE address (alias ``to``);
+    additional To recipients belong in the ``extra_recipients`` array. Models and
+    the approval card naturally produce a comma/semicolon-separated string, which
+    Composio then treats as one malformed address — single sends work, multi-
+    recipient sends silently fail. Split the primary out and route the rest into
+    ``extra_recipients`` so multi-recipient sends actually deliver."""
+    if slug != "GMAIL_SEND_EMAIL":
+        return kwargs
+    raw = kwargs.get("recipient_email")
+    if raw is None:
+        raw = kwargs.get("to")
+    if isinstance(raw, list):
+        parts = [str(x).strip() for x in raw if str(x).strip()]
+    elif isinstance(raw, str):
+        parts = [p.strip() for p in re.split(r"[,;]", raw) if p.strip()]
+    else:
+        return kwargs
+    if len(parts) <= 1:
+        return kwargs
+    out = dict(kwargs)
+    out.pop("to", None)
+    out["recipient_email"] = parts[0]
+    existing = out.get("extra_recipients")
+    existing = existing if isinstance(existing, list) else []
+    merged: list[str] = []
+    for e in [*parts[1:], *existing]:
+        e = e.strip() if isinstance(e, str) else str(e)
+        if e and e != parts[0] and e not in merged:
+            merged.append(e)
+    out["extra_recipients"] = merged
+    return out
 from stewardai.common.logging import get_logger
 from stewardai.integrations.composio_service import _DEFINED_TOOLKITS
 
@@ -460,6 +495,7 @@ async def _execute_with_connect_gate(
     """Execute ``slug`` via ``composio_service``; on a "not connected" signal,
     interrupt with ``kind="connect"`` and retry exactly once if resumed with
     ``"retry"``."""
+    kwargs = _normalize_gmail_recipients(slug, kwargs)
     for attempt in range(_MAX_ATTEMPTS):
         exc: Exception | None = None
         result: dict | None = None
