@@ -58,6 +58,11 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 log = get_logger("web")
 
+# Cost guard: hard ceiling on a single chat message's length (~4k tokens). A
+# paste bigger than this is refused before any LLM call — pairs with the
+# per-tool-result content cap in chat.composio_tools to bound per-turn token cost.
+_MAX_USER_MESSAGE_CHARS = 16000
+
 # Cloud STT/TTS (Deepgram / Cartesia) are native LiveKit plugins constructed INSIDE
 # build_session for the /pipeline AgentSession path. They are NOT factory backends —
 # they have no transcribe()/synthesize() Protocol and run only inside an AgentSession
@@ -609,6 +614,18 @@ async def ws_chat(ws: WebSocket) -> None:
             if msg_type == "user_message":
                 text = (msg.get("text") or "").strip()
                 if not text:
+                    continue
+                # Cost guard: refuse an oversized pasted message BEFORE any LLM call
+                # (a huge wall of text would consume a lot of tokens). Fetched tool
+                # content is capped separately in composio_tools.
+                if len(text) > _MAX_USER_MESSAGE_CHARS:
+                    await _safe_send(ws, {
+                        "type": "error",
+                        "text": (
+                            "That message is too long for me to process at once — "
+                            "please shorten it or send just the part you need help with."
+                        ),
+                    })
                     continue
                 try:
                     thread_id = msg.get("thread_id")
