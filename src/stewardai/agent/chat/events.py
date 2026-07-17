@@ -25,9 +25,30 @@ Observed shapes (via a throwaway spike against ``create_react_agent`` +
 """
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from langchain_core.messages import AIMessage, ToolMessage
+
+
+def _tool_failure_event(message: ToolMessage) -> dict | None:
+    """For an outward integration action that FAILED, surface a ``tool_result``
+    event so the UI can downgrade its optimistic "sent" receipt to a real error.
+    Only emitted on an explicit ``ok: False`` result — success/connect/skip
+    payloads return None (the card keeps its optimistic receipt)."""
+    if getattr(message, "name", None) != "run_integration_action":
+        return None
+    content = getattr(message, "content", None)
+    data: Any = content
+    if isinstance(content, str) and content.strip():
+        try:
+            data = json.loads(content)
+        except (ValueError, TypeError):
+            return None
+    if not isinstance(data, dict) or data.get("ok") is not False:
+        return None
+    return {"type": "tool_result", "tool": "run_integration_action", "ok": False,
+            "error": str(data.get("error") or "The action could not be completed.")}
 
 
 def _message_events(chunk: Any) -> list[dict]:
@@ -74,6 +95,9 @@ def _activity_events(chunk: Any) -> list[dict]:
                 events.append(
                     {"type": "activity", "kind": "tool", "name": name, "status": "done"}
                 )
+                failure = _tool_failure_event(message)
+                if failure is not None:
+                    events.append(failure)
             elif isinstance(message, AIMessage):
                 for name in _tool_call_names(message):
                     events.append(

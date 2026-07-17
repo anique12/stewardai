@@ -79,6 +79,16 @@ export function reduceChatEvent(state: ChatState, ev: ServerEvent): ChatState {
       return { ...state, messages, awaiting: "permission", streaming: false };
     }
 
+    case "tool_result": {
+      // An outward action reported failure — attach it so the approval card can
+      // replace its optimistic "sent" receipt with the real error.
+      const messages = replaceLastAssistant(state.messages, (msg) => ({
+        ...msg,
+        permissionResult: { ok: ev.ok, error: ev.error },
+      }));
+      return { ...state, messages };
+    }
+
     case "connect_required": {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { type: _type, ...rest } = ev;

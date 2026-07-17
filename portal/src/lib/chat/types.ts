@@ -71,6 +71,16 @@ export type ErrorEvent = {
   text?: string;
 };
 
+// Emitted after an outward integration action runs and FAILED, so the approval
+// card can replace its optimistic "sent" receipt with the real error.
+export type ToolResultEvent = {
+  type: "tool_result";
+  call_id?: string;
+  tool: string;
+  ok: boolean;
+  error?: string;
+};
+
 export type ServerEvent =
   | ThreadEvent
   | TokenEvent
@@ -80,6 +90,7 @@ export type ServerEvent =
   | ConnectRequiredEvent
   | DoneEvent
   | FollowupsEvent
+  | ToolResultEvent
   | ErrorEvent;
 
 // Activity as tracked on a message (no "type" discriminant — this is state, not a wire event).
@@ -100,6 +111,7 @@ export type Message = {
   error?: string;
   pending?: "permission" | "connect";
   permission?: Record<string, unknown>;
+  permissionResult?: { ok: boolean; error?: string };
   connect?: Record<string, unknown>;
   followups?: string[];
 };

@@ -301,6 +301,9 @@ class ChatSession:
                             "name": event.get("name"),
                             "status": event.get("status"),
                         }
+                    elif event.get("type") == "tool_result":
+                        # Correlate to the pending permission card (keyed by thread_id).
+                        event["call_id"] = self.thread_id
                     yield event
         except GraphBubbleUp:
             # interrupt()/subgraph control-flow signals MUST propagate to LangGraph

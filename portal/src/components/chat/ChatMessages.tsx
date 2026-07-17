@@ -496,7 +496,7 @@ function AssistantTurn({
       {message.text.length > 0 && <AnswerContent text={message.text} cite={cite} />}
 
       {message.pending === "permission" && message.permission && (
-        <PermissionCard permission={message.permission} onDecide={onDecide} />
+        <PermissionCard permission={message.permission} result={message.permissionResult} onDecide={onDecide} />
       )}
       {message.pending === "connect" && message.connect && (
         <ConnectCard connect={message.connect} onConnect={onConnect} onSkip={onSkip} />

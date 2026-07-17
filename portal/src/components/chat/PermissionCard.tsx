@@ -12,7 +12,7 @@
 // something MeetBase supports, so we don't offer a button that can't do anything.
 
 import { useState } from "react";
-import { Check, Mail, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, Check, Mail, ShieldCheck, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 type Decision = "approve" | "reject" | "always";
@@ -63,9 +63,11 @@ const inputCls =
 
 export function PermissionCard({
   permission,
+  result,
   onDecide,
 }: {
   permission: Record<string, unknown>;
+  result?: { ok: boolean; error?: string };
   onDecide: (decision: Decision, args?: Record<string, unknown>) => void;
 }) {
   const tool = typeof permission.tool === "string" ? permission.tool : "";
@@ -109,6 +111,25 @@ export function PermissionCard({
   }
 
   if (decided === "approved") {
+    // The server reports failure via a tool_result event; until/unless that
+    // arrives, the receipt stays optimistic (success is the common case).
+    if (result && !result.ok) {
+      return (
+        <div className="flex items-start gap-[11px] rounded-xl border border-attention bg-attention-weak p-3.5">
+          <span className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-md border border-attention bg-surface text-attention-strong">
+            <AlertTriangle className="h-4 w-4" aria-hidden />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="text-[13px] font-semibold text-ink">
+              {email ? "Couldn't send the email" : "Action failed"}
+            </div>
+            <div className="mt-0.5 text-[11.5px] leading-relaxed text-ink-3">
+              {result.error || "Something went wrong. Please try again."}
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex items-center gap-[11px] rounded-xl border border-brand-weak-2 bg-brand-weak p-3.5 shadow-sh-1">
         <span className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-md bg-brand text-on-brand">
