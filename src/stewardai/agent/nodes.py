@@ -48,6 +48,8 @@ this module never requires livekit; constructing/using the nodes does.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import random
 
 from stewardai.common.audio import SAMPLE_RATE, Message, Transcript
 from stewardai.common.logging import get_logger
@@ -229,11 +231,48 @@ def build_llm_node(
                 addressed = _addressed_by_name_oai(self._system, oai_messages)
                 self._steward_llm._turn_seq += 1
                 my_seq = self._steward_llm._turn_seq
-                n = 0
+                from stewardai.agent.tool_turn import _SLOW_FILLERS
+                from stewardai.config import get_settings as _get_settings
+
+                n = 0        # total chunks emitted (text + tool_call + filler)
+                spoke = 0    # spoken TEXT chunks only (real model prose)
+                filler_said = False
+                # Only fill on turns actually aimed at us — never blurt on ambient.
+                slow_s = _get_settings().slow_reply_filler_s if addressed else 0.0
+
+                def _say_filler() -> None:
+                    nonlocal filler_said, n
+                    if filler_said:
+                        return
+                    filler_said = True
+                    self._event_ch.send_nowait(
+                        _make_chat_chunk(lk_llm, request_id, random.choice(_SLOW_FILLERS))
+                    )
+                    n += 1
+
+                agen = self._inner.chat_with_tools(oai_messages, tools=oai_tools)
+                first = True
                 try:
-                    async for kind, payload in self._inner.chat_with_tools(
-                        oai_messages, tools=oai_tools
-                    ):
+                    while True:
+                        # SLOW-LLM filler: before any output, wait up to slow_s for the
+                        # first item; if the model is slow (e.g. Gemini overloaded),
+                        # speak one filler WITHOUT cancelling the pending call, then keep
+                        # waiting — an overloaded turn is never dead air.
+                        if first and slow_s > 0 and spoke == 0 and not filler_said:
+                            task = asyncio.ensure_future(agen.__anext__())
+                            done, _ = await asyncio.wait({task}, timeout=slow_s)
+                            if not done:
+                                _say_filler()
+                            try:
+                                kind, payload = await task
+                            except StopAsyncIteration:
+                                break
+                        else:
+                            try:
+                                kind, payload = await agen.__anext__()
+                            except StopAsyncIteration:
+                                break
+                        first = False
                         if self._steward_llm._turn_seq != my_seq:
                             _log.info(
                                 "turn_superseded", backend=self._inner.name, deltas=n
@@ -245,7 +284,16 @@ def build_llm_node(
                                     _make_chat_chunk(lk_llm, request_id, payload)
                                 )
                                 n += 1
+                                spoke += 1
                         elif kind == "tool_call":
+                            # TOOL-CALL filler: a real tool is about to run — cover its
+                            # latency with a filler if we've said nothing yet. stay_silent
+                            # means "say nothing", so it never gets a filler.
+                            tool_name = (
+                                payload.get("name") if isinstance(payload, dict) else None
+                            )
+                            if tool_name != "stay_silent" and spoke == 0 and not filler_said:
+                                _say_filler()
                             self._event_ch.send_nowait(
                                 _make_tool_call_chunk(lk_llm, request_id, payload)
                             )
@@ -263,6 +311,9 @@ def build_llm_node(
                         )
                         _log.info("llm_error_fallback_spoken", backend=self._inner.name)
                     return
+                finally:
+                    with contextlib.suppress(Exception):
+                        await agen.aclose()
                 _log.info("llm_native_done", backend=self._inner.name, deltas=n)
                 return
             if self._gated:
