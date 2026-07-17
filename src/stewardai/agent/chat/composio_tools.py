@@ -158,6 +158,25 @@ def _is_not_connected(exc: BaseException | None, result: dict | None) -> bool:
     return False
 
 
+# Hard ceiling on the meaningful content a single tool result may feed the model
+# (~6k tokens). Beyond this we DECLINE the request rather than burning tokens on a
+# huge fetch (e.g. summarizing a very long document) — a cheap abuse/cost guard.
+_MAX_TOOL_CONTENT_CHARS = 24000
+
+
+def _content_len(result: Any) -> int:
+    """Approximate size of the meaningful content in a tool result — the string
+    ``data`` field (docs/reads return their text here, which _trim_result does
+    NOT truncate) or the whole payload otherwise."""
+    if isinstance(result, dict):
+        data = result.get("data")
+        if isinstance(data, str):
+            return len(data)
+        if data is not None:
+            return len(str(data))
+    return len(str(result))
+
+
 def _trim_result(result: Any) -> dict:
     """Trim a Composio execute() result so a large payload doesn't blow up
     the LLM's context; always returns a plain dict."""
@@ -512,7 +531,20 @@ async def _execute_with_connect_gate(
             # gmail lists) into clean data; otherwise trim the raw payload so a
             # large blob doesn't blow up the context (or get hallucinated).
             formatted = _format_tool_result(slug, result)
-            return formatted if formatted is not None else _trim_result(result)
+            if formatted is not None:
+                return formatted
+            # Oversized generic result (e.g. a very long document) — decline for
+            # now rather than process a huge request.
+            if _content_len(result) > _MAX_TOOL_CONTENT_CHARS:
+                _log.info("tool_result_too_large", slug=slug, size=_content_len(result))
+                return {
+                    "ok": False,
+                    "error": (
+                        "That's too large for me to handle right now — try a shorter "
+                        "document, or point me at a specific section or page."
+                    ),
+                }
+            return _trim_result(result)
 
         decision = interrupt({"kind": "connect", "app": app, "tool": slug})
         if decision == "retry" and attempt < _MAX_ATTEMPTS - 1:
