@@ -83,7 +83,12 @@ SYSTEM = (
     "app isn't in list_integrations, tell the user it's not supported yet. When the user wants to "
     "connect an app (or asks how), call connect_app(app) — it shows the Connect dialog. NEVER tell "
     "the user to click a Connect button unless you actually called connect_app or "
-    "run_integration_action."
+    "run_integration_action. "
+    "When drafting an email to meeting participants/invitees, FILL the recipient "
+    "(recipient_email / to) with their ACTUAL email addresses — get them from get_meeting's "
+    "invitees (comma-separate multiple recipients) — do NOT leave the recipient blank or a "
+    "placeholder when you already know who they are. Only leave a placeholder for a recipient "
+    "you genuinely cannot determine."
 )
 
 
