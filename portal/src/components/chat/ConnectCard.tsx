@@ -30,6 +30,9 @@ export function ConnectCard({
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const cancelled = useRef(false);
+  // Flipped by the popup's completion signal (BroadcastChannel/storage) so the
+  // poll wakes immediately instead of waiting out its next 2.5s tick.
+  const signalled = useRef(false);
 
   useEffect(() => {
     return () => {
@@ -37,9 +40,37 @@ export function ConnectCard({
     };
   }, []);
 
+  // Listen for the /oauth/complete popup's "connection finished" signal.
+  useEffect(() => {
+    const onSignal = (a?: unknown) => {
+      if (!a || a === app) signalled.current = true;
+    };
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel("composio-oauth");
+      bc.onmessage = (e) => onSignal((e.data as { app?: string })?.app);
+    } catch {
+      // ignore — storage fallback below
+    }
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "composio-oauth") onSignal();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => {
+      try {
+        bc?.close();
+      } catch {
+        /* ignore */
+      }
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [app]);
+
   async function isConnected(): Promise<boolean> {
     try {
-      const res = await fetch("/api/integrations/status");
+      // no-store: this is polled repeatedly against the same URL — a cached
+      // response would report the pre-connection state forever.
+      const res = await fetch("/api/integrations/status", { cache: "no-store" });
       if (!res.ok) return false;
       const data = await res.json();
       const row = (data?.apps ?? []).find(
@@ -51,11 +82,16 @@ export function ConnectCard({
     }
   }
 
-  // Poll until the app reports connected (or we time out ~2.5 min).
+  // Poll until the app reports connected (or we time out ~2.5 min). Between
+  // checks we sleep in short slices so the popup's completion signal wakes us
+  // within ~100ms instead of at the next 2.5s tick.
   async function pollUntilConnected(): Promise<boolean> {
     const deadline = Date.now() + 150_000;
     while (Date.now() < deadline && !cancelled.current) {
-      await new Promise((r) => setTimeout(r, 2500));
+      for (let i = 0; i < 25 && !signalled.current && !cancelled.current; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      signalled.current = false;
       if (cancelled.current) return false;
       if (await isConnected()) return true;
     }
@@ -70,7 +106,9 @@ export function ConnectCard({
     setPhase("connecting");
     setError(null);
     try {
-      const redirectUri = `${window.location.origin}/app/settings/connections`;
+      // Land the popup on a minimal page that closes itself + signals us,
+      // rather than the full app (which would just sit open showing MeetBase).
+      const redirectUri = `${window.location.origin}/oauth/complete?app=${encodeURIComponent(app)}`;
       const res = await fetch(`/api/integrations/${app}/connect`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

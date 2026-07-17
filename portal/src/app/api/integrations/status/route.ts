@@ -4,6 +4,10 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { getComposio, getSupportedToolkits } from "@/lib/composio";
 import { NextResponse } from "next/server";
 
+// Polled repeatedly by the connect flow — never serve a cached response, or the
+// poll would report the pre-connection state until a hard refresh.
+export const dynamic = "force-dynamic";
+
 // Maps a Composio connected-account status to our local `connected_apps.status`
 // check-constraint values (connected | pending | error | disconnected).
 function localStatus(composioStatus: string | undefined): string {
