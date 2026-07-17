@@ -244,6 +244,29 @@
   @keyframes sc-toastin {from{opacity:0;transform:translateY(14px) scale(.98)}to{opacity:1;transform:none}}
   @keyframes sc-checkpop {0%{transform:scale(.4);opacity:0}60%{transform:scale(1.15)}100%{transform:scale(1);opacity:1}}
   @keyframes sc-shimmer {100%{background-position:-200% 0}}
+  @keyframes sc-spin {to{transform:rotate(1turn)}}
+  @keyframes sc-trace {to{offset-distance:100%}}
+  /* Paint a lucide (stroke-based) icon with the AI gradient instead of a flat
+     color — references the <linearGradient id="askSparkle"> rendered in the DOM. */
+  .icon-ai-grad{stroke:url(#askSparkle)}
+  /* Animated AI gradient border: a rotating conic-gradient behind the element,
+     revealed only in the padding ring (the inner child paints an opaque bg on
+     top). `isolate` keeps the z-index:-1 pseudo scoped to this box. */
+  /* AI border: a STATIC multi-color conic gradient ring (wrapper background)
+     with ONE bright tracer that travels the FULL perimeter. The tracer rides
+     `offset-path: border-box`, which follows the rounded-rect edge evenly
+     (corners included) — unlike a conic wedge, which races the long edges and
+     stalls at the corners. offset-rotate:auto keeps the comet tangent to the
+     border so it reads as a line gliding around. The inner child (relative
+     z-10 + opaque bg) covers the center, leaving the ring visible in the
+     padding only. */
+  .ai-border{position:relative;border-radius:13px;padding:2.5px;overflow:hidden;
+    background:conic-gradient(from 0deg,#22d3a5,#3b9bff,#a06bff,#ff5fa2,#22d3a5)}
+  .ai-border::before{content:"";position:absolute;top:0;left:0;height:5px;width:42px;
+    border-radius:9999px;
+    background:linear-gradient(90deg,rgba(255,255,255,0),#fff);
+    offset-path:border-box;offset-rotate:auto;offset-distance:0;
+    animation:sc-trace 9s linear infinite}
   .anim-pulse{animation:sc-pulse 1s infinite}
   .anim-ring{animation:sc-ring 1.6s ease-out infinite}
   .anim-fadeup{animation:sc-fadeup .16s ease}
@@ -251,5 +274,6 @@
   .anim-checkpop{animation:sc-checkpop .4s ease}
   @media (prefers-reduced-motion: reduce){
     .anim-pulse,.anim-ring,.anim-fadeup,.anim-toastin,.anim-checkpop{animation:none}
+    .ai-border::before{animation:none;opacity:0}
   }
 }

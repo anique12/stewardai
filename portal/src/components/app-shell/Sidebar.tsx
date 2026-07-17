@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { MessageCircle, X } from "lucide-react";
+import { Sparkles, X } from "lucide-react";
 import { UserMenu } from "./UserMenu";
 import { WORKSPACE_NAV, ACCOUNT_NAV, type NavCounts, type NavItem } from "./nav";
 import { useSettingsModal } from "./SettingsModalContext";
@@ -111,13 +111,26 @@ export function Sidebar({ email, avatarUrl, counts }: { email: string; avatarUrl
       </div>
 
       <div className="px-3 pb-0.5 pt-1">
-        <Link
-          href="/app/chat"
-          className="flex w-full items-center justify-center gap-[9px] rounded-md bg-brand px-[11px] py-2.5 text-[13.5px] font-semibold text-on-brand shadow-sh-1 transition-colors hover:bg-brand-2"
-        >
-          <MessageCircle className="h-4 w-4" aria-hidden />
-          Ask MeetBase
-        </Link>
+        <div className="ai-border w-full">
+          <Link
+            href="/app/chat"
+            className="relative z-10 flex w-full items-center justify-center gap-[9px] rounded-[11.5px] bg-surface px-[11px] py-2.5 text-[13.5px] font-semibold text-brand-ink transition-colors hover:bg-brand-weak"
+          >
+            {/* Gradient def for the sparkle's stroke (referenced by url() below). */}
+            <svg width="0" height="0" className="absolute" aria-hidden="true">
+              <defs>
+                <linearGradient id="askSparkle" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+                  <stop offset="0" stopColor="#22d3a5" />
+                  <stop offset="0.4" stopColor="#3b9bff" />
+                  <stop offset="0.7" stopColor="#a06bff" />
+                  <stop offset="1" stopColor="#ff5fa2" />
+                </linearGradient>
+              </defs>
+            </svg>
+            <Sparkles className="h-4 w-4 icon-ai-grad" aria-hidden />
+            Ask MeetBase
+          </Link>
+        </div>
       </div>
 
       <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-3 pt-2.5">
