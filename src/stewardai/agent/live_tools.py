@@ -66,6 +66,66 @@ def build_stay_silent_tool() -> Any | None:
     return stay_silent
 
 
+def build_kb_search_tool(user_id: str, supabase: Any, llm: Any) -> Any | None:
+    """A live in-meeting tool that searches the owner's MeetBase knowledge base
+    (past meetings' transcripts + extracted facts) via the SAME retrieval the
+    chat agent uses (``kb.retrieval.retrieve``) — so recall behaves identically
+    in chat and in-call. Returns spoken-friendly passage text for the model to
+    synthesize an answer from. ``None`` when livekit is missing or there is no
+    KB backing (no supabase / user_id)."""
+    if supabase is None or not user_id:
+        return None
+    try:
+        from livekit.agents import function_tool  # type: ignore
+    except ImportError:
+        _log.warning("livekit_not_installed_kb_tool_disabled")
+        return None
+
+    from stewardai.agent.kb.retrieval import retrieve
+
+    async def _handler(**kwargs: Any) -> str:  # noqa: ANN401
+        query = str((kwargs or {}).get("query") or "").strip()
+        if not query:
+            return "What should I look up in your past meetings?"
+        try:
+            rows = await retrieve(supabase, llm, user_id=user_id, query=query)
+        except Exception as exc:  # noqa: BLE001 - degrade, never crash the turn
+            _log.warning("kb_search_live_failed", error=str(exc))
+            return "I couldn't reach the knowledge base just now."
+        lines = [f"- {t}" for r in rows if (t := (r.get("text") or "").strip())][:6]
+        if not lines:
+            return f'I didn\'t find anything about "{query}" in your past meetings.'
+        return (
+            "From your MeetBase knowledge base (ground your answer in this, don't "
+            "invent):\n" + "\n".join(lines)
+        )
+
+    return function_tool(
+        _handler,
+        raw_schema={
+            "name": "kb_search",
+            "description": (
+                "Search the owner's MeetBase knowledge base — PAST meetings' "
+                "transcripts, decisions, and facts — and return relevant passages. "
+                "Use this when asked about something discussed or decided in a "
+                "PREVIOUS meeting, or any detail not in the current call's transcript. "
+                "Do NOT use it for what was said in this meeting (that's in the "
+                "transcript you already see)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "What to look up across the owner's past meetings.",
+                    }
+                },
+                "required": ["query"],
+            },
+        },
+    )
+
+
 def build_live_tool_functions(
     user_id: str,
     meeting_id: str,

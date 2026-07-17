@@ -366,6 +366,7 @@ def build_meeting_system(
     name: str = "Steward",
     *,
     tools_available: bool = False,
+    kb_search_available: bool = False,
     spoken_languages: str = "English",
     today: str | None = None,
     speak_enabled: bool = True,
@@ -460,6 +461,14 @@ def build_meeting_system(
         )
     note = _TOOLS_AVAILABLE_NOTE if tools_available else _NO_TOOLS_NOTE
     result = base + note.format(name=name)
+    if kb_search_available:
+        result += (
+            "\n- To recall something from a PAST meeting — a prior decision, what a "
+            "client said before, an earlier commitment — that is NOT in the transcript "
+            "above, call kb_search to look it up in the knowledge base; don't guess or "
+            "say you don't have it. (This meeting's transcript is already your memory; "
+            "kb_search is for everything before this call.)"
+        )
     if not speak_enabled:
         result += (
             "\n- IMPORTANT: You are a SILENT observer/notetaker in this meeting. "

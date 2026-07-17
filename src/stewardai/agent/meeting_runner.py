@@ -759,16 +759,25 @@ class MeetingSession:
         # action extraction/filing runs in teardown and writes through it — that is
         # desired and unaffected by silent mode.
         from stewardai.agent.live_tools import (
+            build_kb_search_tool,
             build_live_tool_functions,
             build_stay_silent_tool,
         )
 
         self._live_tools = []
         self._has_action_tools = False
+        self._has_kb_search = False
         if self._speak_enabled:
             _ss = build_stay_silent_tool()
             if _ss is not None:
                 self._live_tools.append(_ss)
+            # Live knowledge-base recall — same retrieval as the chat agent, so
+            # the bot can answer "what did we decide last time?" mid-call. Not an
+            # outward action, so it does not flip _has_action_tools.
+            _kb = build_kb_search_tool(self.user_id, self._supabase, self._llm)
+            if _kb is not None:
+                self._live_tools.append(_kb)
+                self._has_kb_search = True
         _composio_ready = s.composio_enabled and self.user_id and self._composio is not None
         if _composio_ready and not self._meeting_uuid:
             # agent_actions.meeting_id is a uuid FK — without the resolved meetings.id
@@ -857,6 +866,7 @@ class MeetingSession:
         meeting_system = build_meeting_system(
             self._bot_label,
             tools_available=self._has_action_tools,
+            kb_search_available=self._has_kb_search,
             spoken_languages=_spoken,
             today=_today,
             speak_enabled=self._speak_enabled,
