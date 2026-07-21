@@ -1,5 +1,6 @@
 import { LiveRefresher } from "@/components/meetings/LiveRefresher";
 import { MeetingHeader } from "@/components/meetings/MeetingHeader";
+import { LocalTime, MeetingMetaLine } from "@/components/meetings/LocalTime";
 import { MeetingSummary } from "@/components/meetings/MeetingSummary";
 import { MeetingTimeline, type SpeakerLookupEntry } from "@/components/meetings/MeetingTimeline";
 import { MeetingDetailTabs } from "@/components/meetings/MeetingDetailTabs";
@@ -14,23 +15,6 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
-
-function metaLine(startTime: string, endTime: string | null, meetUrl: string | null): string {
-  const start = new Date(startTime);
-  const end = endTime ? new Date(endTime) : null;
-  const mins = end ? Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000)) : null;
-  const parts = [
-    start.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }),
-    start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-  ];
-  if (mins) parts.push(`${mins} min`);
-  if (meetUrl) {
-    if (meetUrl.includes("zoom.us")) parts.push("Zoom");
-    else if (meetUrl.includes("meet.google.com")) parts.push("Google Meet");
-    else if (meetUrl.includes("teams.microsoft.com")) parts.push("Teams");
-  }
-  return parts.join(" · ");
-}
 
 export default async function MeetingDetailPage({ params }: { params: { id: string } }) {
   const user = await requireUserPage();
@@ -131,7 +115,7 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
           </Link>
         </div>
         <div className="mt-[18px] font-mono text-[11px] text-ink-4">
-          bot_not_admitted · meeting ended {new Date(meeting.end_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          bot_not_admitted · meeting ended <LocalTime iso={meeting.end_time} />
         </div>
       </div>
     );
@@ -158,7 +142,7 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
           </span>
         </div>
         <div className="mb-[26px] font-mono text-[12.5px] text-ink-3">
-          {metaLine(meeting.start_time, meeting.end_time, meeting.meet_url)}
+          <MeetingMetaLine startTime={meeting.start_time} endTime={meeting.end_time} meetUrl={meeting.meet_url} />
         </div>
         <div className="rounded-2xl border border-dashed border-line-2 bg-surface px-6 py-12 text-center">
           <div className="mx-auto mb-4 flex h-[52px] w-[52px] items-center justify-center rounded-[14px] bg-attention-weak text-attention-strong">
@@ -207,7 +191,7 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
           </span>
         </div>
         <div className="mb-[26px] font-mono text-[12.5px] text-ink-3">
-          {metaLine(meeting.start_time, meeting.end_time, meeting.meet_url)}
+          <MeetingMetaLine startTime={meeting.start_time} endTime={meeting.end_time} meetUrl={meeting.meet_url} />
         </div>
         <div className="rounded-2xl border border-dashed border-line-2 bg-surface px-6 py-12 text-center">
           <div className="mx-auto mb-4 flex h-[52px] w-[52px] items-center justify-center rounded-[14px] bg-brand-weak text-brand">
@@ -220,7 +204,7 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
           <h3 className="mb-[7px] font-display text-lg font-bold text-ink">Nothing recorded yet</h3>
           <p className="mx-auto mb-5 max-w-[400px] text-[13.5px] leading-relaxed text-ink-2">
             This meeting hasn&apos;t started. MeetBase will join at{" "}
-            {new Date(meeting.start_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} and the
+            <LocalTime iso={meeting.start_time} /> and the
             named-speaker transcript, summary and action items will appear here live.
           </p>
           <div className="mb-[18px] inline-flex items-center gap-2.5 rounded-pill border border-brand-weak-2 bg-brand-weak py-2 pl-3.5 pr-2">
