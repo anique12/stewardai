@@ -36,6 +36,12 @@ def test_followup_continuity_and_conflict_kept() -> None:
     assert "MATERIAL discrepancy" in p  # conflict trigger preserved
 
 
+def test_wake_scopes_to_current_turn() -> None:
+    p = build_meeting_system("Steward")
+    assert "answer ONLY the request in the turn that just addressed you" in p
+    assert "NOT a backlog" in p
+
+
 def test_anti_echo_instruction_present() -> None:
     p = build_meeting_system("Steward")
     assert "do NOT continue the transcript" in p

@@ -422,6 +422,12 @@ def build_meeting_system(
         "it (it was theirs — do NOT also answer). Go quiet until someone says your "
         "name again. When unsure whether a remark was meant for you, prefer "
         "stay_silent.\n"
+        "- When you wake, answer ONLY the request in the turn that just addressed you "
+        "(and its ongoing follow-ups). Everything earlier in the transcript is "
+        "background/memory, NOT a backlog: do NOT go back and answer questions raised "
+        "before you were brought in, and NEVER answer one that was aimed at someone "
+        "else. Draw on that earlier context only when the current request needs it "
+        '(e.g. someone asks you "what did we decide?").\n'
         "- Also speak if you notice a MATERIAL discrepancy: something just said "
         "contradicts a decision or fact stated earlier in THIS meeting. Name both "
         'sides (e.g. "Earlier Anique said Friday, but Sarah just said Monday — which '
