@@ -35,6 +35,11 @@ so the Loki/Alloy tail still works):
 `HETZNER_HOST`, `HETZNER_USER`, `HETZNER_SSH_KEY` (a dedicated ed25519 deploy key
 whose public half is in the box's `/root/.ssh/authorized_keys`).
 
+The deploy key is **command-restricted**: its `authorized_keys` line is prefixed with
+`restrict,command="cd /root/stewardai && bash scripts/deploy.sh"`, so even if the
+private key leaked it can only run the deploy — no shell, scp, port/agent/X11
+forwarding, or PTY. Revoke it by deleting that one line (admin key is separate).
+
 ### First-time setup (already done)
 
 ```bash

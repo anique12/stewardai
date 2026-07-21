@@ -7,6 +7,10 @@
 # Steps: hard-sync to origin/main, reinstall deps ONLY if the dep manifest changed,
 # then restart the systemd services (see scripts/install-systemd.sh for the units).
 #
+# The CI deploy key is locked down in the box's authorized_keys with
+# `restrict,command="cd /root/stewardai && bash scripts/deploy.sh"`, so that key can
+# ONLY run this script — no shell, scp, or port forwarding (see docs/deploy-hetzner.md).
+#
 # Restart policy — never cut off a live meeting:
 #   * web (landing /pipeline demo) always restarts (no meeting risk).
 #   * mux/scheduler/worker restart ONLY when no Google-Meet bot is in a call
