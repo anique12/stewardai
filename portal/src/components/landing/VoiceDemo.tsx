@@ -10,7 +10,7 @@ import {
 
 type DemoState = "idle" | "requesting" | "connecting" | "live" | "ended" | "error";
 
-const SESSION_LIMIT_MS = 75_000; // 75 seconds
+const SESSION_LIMIT_MS = 60_000; // 60 seconds
 const TARGET_RATE = 16000;
 const FRAME_SAMPLES = 320; // 20 ms @ 16 kHz
 
@@ -517,7 +517,7 @@ export function VoiceDemo() {
         } else if (msg.type === "clear") {
           playerRef.current?.flush();
         } else if (msg.type === "ended") {
-          // Graceful server-side end (e.g. the 75s cap) — handled before the
+          // Graceful server-side end (e.g. the 60s cap) — handled before the
           // socket closes so it reads as a normal end, not an error.
           endDemo();
         } else if (msg.type === "error") {
@@ -615,7 +615,7 @@ export function VoiceDemo() {
             Fixed height keeps the modal balanced across states. */}
         <p className="mt-1 h-5 max-w-[18rem] truncate text-center text-xs text-muted-foreground">
           {live && caption}
-          {state === "idle" && "A quick 75-second conversation."}
+          {state === "idle" && "A quick 60-second conversation."}
           {state === "ended" && "Ready to use MeetBaseAI in your own meetings?"}
         </p>
 
