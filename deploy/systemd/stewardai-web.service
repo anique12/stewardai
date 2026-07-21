@@ -1,0 +1,16 @@
+[Unit]
+Description=StewardAI web demo backend (web.app:app = landing /pipeline over WebSocket, :8080)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/stewardai
+ExecStart=/root/stewardai/.venv/bin/python -m uvicorn web.app:app --host 0.0.0.0 --port 8080
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/tmp/steward-web.log
+StandardError=append:/tmp/steward-web.log
+
+[Install]
+WantedBy=multi-user.target

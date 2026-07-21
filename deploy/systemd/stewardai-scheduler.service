@@ -1,0 +1,16 @@
+[Unit]
+Description=StewardAI meeting scheduler (dispatches bots at meeting start)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/stewardai
+ExecStart=/root/stewardai/.venv/bin/python -m stewardai.scheduler.meeting_scheduler
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/tmp/steward-sched.log
+StandardError=append:/tmp/steward-sched.log
+
+[Install]
+WantedBy=multi-user.target

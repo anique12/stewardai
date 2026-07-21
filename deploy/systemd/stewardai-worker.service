@@ -1,0 +1,16 @@
+[Unit]
+Description=StewardAI action worker (runs post-meeting Composio actions)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/stewardai
+ExecStart=/root/stewardai/.venv/bin/python -m stewardai.scheduler.action_worker
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/tmp/steward-worker.log
+StandardError=append:/tmp/steward-worker.log
+
+[Install]
+WantedBy=multi-user.target

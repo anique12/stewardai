@@ -1,0 +1,39 @@
+name: Deploy agent to Hetzner
+
+# Deploys the Python agent (mux / scheduler / worker / web demo) to the Hetzner box
+# on every push to main that touches agent code. The portal (Next.js) deploys
+# separately via Vercel, so its paths are intentionally NOT triggers here.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "web/**"
+      - "scripts/deploy.sh"
+      - "deploy/systemd/**"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_dispatch: {} # manual "Run workflow" button in the Actions tab
+
+# Never let two deploys race on the box; queue them instead.
+concurrency:
+  group: deploy-hetzner
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+          HOST: ${{ secrets.HETZNER_HOST }}
+          SSH_USER: ${{ secrets.HETZNER_USER }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes "$SSH_USER@$HOST" \
+            'cd /root/stewardai && bash scripts/deploy.sh'

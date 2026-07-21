@@ -1,0 +1,20 @@
+[Unit]
+Description=StewardAI meeting agent multiplexer (mux, binds :8765)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/stewardai
+# The app loads /root/stewardai/.env itself (pydantic-settings env_file=".env"),
+# so no EnvironmentFile is needed — WorkingDirectory is enough.
+ExecStart=/root/stewardai/.venv/bin/python -m stewardai.agent.meeting_runner
+Restart=on-failure
+RestartSec=5
+# Keep the JSON logs at /tmp/steward-*.log so the existing Loki/Alloy tail
+# (job="stewardai") keeps working; journald also captures them.
+StandardOutput=append:/tmp/steward-mux.log
+StandardError=append:/tmp/steward-mux.log
+
+[Install]
+WantedBy=multi-user.target
