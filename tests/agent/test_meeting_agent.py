@@ -18,7 +18,7 @@ def test_meeting_system_uses_display_name_not_hardcoded():
     "Steward" is NOT hardcoded when a name is given."""
     p = build_meeting_system("Anique's AI Assistant", tools_available=False)
     assert "You are Anique's AI Assistant" in p
-    assert 'addresses you by name ("Anique\'s AI Assistant")' in p
+    assert 'says your name ("Anique\'s AI Assistant")' in p
     assert "Steward" not in p
 
 
