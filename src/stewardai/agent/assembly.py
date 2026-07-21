@@ -539,7 +539,13 @@ def build_meeting_agent(  # noqa: ANN001
     if instructions is None:
         instructions = build_meeting_system(tools_available=bool(live_tools))
 
+    from stewardai.agent.nodes import filler_aware_tts_node
+
     class MeetingAgent(Agent):  # type: ignore[misc, valid-type]
+        # Speak a slow-reply filler as its own TTS segment (plays immediately) instead
+        # of letting it merge with / be delayed by the first sentence of the reply.
+        tts_node = filler_aware_tts_node
+
         def __init__(self) -> None:
             tools_arg = live_tools or []
             super().__init__(instructions=instructions, tools=tools_arg)
@@ -580,7 +586,14 @@ def build_agent(settings: Settings | None = None, *, instructions: str | None = 
     website demo passes a MeetBase product-guide persona (see web/app.py)."""
     from livekit.agents import Agent  # type: ignore
 
-    return Agent(instructions=instructions or _DEFAULT_INSTRUCTIONS)
+    from stewardai.agent.nodes import filler_aware_tts_node
+
+    class DemoAgent(Agent):  # type: ignore[misc, valid-type]
+        # Speak a slow-reply filler as its own TTS segment (plays immediately) instead
+        # of letting it merge with / be delayed by the first sentence of the reply.
+        tts_node = filler_aware_tts_node
+
+    return DemoAgent(instructions=instructions or _DEFAULT_INSTRUCTIONS)
 
 
 async def run_agent(settings: Settings | None = None) -> None:

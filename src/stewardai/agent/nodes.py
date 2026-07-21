@@ -703,3 +703,111 @@ def build_tts_node(backend: TTSBackend, *, voice: str | None = None):
             await self._inner.aclose()
 
     return StewardTTS(backend, voice)
+
+
+async def _synthesize_filler_aware(text, *, open_stream, fillers):  # noqa: ANN001
+    """Core of ``filler_aware_tts_node``, decoupled from livekit/``Agent`` for testing.
+
+    Mirrors LiveKit's default ``tts_node`` (push text into a TTS stream, yield frames)
+    but with ONE change: if the FIRST chunk is a slow-reply filler, it is synthesized on
+    its OWN stream so it plays immediately, then the reply streams on a SECOND, fresh
+    stream. Otherwise the whole turn streams as a single segment (unchanged behaviour).
+
+    Why a second stream instead of a mid-stream ``flush()``: LiveKit's
+    ``SynthesizeStream.push_text`` DROPS any text pushed after a ``flush()`` on the same
+    instance ("multiple segments in a single instance is deprecated"), so a filler and
+    the reply must be two separate streams. Without this split the filler sits in the
+    sentence-tokenizer buffer until later text confirms a boundary — spoken glued onto,
+    and delayed until, the first real sentence of the reply.
+
+    Args:
+        text: async iterator of text chunks (the LLM node's spoken deltas).
+        open_stream: zero-arg callable returning an ``async with``-able TTS stream that
+            exposes ``push_text(str)`` / ``end_input()`` and async-iterates events with a
+            ``.frame`` attribute (i.e. ``TTS.stream(...)`` or a ``StreamAdapter`` stream).
+        fillers: set of exact filler strings; a stripped first chunk in this set gets its
+            own segment.
+    """
+
+    async def _synth(chunks):  # chunks: async iterator of str -> yields audio frames
+        async with open_stream() as stream:
+
+            async def _forward() -> None:
+                async for chunk in chunks:
+                    stream.push_text(chunk)
+                stream.end_input()
+
+            forward_task = asyncio.create_task(_forward())
+            try:
+                async for ev in stream:
+                    yield ev.frame
+            finally:
+                forward_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await forward_task
+
+    aiter = text.__aiter__()
+    try:
+        first = await aiter.__anext__()
+    except StopAsyncIteration:
+        return  # nothing to speak
+
+    async def _tail():
+        while True:
+            try:
+                yield await aiter.__anext__()
+            except StopAsyncIteration:
+                return
+
+    if isinstance(first, str) and first.strip() in fillers:
+        # Segment 1: the filler ALONE — synthesized and played immediately.
+        async def _one():
+            yield first
+
+        async for frame in _synth(_one()):
+            yield frame
+        # Segment 2: the real reply (remaining deltas) on a fresh stream.
+        async for frame in _synth(_tail()):
+            yield frame
+        return
+
+    # No leading filler: single stream over (first + rest) — default behaviour.
+    async def _all():
+        yield first
+        async for chunk in _tail():
+            yield chunk
+
+    async for frame in _synth(_all()):
+        yield frame
+
+
+async def filler_aware_tts_node(self, text, model_settings):  # noqa: ANN001
+    """Drop-in override for ``Agent.tts_node`` that speaks a leading slow-reply filler as
+    its OWN TTS segment (so it plays immediately, not merged with / delayed until the
+    first real sentence of the reply). See ``_synthesize_filler_aware`` for the why.
+
+    Assign as a class attribute on an ``Agent`` subclass: ``tts_node = filler_aware_tts_node``.
+    Behaviour matches LiveKit's default ``tts_node`` on turns with no filler."""
+    from livekit.agents import tokenize, tts as lk_tts  # type: ignore
+
+    from stewardai.agent.tool_turn import _SLOW_FILLERS
+
+    activity = self._get_activity_or_raise()
+    if activity.tts is None:
+        raise RuntimeError(
+            "tts_node called but no TTS is available (audio output disabled?)."
+        )
+    wrapped_tts = activity.tts
+    if not activity.tts.capabilities.streaming:
+        wrapped_tts = lk_tts.StreamAdapter(
+            tts=wrapped_tts,
+            sentence_tokenizer=tokenize.blingfire.SentenceTokenizer(retain_format=True),
+        )
+    conn_options = activity.session.conn_options.tts_conn_options
+
+    async for frame in _synthesize_filler_aware(
+        text,
+        open_stream=lambda: wrapped_tts.stream(conn_options=conn_options),
+        fillers=frozenset(_SLOW_FILLERS),
+    ):
+        yield frame
