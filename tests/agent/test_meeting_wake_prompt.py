@@ -36,6 +36,12 @@ def test_followup_continuity_and_conflict_kept() -> None:
     assert "MATERIAL discrepancy" in p  # conflict trigger preserved
 
 
+def test_anti_echo_instruction_present() -> None:
+    p = build_meeting_system("Steward")
+    assert "do NOT continue the transcript" in p
+    assert "ONLY the words you will say aloud" in p
+
+
 def test_uses_display_name() -> None:
     p = build_meeting_system("Jarvis")
     assert 'says your name ("Jarvis")' in p

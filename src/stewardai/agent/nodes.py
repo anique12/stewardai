@@ -50,6 +50,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import random
+import re
 
 from stewardai.common.audio import SAMPLE_RATE, Message, Transcript
 from stewardai.common.logging import get_logger
@@ -231,6 +232,18 @@ def build_llm_node(
                 addressed = _addressed_by_name_oai(self._system, oai_messages)
                 self._steward_llm._turn_seq += 1
                 my_seq = self._steward_llm._turn_seq
+                # Cold-wake guard: no wake name AND not already in a conversation with
+                # us -> this turn is not for us. Stay silent WITHOUT invoking the model,
+                # so ambient talk / greetings between other people can never wake it.
+                if not addressed and not self._steward_llm._thread_active:
+                    _log.info("cold_wake_guard_silent", backend=self._inner.name)
+                    return
+                _last_user = next(
+                    (m.get("content") for m in reversed(oai_messages)
+                     if m.get("role") == "user"),
+                    "",
+                )
+                san = _ReplySanitizer(str(_last_user or ""))
                 from stewardai.agent.tool_turn import _SLOW_FILLERS
                 from stewardai.config import get_settings as _get_settings
 
@@ -280,11 +293,13 @@ def build_llm_node(
                             return
                         if kind == "text":
                             if payload:
-                                self._event_ch.send_nowait(
-                                    _make_chat_chunk(lk_llm, request_id, payload)
-                                )
-                                n += 1
-                                spoke += 1
+                                spoke += 1  # model produced prose (gates fillers/thread)
+                                clean = san.feed(payload)
+                                if clean:
+                                    self._event_ch.send_nowait(
+                                        _make_chat_chunk(lk_llm, request_id, clean)
+                                    )
+                                    n += 1
                         elif kind == "tool_call":
                             # TOOL-CALL filler: a real tool is about to run — cover its
                             # latency with a filler if we've said nothing yet. stay_silent
@@ -314,6 +329,16 @@ def build_llm_node(
                 finally:
                     with contextlib.suppress(Exception):
                         await agen.aclose()
+                # Flush any buffered head (a short reply the sanitizer held back).
+                tail = san.flush()
+                if tail:
+                    self._event_ch.send_nowait(
+                        _make_chat_chunk(lk_llm, request_id, tail)
+                    )
+                    n += 1
+                # Thread opens when we spoke, closes when we stayed silent: a name-less
+                # follow-up only continues an exchange we're already in.
+                self._steward_llm._thread_active = spoke > 0
                 _log.info("llm_native_done", backend=self._inner.name, deltas=n)
                 return
             if self._gated:
@@ -443,6 +468,12 @@ def build_llm_node(
             # Monotonic per-session turn counter; each turn's stream stamps itself and
             # stops emitting if a newer turn bumps this (supersede guard).
             self._turn_seq = 0
+            # Cold-wake guard state (native meeting path): True while the bot is in an
+            # active conversation. A turn with no wake name and no active thread is
+            # "cold" — the bot stays silent WITHOUT invoking the model. The thread
+            # opens when the bot speaks and closes the moment it stays silent, so a
+            # name-less follow-up only continues an exchange the bot is already in.
+            self._thread_active = False
 
         def chat(
             self,
@@ -485,6 +516,57 @@ def build_llm_node(
 # Spoken when the LLM API fails on a turn the bot was directly addressed on, so a
 # language-model outage produces a clear apology instead of confusing dead air.
 _LLM_ERROR_FALLBACK = "Sorry, I'm having trouble reaching my language model right now."
+
+# A bracketed speaker label the model may leak into its spoken reply, e.g. "[StewardAI]: ".
+_LABEL_RE = re.compile(r"\[[^\]\n]{1,60}\]:\s*")
+
+
+class _ReplySanitizer:
+    """Strip transcript-echo artifacts from the model's spoken text.
+
+    The gating model sometimes CONTINUES the bracketed transcript format instead of
+    just replying — it echoes the last line(s) and prefixes its answer with a '[Name]:'
+    label (observed: "Hello, how are you? [StewardAI]: I'm doing well…"), which TTS then
+    speaks aloud. To avoid adding latency to NORMAL replies, the head is buffered only
+    while it looks like an echo (it begins by reproducing the user's last utterance, or
+    with a '[Name]:' label); a normal reply is released immediately. When a '[Name]:'
+    label appears in the head, everything up to and including the LAST one is echoed
+    preamble and is dropped. Inline '[Name]:' labels are always stripped. The tail
+    streams unchanged."""
+
+    _HEAD_CAP = 400  # give up buffering after this (release what we have)
+
+    def __init__(self, last_user: str = "") -> None:
+        self._probe = _LABEL_RE.sub("", last_user or "").strip().lower()[:18]
+        self._buf = ""
+        self._head_done = False
+
+    def feed(self, text: str) -> str:
+        if self._head_done:
+            return _LABEL_RE.sub("", text)
+        self._buf += text
+        last = None
+        for last in _LABEL_RE.finditer(self._buf):
+            pass
+        if last is not None:  # echoed preamble + label -> keep only what follows it
+            out = self._buf[last.end() :]
+            self._buf = ""
+            self._head_done = True
+            return out
+        head = self._buf.lstrip().lower()
+        looks_echo = bool(self._probe) and head.startswith(self._probe[: len(head)])
+        # A normal reply (doesn't start by echoing the user, no label) — release now,
+        # no buffering latency. Only keep buffering while an echo still looks possible.
+        if not looks_echo or len(self._buf) >= self._HEAD_CAP:
+            out, self._buf, self._head_done = self._buf, "", True
+            return out
+        return ""
+
+    def flush(self) -> str:
+        out = _LABEL_RE.sub("", self._buf) if self._buf else ""
+        self._buf = ""
+        self._head_done = True
+        return out
 
 
 def _name_in(system, text) -> bool:  # noqa: ANN001

@@ -455,7 +455,10 @@ def build_meeting_system(
         "may be imperfect (speech-to-text errors, split or repeated lines) — piece "
         "together what they meant from context and use the details already given "
         "instead of asking again.\n"
-        "- Never read the bracketed name prefixes aloud; they are only for your context."
+        "- Reply with ONLY the words you will say aloud. Do NOT repeat or quote what "
+        "someone else just said, do NOT prefix your reply with your own name or any "
+        "'[Name]:' label, and do NOT continue the transcript — just speak your answer. "
+        "Never read the bracketed name prefixes aloud; they are only for your context."
     )
     if today:
         base += (
